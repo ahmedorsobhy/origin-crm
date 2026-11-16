@@ -2650,6 +2650,19 @@ function monthKeyOf(dateLike) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 }
 function currentMonthKey() { return monthKeyOf(new Date()); }
+// Salaries are paid after the month ends (October's salary is due 1 November);
+// fixed monthly items (rent…) are paid in advance (November's rent is due 1 November).
+function shiftMonth(key, delta) {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function monthStart(key) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1);
+}
+const salaryDueDate = (monthKey) => monthStart(shiftMonth(monthKey, 1));
+const fixedDueDate = (monthKey) => monthStart(monthKey);
 function monthLabel(key) {
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -3731,7 +3744,8 @@ function FinOverview({ ctx, goTab }) {
   const totalBalance = round2(Object.values(balances).reduce((s, v) => s + v, 0));
 
   const salaryRows = fin.salaries.filter((s) => num(s.monthly_salary) > 0 && users.some((u) => u.id === s.user_id && u.role !== "pending"));
-  const unpaidSalaries = salaryRows.filter((s) => !fin.txns.some((t) => t.kind === "salary" && t.beneficiary_id === s.user_id && t.period === month));
+  const salaryMonth = shiftMonth(month, -1); // due on the 1st of this month
+  const unpaidSalaries = salaryRows.filter((s) => !fin.txns.some((t) => t.kind === "salary" && t.beneficiary_id === s.user_id && t.period === salaryMonth));
   const unpaidFixed = fin.recurring.filter((r) => !r.archived && !fin.txns.some((t) => t.recurring_id === r.id && t.period === month));
   const unpaidCount = unpaidSalaries.length + unpaidFixed.length;
 
@@ -3747,7 +3761,7 @@ function FinOverview({ ctx, goTab }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <FinStat label="Commissions in (this month)" value={egp(monthIn)} tone="success" sub={`This quarter ${egp(quarterIn)}`} />
         <FinStat label="Commissions paid out (this month)" value={egp(monthPayouts)} />
-        <FinStat label="Expenses & salaries (this month)" value={egp(monthExpenses)} sub={unpaidCount ? `${unpaidCount} fixed items not paid yet` : "All fixed items paid"} onClick={() => goTab("expenses")} />
+        <FinStat label="Expenses & salaries (this month)" value={egp(monthExpenses)} sub={unpaidCount ? `${unpaidCount} due items not paid yet` : "Everything due is paid"} onClick={() => goTab("expenses")} />
         <FinStat label="Net (this month)" value={egp(monthIn - monthPayouts - monthExpenses)} tone={monthIn - monthPayouts - monthExpenses < 0 ? "danger" : "success"} />
       </div>
       <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Accounts</div>
@@ -3805,11 +3819,13 @@ function FinTargets({ ctx, people }) {
 // =====================================================================
 // ---------- FINANCE: expenses (fixed monthly + other) ----------
 // =====================================================================
-function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, accountName }) {
+function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, accountName, dueDate }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(expected || ""));
   const [accountId, setAccountId] = useState(accounts[0]?.id || "");
-  const [date, setDate] = useState(todayInput());
+  const [date, setDate] = useState(() => (dueDate && dueDate > new Date() ? isoToDateInput(dueDate.toISOString()) : todayInput()));
+  const overdue = !dueDate || new Date() >= dueDate;
+  const dueText = dueDate ? dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
   const { busy, error, run } = useAction();
   return (
     <tr>
@@ -3842,7 +3858,7 @@ function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, ac
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Badge tone="pending">Not paid</Badge>
+            {overdue ? <Badge tone="pending">Not paid{dueText ? ` · was due ${dueText}` : ""}</Badge> : <Badge tone="neutral">Due {dueText}</Badge>}
             <button style={{ ...btnPrimary, padding: "5px 10px", fontSize: 12 }} onClick={() => setOpen(true)}>Mark paid</button>
           </div>
         )}
@@ -3896,10 +3912,10 @@ function FinExpenses({ ctx }) {
       {salaryRows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No salaries set. Add them from the Team tab.</div> : (
         <div style={{ marginBottom: 16 }}>
           <TableWrap>
-            <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Salary</th><th style={thStyle}>{monthLabel(month)}</th></tr></thead>
+            <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Salary</th><th style={thStyle}>{monthLabel(month)} salary · due {salaryDueDate(month).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</th></tr></thead>
             <tbody>
               {salaryRows.map((s) => (
-                <FixedItemRow key={s.user_id} name={s.user.name} sub={ROLE_LABEL[s.user.role]} expected={num(s.monthly_salary)} accounts={accounts} accountName={accountName}
+                <FixedItemRow key={s.user_id} name={s.user.name} sub={ROLE_LABEL[s.user.role]} expected={num(s.monthly_salary)} accounts={accounts} accountName={accountName} dueDate={salaryDueDate(month)}
                   paidTx={monthTx.filter((t) => t.kind === "salary" && t.beneficiary_id === s.user_id)}
                   onUndo={undo}
                   onPay={({ amount, accountId, date }) => act((t) => db.insert("finance_transactions", {
@@ -3916,10 +3932,10 @@ function FinExpenses({ ctx }) {
       {recurring.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No fixed items yet (rent, internet…). Add them in Settings.</div> : (
         <div style={{ marginBottom: 16 }}>
           <TableWrap>
-            <thead><tr><th style={thStyle}>Item</th><th style={thNum}>Usual amount</th><th style={thStyle}>{monthLabel(month)}</th></tr></thead>
+            <thead><tr><th style={thStyle}>Item</th><th style={thNum}>Usual amount</th><th style={thStyle}>{monthLabel(month)} · due {fixedDueDate(month).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} (in advance)</th></tr></thead>
             <tbody>
               {recurring.map((r) => (
-                <FixedItemRow key={r.id} name={r.name} sub={catName(r.category_id)} expected={num(r.default_amount)} accounts={accounts} accountName={accountName}
+                <FixedItemRow key={r.id} name={r.name} sub={catName(r.category_id)} expected={num(r.default_amount)} accounts={accounts} accountName={accountName} dueDate={fixedDueDate(month)}
                   paidTx={monthTx.filter((t) => t.recurring_id === r.id)}
                   onUndo={undo}
                   onPay={({ amount, accountId, date }) => act((t) => db.insert("finance_transactions", {
@@ -3973,7 +3989,9 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
     .filter((x) => x.user && x.user.role !== "pending");
   const categories = fin.categories.filter((c) => !c.archived);
   const [type, id] = item.split(":");
-  const month = monthKeyOf(dateInputToIso(date));
+  const [monthOverride, setMonthOverride] = useState("");
+  const dateMonth = monthKeyOf(dateInputToIso(date));
+  const month = monthOverride || (type === "sal" ? shiftMonth(dateMonth, -1) : dateMonth);
   const alreadyPaid = type === "rec" || type === "sal"
     ? fin.txns.filter((t) => t.period === month && (type === "rec" ? t.recurring_id === id : t.kind === "salary" && t.beneficiary_id === id)).reduce((sum, t) => sum + num(t.amount), 0)
     : 0;
@@ -4027,8 +4045,15 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
         </Field>
         {(type === "rec" || type === "sal") && (
           <div style={{ fontSize: 12, color: alreadyPaid ? COLORS.danger : COLORS.textMuted }}>
-            {alreadyPaid ? `Already paid ${egpFull(alreadyPaid)} for ${monthLabel(month)} — this will be added on top.` : `Counts as paid for ${monthLabel(month)} (from the date below).`}
+            {alreadyPaid ? `Already paid ${egpFull(alreadyPaid)} for ${monthLabel(month)} — this will be added on top.` : `Counts as ${type === "sal" ? "the salary" : "paid"} for ${monthLabel(month)}.`}
           </div>
+        )}
+        {(type === "rec" || type === "sal") && (
+          <Field label={type === "sal" ? "Salary for month" : "For month"}>
+            <select value={month} onChange={(e) => setMonthOverride(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              {[-2, -1, 0, 1].map((d) => shiftMonth(dateMonth, d)).map((k) => <option key={k} value={k}>{monthLabel(k)}</option>)}
+            </select>
+          </Field>
         )}
         <Field label="Amount (EGP)" required><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
