@@ -4030,7 +4030,14 @@ function FinTreasury({ ctx }) {
   const [category, setCategory] = useState("");
   const [person, setPerson] = useState("");
   const [modal, setModal] = useState(null);
+  const delAction = useAction();
   const range = periodRange(preset, from, to);
+  const removeTx = (t) => delAction.run(async () => {
+    const what = `${TX_KIND_LABEL[t.kind]} of ${egpFull(t.amount)} on ${formatDate(t.occurred_at)}`;
+    const linked = t.kind === "transfer" && t.transfer_group ? fin.txns.filter((x) => x.transfer_group === t.transfer_group) : [t];
+    if (!window.confirm(`Delete this ${what}?${linked.length > 1 ? " Both sides of the transfer will be removed." : ""}${t.kind === "commission_in" ? " Commissions and targets will be recalculated." : ""}`)) return;
+    await ctx.act(async (tok) => { for (const x of linked) await db.remove("finance_transactions", x.id, tok); });
+  });
   const catName = (id) => fin.categories.find((c) => c.id === id)?.name || "";
 
   const byAccount = (t) => !account || t.account_id === account;
@@ -4124,15 +4131,20 @@ function FinTreasury({ ctx }) {
           {Object.entries(byKind).map(([k, v]) => `${TX_KIND_LABEL[k]}: ${v > 0 ? "+" : ""}${egp(v)}`).join("  ·  ")}
         </div>
       )}
+      {opening !== 0 && preset !== "custom" && (
+        <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>
+          Opening balance = everything before this period. Choose "This year" or "Custom dates" to see those movements one by one.
+        </div>
+      )}
       {extraFilters && <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>Balances before/after are for the whole account; filtered rows are only a part of it.</div>}
       <TableWrap>
         <thead><tr>
           <th style={thStyle}>Date</th><th style={thStyle}>Description</th><th style={thStyle}>Account</th>
-          <th style={thNum}>In</th><th style={thNum}>Out</th><th style={thNum}>Balance before</th><th style={thNum}>Balance after</th>
+          <th style={thNum}>In</th><th style={thNum}>Out</th><th style={thNum}>Balance before</th><th style={thNum}>Balance after</th><th style={thStyle} />
         </tr></thead>
         <tbody>
-          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Opening balance</td><td style={tdStyle} /><td style={tdNum} /><td style={tdNum} /><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(opening)}</td></tr>
-          {rows.length === 0 && <tr><td style={tdStyle} colSpan={7}>No movements in this period.</td></tr>}
+          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Opening balance</td><td style={tdStyle} /><td style={tdNum} /><td style={tdNum} /><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(opening)}</td><td style={tdStyle} /></tr>
+          {rows.length === 0 && <tr><td style={tdStyle} colSpan={8}>No movements in this period.</td></tr>}
           {rows.map((r) => (
             <tr key={r.id}>
               <td style={tdStyle}>{formatDate(r.occurred_at)}</td>
@@ -4142,11 +4154,17 @@ function FinTreasury({ ctx }) {
               <td style={{ ...tdNum, color: COLORS.danger }}>{r.direction === "out" ? egp(r.amount) : ""}</td>
               <td style={{ ...tdNum, color: COLORS.textMuted }}>{egp(r.before)}</td>
               <td style={tdNum}>{egp(r.after)}</td>
+              <td style={tdStyle}>
+                {r.source_tx_id
+                  ? <span style={{ fontSize: 11, color: COLORS.textMuted }} title="Removed automatically when its collection is deleted">auto</span>
+                  : <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} disabled={delAction.busy} onClick={() => removeTx(r)}>Delete</button>}
+              </td>
             </tr>
           ))}
-          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Closing balance</td><td style={tdStyle} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalIn)}</td><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalOut)}</td><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(closing)}</td></tr>
+          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Closing balance</td><td style={tdStyle} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalIn)}</td><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalOut)}</td><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(closing)}</td><td style={tdStyle} /></tr>
         </tbody>
       </TableWrap>
+      <FinError text={delAction.error} />
       {modal && <TreasuryModal mode={modal} ctx={ctx} onClose={() => setModal(null)} />}
     </>
   );
