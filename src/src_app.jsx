@@ -2715,10 +2715,33 @@ function groupBy(list, keyFn) {
  *   companyShareByDeal: {dealId: amount}   // only meaningful when all rates are visible (admins)
  * }
  */
+// ---- Deal sides: Origin can represent the buyer, the seller, or both.
+// Each side has its own commission and its own team (shares add up to 100 per side).
+const SIDE_LABEL = { buyer: "Buyer side", seller: "Seller side" };
+const dealSides = (d) => (d && d.sides === "both" ? ["buyer", "seller"] : [d && d.sides === "seller" ? "seller" : "buyer"]);
+const sideCommission = (d, side) => {
+  const b = num(d.commission_buyer), sl = num(d.commission_seller);
+  if (b + sl <= 0) return dealSides(d).length === 1 && dealSides(d)[0] === side ? num(d.commission_total) : 0;
+  return side === "buyer" ? b : sl;
+};
+// How an amount collected on a deal splits between its sides
+function sideAmounts(d, amount, side) {
+  if (side) return { [side]: num(amount) };
+  const sides = dealSides(d);
+  if (sides.length === 1) return { [sides[0]]: num(amount) };
+  const b = sideCommission(d, "buyer"), sl = sideCommission(d, "seller");
+  const wB = b + sl > 0 ? b / (b + sl) : 0.5;
+  return { buyer: num(amount) * wB, seller: num(amount) * (1 - wB) };
+}
+const agentSide = (a) => a.side || "buyer";
+
 function computeFinance({ deals, dealAgents, dealRates, txns, targets, thresholds }) {
   const approved = new Set(deals.filter((d) => d.status === "approved").map((d) => d.id));
+  const dealById = Object.fromEntries(deals.map((d) => [d.id, d]));
   const agentsByDeal = groupBy(dealAgents, (a) => a.deal_id);
-  const ratesByDealAgent = groupBy(dealRates, (r) => `${r.deal_id}|${r.agent_id}`);
+  // one rate row per (deal, seller, beneficiary), even if duplicates slip in
+  const uniqueRates = Object.values(Object.fromEntries(dealRates.map((r) => [`${r.deal_id}|${r.agent_id}|${r.beneficiary_id}`, r])));
+  const ratesByDealAgent = groupBy(uniqueRates, (r) => `${r.deal_id}|${r.agent_id}`);
   const collections = txns.filter((t) => t.kind === "commission_in" && t.deal_id);
 
   const collectedByDeal = {};
@@ -2727,9 +2750,10 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
     collectedByDeal[c.deal_id] = round2((collectedByDeal[c.deal_id] || 0) + num(c.amount));
     if (!approved.has(c.deal_id)) return;
     const q = quarterKeyOf(c.occurred_at);
+    const bySide = sideAmounts(dealById[c.deal_id], c.amount, c.side);
     (agentsByDeal[c.deal_id] || []).forEach((a) => {
       ach[a.agent_id] = ach[a.agent_id] || {};
-      ach[a.agent_id][q] = (ach[a.agent_id][q] || 0) + (num(c.amount) * num(a.split_pct)) / 100;
+      ach[a.agent_id][q] = (ach[a.agent_id][q] || 0) + (num(bySide[agentSide(a)]) * num(a.split_pct)) / 100;
     });
   });
 
@@ -2751,8 +2775,9 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
   collections.forEach((c) => {
     if (!approved.has(c.deal_id)) return;
     const q = quarterKeyOf(c.occurred_at);
+    const bySide = sideAmounts(dealById[c.deal_id], c.amount, c.side);
     (agentsByDeal[c.deal_id] || []).forEach((a) => {
-      const portion = (num(c.amount) * num(a.split_pct)) / 100;
+      const portion = (num(bySide[agentSide(a)]) * num(a.split_pct)) / 100;
       const tier = tierOf(a.agent_id, q);
       (ratesByDealAgent[`${c.deal_id}|${a.agent_id}`] || []).forEach((r) => {
         const rate = rateAt(r.rates, tier);
@@ -2760,7 +2785,7 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
         const amount = (portion * rate) / 100;
         line.entitled += amount;
         line.base += (portion * rateAt(r.rates, 0)) / 100;
-        line.detail.push({ agentId: a.agent_id, level: r.level, quarter: q, tier, rate, portion, amount, txId: c.id });
+        line.detail.push({ agentId: a.agent_id, side: agentSide(a), level: r.level, quarter: q, tier, rate, portion, amount, txId: c.id });
       });
     });
   });
@@ -2795,16 +2820,17 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
 }
 
 // Preview of a pending deal's split using the CURRENT plans (before rates get frozen)
-function previewDistribution({ dealAgents, users, commissionRates, amount, tierOf, quarter, tierCount, charityPct = 0 }) {
+function previewDistribution({ dealAgents, users, commissionRates, amounts, tierOf, quarter, tierCount, charityPct = 0 }) {
   const rows = [];
+  const amount = num(amounts.buyer) + num(amounts.seller);
   dealAgents.forEach((a) => {
-    const portion = (num(amount) * num(a.split_pct)) / 100;
+    const portion = (num(amounts[agentSide(a)]) * num(a.split_pct)) / 100;
     const tier = tierOf ? tierOf(a.agent_id, quarter) : 0;
     managerChain(users, a.agent_id).forEach((person, level) => {
       const plan = commissionRates.find((r) => r.seller_id === a.agent_id && r.beneficiary_id === person.id);
       const rates = plan ? plan.rates : new Array(tierCount || 1).fill(0);
       const rate = rateAt(rates, tier);
-      rows.push({ agentId: a.agent_id, beneficiaryId: person.id, level, tier, rate, amount: round2((portion * rate) / 100), missingPlan: !plan });
+      rows.push({ agentId: a.agent_id, side: agentSide(a), beneficiaryId: person.id, level, tier, rate, amount: round2((portion * rate) / 100), missingPlan: !plan });
     });
   });
   const distributed = rows.reduce((s, r) => s + r.amount, 0);
@@ -3019,29 +3045,74 @@ function quarterOptions(extraKeys) {
 // =====================================================================
 // ---------- FINANCE: "Mark as sold" deal form ----------
 // =====================================================================
+// Team for one side of a deal: people + their share (adds up to 100)
+function SideTeamEditor({ title, team, setTeam, people, lockFirst }) {
+  const sum = round2(team.reduce((x, a) => x + num(a.split), 0));
+  const equal = (list) => { const sp = equalSplits(list.length); return list.map((a, i) => ({ ...a, split: String(sp[i]) })); };
+  return (
+    <div style={{ background: COLORS.cream, borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: COLORS.navy }}>{title}</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {team.length > 1 && <button onClick={() => setTeam(equal(team))} style={{ ...btnGhost, padding: "5px 10px", fontSize: 12 }}>Split equally</button>}
+          <button onClick={() => setTeam(equal([...team, { agentId: "", split: "0" }]))} style={{ ...btnGhost, padding: "5px 10px", fontSize: 12 }}>+ Add colleague</button>
+        </div>
+      </div>
+      {team.map((a, i) => (
+        <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+          <select value={a.agentId} disabled={lockFirst && i === 0}
+            onChange={(e) => setTeam(team.map((x, j) => (j === i ? { ...x, agentId: e.target.value } : x)))}
+            style={{ ...inputStyle, appearance: "none", flex: 1 }}>
+            <option value="">Choose person…</option>
+            {people.map((u) => <option key={u.id} value={u.id}>{u.name} ({ROLE_LABEL[u.role]})</option>)}
+          </select>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <input type="number" min="0" max="100" step="0.01" style={{ ...inputStyle, width: 90 }} value={a.split}
+              onChange={(e) => setTeam(team.map((x, j) => (j === i ? { ...x, split: e.target.value } : x)))} />
+            <span style={{ fontSize: 13, color: COLORS.textMuted }}>%</span>
+          </div>
+          {team.length > 1 && !(lockFirst && i === 0) && (
+            <button onClick={() => setTeam(equal(team.filter((_, j) => j !== i)))} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.danger }}><X size={16} /></button>
+          )}
+        </div>
+      ))}
+      <div style={{ fontSize: 12, color: Math.abs(sum - 100) > 0.05 ? COLORS.danger : COLORS.textMuted }}>
+        Total: {sum}% {team.length > 1 && "· e.g. 33.33 / 66.67 for a third and two thirds"}
+      </div>
+    </div>
+  );
+}
+
 function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesIds, accounts, getProjectInfo, initial, editing, onSave, onClose }) {
-  const editingAgents = editing ? editing.agents : null;
-  const [unitId, setUnitId] = useState(editing?.deal.unit_id || initial?.unitId || "");
-  const [clientId, setClientId] = useState(editing?.deal.client_id || initial?.clientId || "");
-  const [salePrice, setSalePrice] = useState(editing ? String(editing.deal.sale_price) : "");
-  const [commission, setCommission] = useState(editing ? String(editing.deal.commission_total) : "");
-  const [collected, setCollected] = useState("");
-  const [collectedTouched, setCollectedTouched] = useState(false);
-  const [asDone, setAsDone] = useState(false);
-  const [transferDate, setTransferDate] = useState(todayInput());
-  const [dealDate, setDealDate] = useState(editing?.deal.deal_date || todayInput());
-  const [notes, setNotes] = useState(editing?.deal.notes || "");
-  const [agents, setAgents] = useState(() => {
-    if (editingAgents && editingAgents.length) return editingAgents.map((a) => ({ agentId: a.agent_id, split: String(a.split_pct) }));
+  const ed = editing ? editing.deal : null;
+  const [unitId, setUnitId] = useState(ed?.unit_id || initial?.unitId || "");
+  const [clientId, setClientId] = useState(ed?.client_id || initial?.clientId || "");
+  const [salePrice, setSalePrice] = useState(ed ? String(ed.sale_price) : "");
+  const [sides, setSides] = useState(ed?.sides || "buyer");
+  const [commBuyer, setCommBuyer] = useState(ed ? String(sideCommission(ed, "buyer") || "") : "");
+  const [commSeller, setCommSeller] = useState(ed ? String(sideCommission(ed, "seller") || "") : "");
+  const [dealDate, setDealDate] = useState(ed?.deal_date || todayInput());
+  const [notes, setNotes] = useState(ed?.notes || "");
+  const firstAgent = (() => {
+    if (!isAdmin) return profile.id;
     const unit = units.find((u) => u.id === (initial?.unitId || ""));
     const client = clients.find((c) => c.id === (initial?.clientId || ""));
-    const first = isAdmin ? (client?.assignedTo || unit?.salesIds?.[0] || "") : profile.id;
-    return [{ agentId: first, split: "100" }];
-  });
+    return client?.assignedTo || unit?.salesIds?.[0] || "";
+  })();
+  const teamFrom = (side) => {
+    const rows = (editing?.agents || []).filter((a) => agentSide(a) === side);
+    return rows.length ? rows.map((a) => ({ agentId: a.agent_id, split: String(a.split_pct) })) : [{ agentId: firstAgent, split: "100" }];
+  };
+  const [buyerTeam, setBuyerTeam] = useState(() => teamFrom("buyer"));
+  const [sellerTeam, setSellerTeam] = useState(() => teamFrom("seller"));
   const activeAccounts = accounts.filter((a) => !a.archived);
   const [approveNow, setApproveNow] = useState(isAdmin && !editing);
+  const [asDone, setAsDone] = useState(false);
+  const [collBuyer, setCollBuyer] = useState(null);
+  const [collSeller, setCollSeller] = useState(null);
+  const [transferDate, setTransferDate] = useState(todayInput());
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
-  const { busy, error, setError, run } = useAction();
+  const { busy, error, run } = useAction();
 
   const people = users.filter((u) => u.role !== "pending");
   const unitOptions = units
@@ -3050,29 +3121,35 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const clientOptions = clients
     .filter((c) => (isAdmin || visibleSalesIds.includes(c.assignedTo)) && (c.stage !== "closed" || c.id === clientId))
     .map((c) => ({ id: c.id, label: `${c.name} · ${c.phone}` }));
-
-  const splitSum = round2(agents.reduce((s, a) => s + num(a.split), 0));
-  const setSplitEqual = (list) => {
-    const s = equalSplits(list.length);
-    return list.map((a, i) => ({ ...a, split: String(s[i]) }));
-  };
+  const hasBuyer = sides !== "seller";
+  const hasSeller = sides !== "buyer";
+  const total = (hasBuyer ? num(commBuyer) : 0) + (hasSeller ? num(commSeller) : 0);
 
   const submit = () => run(async () => {
     if (!unitId && !clientId) throw new Error("Choose the unit or the client of this deal.");
     if (num(salePrice) <= 0) throw new Error("Enter the sale price.");
-    if (num(commission) <= 0) throw new Error("Enter the total commission.");
+    if (hasBuyer && num(commBuyer) <= 0) throw new Error("Enter the commission from the buyer.");
+    if (hasSeller && num(commSeller) <= 0) throw new Error("Enter the commission from the seller.");
+    const rows = [];
+    for (const [side, team, on] of [["buyer", buyerTeam, hasBuyer], ["seller", sellerTeam, hasSeller]]) {
+      if (!on) continue;
+      const label = SIDE_LABEL[side];
+      if (team.some((a) => !a.agentId)) throw new Error(`${label}: choose the person for every row.`);
+      if (new Set(team.map((a) => a.agentId)).size !== team.length) throw new Error(`${label}: the same person is listed twice.`);
+      if (team.some((a) => num(a.split) <= 0)) throw new Error(`${label}: every share must be more than 0%.`);
+      const sum = round2(team.reduce((x, a) => x + num(a.split), 0));
+      if (Math.abs(sum - 100) > 0.05) throw new Error(`${label}: shares must add up to 100% (now ${sum}%).`);
+      const fixed = team.map((a) => ({ agent_id: a.agentId, split_pct: round2(num(a.split)), side }));
+      fixed[fixed.length - 1].split_pct = round2(fixed[fixed.length - 1].split_pct + round2(100 - fixed.reduce((x, a) => x + a.split_pct, 0)));
+      rows.push(...fixed);
+    }
     const done = isAdmin && approveNow && asDone;
-    const coll = done ? (collectedTouched ? num(collected) : num(commission)) : 0;
-    if (coll < 0 || coll > num(commission)) throw new Error("Collected commission can't be more than the total commission.");
-    if (agents.some((a) => !a.agentId)) throw new Error("Choose the sales person for every row.");
-    if (new Set(agents.map((a) => a.agentId)).size !== agents.length) throw new Error("The same person is listed twice.");
-    if (agents.some((a) => num(a.split) <= 0)) throw new Error("Every share must be more than 0%.");
-    if (Math.abs(splitSum - 100) > 0.05) throw new Error(`Shares must add up to 100% (now ${splitSum}%).`);
-    if (done && coll > 0 && !accountId) throw new Error("Choose the account that received the money.");
-    // absorb tiny rounding into the last row so the database sees exactly 100
-    const fixed = agents.map((a) => ({ agent_id: a.agentId, split_pct: round2(num(a.split)) }));
-    const diff = round2(100 - fixed.reduce((s, a) => s + a.split_pct, 0));
-    fixed[fixed.length - 1].split_pct = round2(fixed[fixed.length - 1].split_pct + diff);
+    const amtB = done && hasBuyer ? num(collBuyer ?? commBuyer) : 0;
+    const amtS = done && hasSeller ? num(collSeller ?? commSeller) : 0;
+    if (done) {
+      if (amtB > num(commBuyer) || amtS > num(commSeller)) throw new Error("Collected can't be more than the commission of that side.");
+      if (amtB + amtS > 0 && !accountId) throw new Error("Choose the account that received the money.");
+    }
     const unit = units.find((u) => u.id === unitId);
     const client = clients.find((c) => c.id === clientId);
     await onSave({
@@ -3082,22 +3159,33 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         unit_label: unit ? `${unit.type} · ${unit.unitNumber} · ${getProjectInfo(unit).name}` : null,
         client_label: client ? client.name : null,
         sale_price: num(salePrice),
-        commission_total: num(commission),
+        sides,
+        commission_buyer: hasBuyer ? num(commBuyer) : 0,
+        commission_seller: hasSeller ? num(commSeller) : 0,
+        commission_total: total,
         commission_collected: 0,
         deal_date: dealDate,
         notes: notes.trim() || null,
       },
-      agents: fixed,
+      agents: rows,
       approveNow,
       asDone: done,
-      amount: coll,
+      amountBuyer: amtB,
+      amountSeller: amtS,
       transferDate,
       accountId,
     });
   });
 
+  const sideBtn = (id, label) => (
+    <button key={id} onClick={() => setSides(id)} style={{
+      flex: 1, padding: "9px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+      border: `1px solid ${sides === id ? COLORS.navy : COLORS.border}`, background: sides === id ? COLORS.navy : "#fff", color: sides === id ? "#fff" : COLORS.text,
+    }}>{label}</button>
+  );
+
   return (
-    <FinModal title={editing ? "Edit deal" : "Mark as sold — new deal"} onClose={onClose} width={620}>
+    <FinModal title={editing ? "Edit deal" : "Mark as sold — promise of sale"} onClose={onClose} width={640}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
           <Field label="Unit">
@@ -3115,47 +3203,33 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
           <Field label="Sale price (EGP)" required>
             <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
           </Field>
-          <Field label="Expected commission (EGP)" required>
-            <input type="number" min="0" style={inputStyle} value={commission} onChange={(e) => setCommission(e.target.value)} />
-          </Field>
           <Field label="Promise of sale date" required>
             <input type="date" style={inputStyle} value={dealDate} onChange={(e) => setDealDate(e.target.value)} />
           </Field>
         </div>
 
-        <div style={{ background: COLORS.cream, borderRadius: 10, padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
-            <div style={{ fontWeight: 600, fontSize: 13, color: COLORS.navy }}>Who closed it</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {agents.length > 1 && <button onClick={() => setAgents((l) => setSplitEqual(l))} style={{ ...btnGhost, padding: "5px 10px", fontSize: 12 }}>Split equally</button>}
-              <button onClick={() => setAgents((l) => setSplitEqual([...l, { agentId: "", split: "0" }]))} style={{ ...btnGhost, padding: "5px 10px", fontSize: 12 }}>+ Add colleague</button>
-            </div>
-          </div>
-          {agents.map((a, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-              <select
-                value={a.agentId}
-                disabled={!isAdmin && i === 0}
-                onChange={(e) => setAgents((l) => l.map((x, j) => (j === i ? { ...x, agentId: e.target.value } : x)))}
-                style={{ ...inputStyle, appearance: "none", flex: 1 }}
-              >
-                <option value="">Choose person…</option>
-                {people.map((u) => <option key={u.id} value={u.id}>{u.name} ({ROLE_LABEL[u.role]})</option>)}
-              </select>
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <input type="number" min="0" max="100" step="0.01" style={{ ...inputStyle, width: 90 }} value={a.split}
-                  onChange={(e) => setAgents((l) => l.map((x, j) => (j === i ? { ...x, split: e.target.value } : x)))} />
-                <span style={{ fontSize: 13, color: COLORS.textMuted }}>%</span>
-              </div>
-              {agents.length > 1 && (isAdmin || i > 0) && (
-                <button onClick={() => setAgents((l) => setSplitEqual(l.filter((_, j) => j !== i)))} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.danger }}><X size={16} /></button>
-              )}
-            </div>
-          ))}
-          <div style={{ fontSize: 12, color: Math.abs(splitSum - 100) > 0.05 ? COLORS.danger : COLORS.textMuted }}>
-            Total: {splitSum}% {agents.length > 1 && "· e.g. 33.33 / 66.67 for a third and two thirds"}
+        <div role="group" aria-label="We represent">
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.text, marginBottom: 6 }}>We represent <span style={{ color: COLORS.danger }}>*</span></div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {sideBtn("buyer", "Buyer")}{sideBtn("seller", "Seller")}{sideBtn("both", "Buyer & Seller")}
           </div>
         </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          {hasBuyer && (
+            <Field label="Commission from the buyer (EGP)" required>
+              <input type="number" min="0" style={inputStyle} value={commBuyer} onChange={(e) => setCommBuyer(e.target.value)} />
+            </Field>
+          )}
+          {hasSeller && (
+            <Field label="Commission from the seller (EGP)" required>
+              <input type="number" min="0" style={inputStyle} value={commSeller} onChange={(e) => setCommSeller(e.target.value)} />
+            </Field>
+          )}
+        </div>
+        {sides === "both" && <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: -6 }}>Total expected commission: <b>{egpFull(total)}</b></div>}
+
+        {hasBuyer && <SideTeamEditor title="Buyer side team" team={buyerTeam} setTeam={setBuyerTeam} people={people} lockFirst={!isAdmin && !editing && sides === "buyer"} />}
+        {hasSeller && <SideTeamEditor title="Seller side team" team={sellerTeam} setTeam={setSellerTeam} people={people} lockFirst={!isAdmin && !editing && sides === "seller"} />}
 
         <Field label="Notes">
           <textarea style={{ ...inputStyle, minHeight: 60 }} value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -3175,9 +3249,16 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
             )}
             {approveNow && asDone && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
-                <Field label="Commission collected (EGP)">
-                  <input type="number" min="0" style={inputStyle} value={collectedTouched ? collected : commission} onChange={(e) => { setCollected(e.target.value); setCollectedTouched(true); }} />
-                </Field>
+                {hasBuyer && (
+                  <Field label="Collected from buyer">
+                    <input type="number" min="0" style={inputStyle} value={collBuyer ?? commBuyer} onChange={(e) => setCollBuyer(e.target.value)} />
+                  </Field>
+                )}
+                {hasSeller && (
+                  <Field label="Collected from seller">
+                    <input type="number" min="0" style={inputStyle} value={collSeller ?? commSeller} onChange={(e) => setCollSeller(e.target.value)} />
+                  </Field>
+                )}
                 <Field label="Money received into">
                   <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                     {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -3223,6 +3304,38 @@ function FinApprovals({ ctx }) {
   );
 }
 
+// "Buyer side · 150,000: Omar 50% · Baher 50%" — one line per side
+function DealTeams({ deal, agents, userName, showCommission = true }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12.5 }}>
+      {dealSides(deal).map((side) => {
+        const team = agents.filter((a) => agentSide(a) === side);
+        const sum = round2(team.reduce((x, a) => x + num(a.split_pct), 0));
+        return (
+          <div key={side}>
+            <b>{SIDE_LABEL[side]}</b>{showCommission ? ` · ${egp(sideCommission(deal, side))} EGP` : ""}:{" "}
+            {team.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ") || "—"}
+            {team.length > 0 && Math.abs(sum - 100) > 0.001 && <span style={{ color: COLORS.danger }}> — shares add up to {sum}%</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Amount collected per side (defaults to that side's commission)
+function SideAmountFields({ deal, values, setValues }) {
+  return dealSides(deal).map((side) => (
+    <Field key={side} label={`Collected from ${side} (EGP)`}>
+      <input type="number" min="0" style={inputStyle} value={values[side] ?? String(sideCommission(deal, side))}
+        onChange={(e) => setValues((v) => ({ ...v, [side]: e.target.value }))} />
+    </Field>
+  ));
+}
+const sideValues = (deal, values) => Object.fromEntries(["buyer", "seller"].map((side) => [
+  side, dealSides(deal).includes(side) ? num(values[side] ?? sideCommission(deal, side)) : 0,
+]));
+
 function ApprovalCard({ deal, ctx }) {
   const { fin, users, calc, thresholds, userName, dealTitle, act, onEditDeal } = ctx;
   const agents = fin.dealAgents.filter((a) => a.deal_id === deal.id);
@@ -3230,15 +3343,16 @@ function ApprovalCard({ deal, ctx }) {
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
   const [collectedAt, setCollectedAt] = useState(todayInput());
   const [asDone, setAsDone] = useState(false);
-  const [amount, setAmount] = useState(String(num(deal.commission_total)));
+  const [amounts, setAmounts] = useState({});
   const [note, setNote] = useState("");
   const { busy, error, run } = useAction();
   const quarter = quarterKeyOf(dateInputToIso(asDone ? collectedAt : todayInput()));
+  const collectedNow = sideValues(deal, amounts);
   const preview = previewDistribution({
-    dealAgents: agents, users, commissionRates: fin.rates, amount: asDone ? num(amount) : deal.commission_total,
+    dealAgents: agents, users, commissionRates: fin.rates,
+    amounts: asDone ? collectedNow : { buyer: sideCommission(deal, "buyer"), seller: sideCommission(deal, "seller") },
     tierOf: calc.tierOf, quarter, tierCount: thresholds.length, charityPct: ctx.charityPct,
   });
-  const splitSum = round2(agents.reduce((s, a) => s + num(a.split_pct), 0));
 
   return (
     <div style={{ ...finCard, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -3249,17 +3363,14 @@ function ApprovalCard({ deal, ctx }) {
             Submitted by {userName(deal.created_by)} · {formatDate(deal.created_at)}
           </div>
         </div>
-        <Badge tone={DEAL_STATUS[deal.status].tone}>{DEAL_STATUS[deal.status].label}</Badge>
+        <Badge tone={(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).tone}>{(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).label}</Badge>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, fontSize: 12.5 }}>
         <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
         <div><b>Expected commission:</b> {egpFull(deal.commission_total)}</div>
         <div><b>Promise of sale:</b> {deal.deal_date}</div>
       </div>
-      <div style={{ fontSize: 12.5 }}>
-        <b>Sold by:</b> {agents.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ") || "—"}
-        {Math.abs(splitSum - 100) > 0.001 && <span style={{ color: COLORS.danger }}> — shares add up to {splitSum}%</span>}
-      </div>
+      <DealTeams deal={deal} agents={agents} userName={userName} />
       {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 8 }}>{deal.notes}</div>}
       {deal.review_note && <div style={{ fontSize: 12, color: COLORS.danger }}>Your last note: {deal.review_note}</div>}
 
@@ -3270,7 +3381,7 @@ function ApprovalCard({ deal, ctx }) {
             {preview.rows.map((r, i) => (
               <tr key={i}>
                 <td style={tdStyle}>{userName(r.beneficiaryId)}{r.missingPlan && <span style={{ color: COLORS.danger, fontSize: 11 }}> · no plan set</span>}</td>
-                <td style={{ ...tdStyle, color: COLORS.textMuted }}>{r.level === 0 ? "own sale" : `${userName(r.agentId)}'s sale`}</td>
+                <td style={{ ...tdStyle, color: COLORS.textMuted }}>{r.level === 0 ? "own sale" : `${userName(r.agentId)}'s sale`}{dealSides(deal).length > 1 ? ` · ${r.side}` : ""}</td>
                 <td style={tdStyle}>{tierLabel(r.tier, thresholds)}</td>
                 <td style={tdNum}>{r.rate}%</td>
                 <td style={tdNum}>{egp(r.amount)}</td>
@@ -3300,9 +3411,7 @@ function ApprovalCard({ deal, ctx }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
         {asDone && (
           <>
-            <Field label="Commission collected (EGP)">
-              <input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} />
-            </Field>
+            <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} />
             <Field label="Money received into">
               <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                 {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -3329,10 +3438,13 @@ function ApprovalCard({ deal, ctx }) {
           await act((t) => db.update("deals", deal.id, { status: "returned", review_note: note.trim() }, t));
         })}>Return for changes</button>
         <button style={btnSuccess} disabled={busy} onClick={() => run(async () => {
-          if (asDone && num(amount) > num(deal.commission_total)) throw new Error("Collected can't be more than the expected commission.");
+          if (asDone && (collectedNow.buyer > sideCommission(deal, "buyer") + 0.01 || collectedNow.seller > sideCommission(deal, "seller") + 0.01)) {
+            throw new Error("Collected can't be more than the commission of that side.");
+          }
           await act((t) => db.rpc("approve_deal", {
             p_deal: deal.id, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(collectedAt),
-            p_as_done: asDone, p_amount: asDone ? num(amount) : null, p_transfer_date: asDone ? collectedAt : null,
+            p_as_done: asDone, p_amount_buyer: asDone ? collectedNow.buyer : null, p_amount_seller: asDone ? collectedNow.seller : null,
+            p_transfer_date: asDone ? collectedAt : null,
           }, t), { full: true });
         })}>{busy ? "Working…" : asDone ? "Approve as Done" : "Approve as Reserved"}</button>
       </div>
@@ -3418,8 +3530,8 @@ function FinDeals({ ctx }) {
                 <tr key={d.id} onClick={() => setOpenId(d.id)} style={{ cursor: "pointer" }}>
                   <td style={tdStyle} title={d.status === "approved" ? "Money in / transfer date" : "Promise of sale date"}>{dealShownDate(d)}</td>
                   <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 180 }}>{dealTitle(d)}</td>
-                  <td style={{ ...tdStyle, whiteSpace: "normal" }}>{(agentsByDeal[d.id] || []).map((a) => userName(a.agent_id)).join(", ")}</td>
-                  <td style={tdStyle}><Badge tone={DEAL_STATUS[d.status].tone}>{DEAL_STATUS[d.status].label}</Badge></td>
+                  <td style={{ ...tdStyle, whiteSpace: "normal" }}>{(agentsByDeal[d.id] || []).map((a) => `${userName(a.agent_id)}${d.sides === "both" ? ` (${agentSide(a) === "buyer" ? "B" : "S"})` : ""}`).join(", ")}<div style={{ fontSize: 11, color: COLORS.textMuted }}>{d.sides === "both" ? "Buyer & seller" : d.sides === "seller" ? "Seller side" : "Buyer side"}</div></td>
+                  <td style={tdStyle}><Badge tone={(DEAL_STATUS[d.status] || DEAL_STATUS.pending).tone}>{(DEAL_STATUS[d.status] || DEAL_STATUS.pending).label}</Badge></td>
                   <td style={tdNum}>{egp(d.commission_total)}</td>
                   <td style={tdNum}>{egp(calc.collectedByDeal[d.id] || 0)}</td>
                   <td style={tdNum}>{egp(ent)}</td>
@@ -3460,7 +3572,7 @@ function DealDetail({ deal, ctx, onBack }) {
             <div style={{ fontWeight: 700, fontSize: 17, color: COLORS.navy }}>{dealTitle(deal)}</div>
             <div style={{ fontSize: 12, color: COLORS.textMuted }}>Promise of sale {deal.deal_date}{deal.transfer_date ? ` · money in / transfer ${deal.transfer_date}` : ""} · added by {userName(deal.created_by)}</div>
           </div>
-          <Badge tone={DEAL_STATUS[deal.status].tone}>{DEAL_STATUS[deal.status].label}</Badge>
+          <Badge tone={(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).tone}>{(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).label}</Badge>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, fontSize: 12.5 }}>
           <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
@@ -3468,7 +3580,7 @@ function DealDetail({ deal, ctx, onBack }) {
           {deal.status === "approved" && <div><b>Collected:</b> {egpFull(collected)}</div>}
           {deal.status === "approved" && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
         </div>
-        <div style={{ fontSize: 12.5 }}><b>Sold by:</b> {agents.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ")}</div>
+        <DealTeams deal={deal} agents={agents} userName={userName} />
         {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 8 }}>{deal.notes}</div>}
         {deal.review_note && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Review note:</b> {deal.review_note}</div>}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -3556,7 +3668,7 @@ function DealDetail({ deal, ctx, onBack }) {
               {[...collections, ...payouts].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at)).map((t) => (
                 <tr key={t.id}>
                   <td style={tdStyle}>{formatDate(t.occurred_at)}</td>
-                  <td style={tdStyle}>{t.kind === "commission_in" ? "Collected from client" : t.kind === "transfer" ? "Moved to Floos Rabna (automatic)" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind === "payout" ? ` · ${t.description}` : ""}</td>
+                  <td style={tdStyle}>{t.kind === "commission_in" ? `Collected from ${t.side || "client"}` : t.kind === "transfer" ? "Moved to Floos Rabna (automatic)" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind === "payout" ? ` · ${t.description}` : ""}</td>
                   <td style={tdStyle}>{isAdmin ? accountName(t.account_id) : "—"}</td>
                   <td style={tdNum}>{t.direction === "in" ? egp(t.amount) : ""}</td>
                   <td style={tdNum}>{t.direction === "out" ? egp(t.amount) : ""}</td>
@@ -3683,7 +3795,7 @@ function CashOutModal({ deal, lines, ctx, onClose }) {
 
 function MarkDoneModal({ deal, ctx, onClose }) {
   const activeAccounts = ctx.fin.accounts.filter((a) => !a.archived);
-  const [amount, setAmount] = useState(String(num(deal.commission_total)));
+  const [amounts, setAmounts] = useState({});
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
   const [date, setDate] = useState(todayInput());
   const { busy, error, run } = useAction();
@@ -3693,7 +3805,7 @@ function MarkDoneModal({ deal, ctx, onClose }) {
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>
           From now on this deal counts toward targets and commissions (in the quarter of the date below), the unit is marked sold and the client moves to Deal Is Done.
         </div>
-        <Field label="Commission collected (EGP)"><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} />
         <Field label="Received into">
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
             {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -3704,10 +3816,11 @@ function MarkDoneModal({ deal, ctx, onClose }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button style={btnGhost} onClick={onClose}>Cancel</button>
           <button style={btnSuccess} disabled={busy} onClick={() => run(async () => {
-            if (num(amount) < 0) throw new Error("Enter the amount.");
-            if (num(amount) > num(deal.commission_total)) throw new Error("Collected can't be more than the expected commission.");
+            const v = sideValues(deal, amounts);
+            if (v.buyer < 0 || v.seller < 0) throw new Error("Enter the amount.");
+            if (v.buyer > sideCommission(deal, "buyer") + 0.01 || v.seller > sideCommission(deal, "seller") + 0.01) throw new Error("Collected can't be more than the commission of that side.");
             await ctx.act((t) => db.rpc("complete_deal", {
-              p_deal: deal.id, p_account: accountId || null, p_amount: num(amount), p_collected_at: dateInputToIso(date), p_transfer_date: date,
+              p_deal: deal.id, p_account: accountId || null, p_amount_buyer: v.buyer, p_amount_seller: v.seller, p_collected_at: dateInputToIso(date), p_transfer_date: date,
             }, t), { full: true });
             onClose();
           })}>{busy ? "Saving…" : "Mark as done"}</button>
@@ -3720,6 +3833,7 @@ function MarkDoneModal({ deal, ctx, onClose }) {
 function CollectionModal({ deal, ctx, collected, onClose }) {
   const activeAccounts = ctx.fin.accounts.filter((a) => !a.archived);
   const [amount, setAmount] = useState(String(Math.max(0, round2(num(deal.commission_total) - collected))));
+  const [side, setSide] = useState(dealSides(deal)[0]);
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
   const [date, setDate] = useState(todayInput());
   const { busy, error, run } = useAction();
@@ -3727,6 +3841,14 @@ function CollectionModal({ deal, ctx, collected, onClose }) {
     <FinModal title="Add a commission collection" onClose={onClose} width={420}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Counts toward everyone's target in the quarter of the date you choose.</div>
+        {dealSides(deal).length > 1 && (
+          <Field label="Collected from">
+            <select value={side} onChange={(e) => setSide(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <option value="buyer">The buyer (buyer side team)</option>
+              <option value="seller">The seller (seller side team)</option>
+            </select>
+          </Field>
+        )}
         <Field label="Amount (EGP)"><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Received into">
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
@@ -3741,7 +3863,7 @@ function CollectionModal({ deal, ctx, collected, onClose }) {
             if (num(amount) <= 0) throw new Error("Enter an amount.");
             await ctx.act((t) => db.insert("finance_transactions", {
               kind: "commission_in", direction: "in", amount: num(amount), account_id: accountId,
-              occurred_at: dateInputToIso(date), deal_id: deal.id, description: "Commission collected",
+              occurred_at: dateInputToIso(date), deal_id: deal.id, side, description: "Commission collected",
             }, t));
             onClose();
           })}>Save</button>
@@ -4666,8 +4788,8 @@ function MyEarnings({ ctx }) {
   const reservedIds = new Set(fin.deals.filter((d) => d.status === "reserved").map((d) => d.id));
   const expectedReserved = round2(fin.dealRates.filter((r) => reservedIds.has(r.deal_id) && r.beneficiary_id === profile.id).reduce((sum, r) => {
     const d = fin.deals.find((x) => x.id === r.deal_id);
-    const a = fin.dealAgents.find((x) => x.deal_id === r.deal_id && x.agent_id === r.agent_id);
-    return sum + (num(d?.commission_total) * num(a?.split_pct) / 100) * rateAt(r.rates, 0) / 100;
+    const rows = fin.dealAgents.filter((x) => x.deal_id === r.deal_id && x.agent_id === r.agent_id);
+    return sum + rows.reduce((t, a) => t + (sideCommission(d || {}, agentSide(a)) * num(a.split_pct) / 100) * rateAt(r.rates, 0) / 100, 0);
   }, 0));
   const salaryPayments = fin.txns.filter((t) => t.kind === "salary" && t.beneficiary_id === profile.id).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at)).slice(0, 6);
 
@@ -4971,7 +5093,7 @@ export default function App() {
     if (opts.full) { await refreshUnits(); await refreshClients(); }
   };
 
-  const saveDeal = async ({ deal, agents, approveNow, asDone, amount, transferDate, accountId }) => {
+  const saveDeal = async ({ deal, agents, approveNow, asDone, amountBuyer, amountSeller, transferDate, accountId }) => {
     const t = await getValidToken();
     let dealId;
     if (dealModal && dealModal.editing) {
@@ -4986,7 +5108,7 @@ export default function App() {
     if (approveNow) {
       await db.rpc("approve_deal", {
         p_deal: dealId, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(asDone ? transferDate : deal.deal_date),
-        p_as_done: !!asDone, p_amount: asDone ? amount : null, p_transfer_date: asDone ? transferDate : null,
+        p_as_done: !!asDone, p_amount_buyer: asDone ? amountBuyer : null, p_amount_seller: asDone ? amountSeller : null, p_transfer_date: asDone ? transferDate : null,
       }, t);
     }
     setDealModal(null);
