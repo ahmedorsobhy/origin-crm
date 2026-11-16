@@ -60,6 +60,19 @@ const db = {
     sbRequest(`/rest/v1/${table}?id=eq.${id}`, { method: "PATCH", body: changes, accessToken, headers: { Prefer: "return=representation" } }),
   remove: (table, id, accessToken) => sbRequest(`/rest/v1/${table}?id=eq.${id}`, { method: "DELETE", accessToken }),
   removeWhere: (table, filterQuery, accessToken) => sbRequest(`/rest/v1/${table}?${filterQuery}`, { method: "DELETE", accessToken }),
+  upsert: (table, rows, onConflict, accessToken) =>
+    sbRequest(`/rest/v1/${table}?on_conflict=${onConflict}`, { method: "POST", body: rows, accessToken, headers: { Prefer: "resolution=merge-duplicates,return=representation" } }),
+  rpc: (fn, args, accessToken) => sbRequest(`/rest/v1/rpc/${fn}`, { method: "POST", body: args, accessToken }),
+  // Reads every row (Supabase returns max 1000 per request)
+  selectAll: async (table, query = "", accessToken) => {
+    const out = [];
+    for (let offset = 0; ; offset += 1000) {
+      const rows = await sbRequest(`/rest/v1/${table}?select=*${query}&limit=1000&offset=${offset}`, { accessToken });
+      out.push(...(rows || []));
+      if (!rows || rows.length < 1000) break;
+    }
+    return out;
+  },
 };
 
 const storage = {
@@ -311,7 +324,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
 
 // ---------- Unit detail modal ----------
 
-function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient }) {
+function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold }) {
   const [reassignId, setReassignId] = useState("");
   if (!unit) return null;
 
@@ -453,8 +466,16 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
             </div>
           )}
 
+          {unit.status === "sold" && (
+            <div style={{ marginTop: 14 }}><Badge tone="active">Sold</Badge></div>
+          )}
           {unit.status !== "pending_delete" && (
             <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: 8 }}>
+              {onMarkSold && unit.status === "active" && (
+                <button onClick={() => onMarkSold(unit)} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  Mark as sold
+                </button>
+              )}
               {canEdit && (
                 <button onClick={() => onEditRequest(unit)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.navy, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
                   Edit unit
@@ -1907,7 +1928,7 @@ function ClientCard({ client, assignedUser, onOpen, notifCount, lastActivityAt }
   );
 }
 
-function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit }) {
+function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold }) {
   const [unitPickerOpen, setUnitPickerOpen] = useState(false);
   const timeline = activity.filter((a) => a.clientId === client.id).sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
 
@@ -1953,6 +1974,9 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
           {client.stage !== "closed" && (
             <>
               <button onClick={onChangeStage} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Change stage</button>
+              {canManage && onMarkSold && client.stage !== "deal_done" && (
+                <button onClick={onMarkSold} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Mark as sold</button>
+              )}
               <button onClick={onAddFeedback} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Add feedback</button>
               {canManage && <button onClick={() => setUnitPickerOpen(true)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Link units</button>}
               <button onClick={onCloseLead} style={{ border: `1px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Remove lead</button>
@@ -2584,6 +2608,1988 @@ function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenCl
 }
 
 // ---------- Main app ----------
+// =====================================================================
+// ---------- FINANCE: pure calculation engine ----------
+// Everything money-related is derived from three facts in the database:
+//   * deal_agents   (who sold which deal, and their % of it)
+//   * deal_rates    (frozen chain: seller -> managers, % per tier)
+//   * finance_transactions (cash in / out, the single ledger)
+// Nothing derived is stored, so tiers, balances and "owed" amounts
+// always reflect the latest data (incl. retroactive tier upgrades).
+// =====================================================================
+const FIN_ADMIN_ROLES = ["admin", "ceo"];
+const isFinanceAdmin = (p) => !!p && FIN_ADMIN_ROLES.includes(p.role);
+
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const num = (v) => (v === "" || v === null || v === undefined ? 0 : Number(v) || 0);
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function quarterKeyOf(dateLike) {
+  const d = new Date(dateLike);
+  return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+}
+function currentQuarterKey() { return quarterKeyOf(new Date()); }
+function quarterBounds(key) {
+  const [y, q] = key.split("-Q").map(Number);
+  const from = new Date(y, (q - 1) * 3, 1);
+  const to = new Date(y, q * 3, 1); // exclusive
+  return { from, to };
+}
+function quarterLabel(key) {
+  const [y, q] = key.split("-Q");
+  const months = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"][Number(q) - 1];
+  return `Q${q} ${y} (${months})`;
+}
+function shiftQuarter(key, delta) {
+  const [y, q] = key.split("-Q").map(Number);
+  const idx = y * 4 + (q - 1) + delta;
+  return `${Math.floor(idx / 4)}-Q${(idx % 4) + 1}`;
+}
+function monthKeyOf(dateLike) {
+  const d = new Date(dateLike);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function currentMonthKey() { return monthKeyOf(new Date()); }
+function monthLabel(key) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+// rates[i] belongs to tier i. Shorter arrays reuse their last value.
+function rateAt(rates, tierIdx) {
+  if (!rates || rates.length === 0) return 0;
+  return num(rates[Math.min(tierIdx, rates.length - 1)]);
+}
+function tierIndexFor(pct, thresholds) {
+  let idx = 0;
+  (thresholds || [0]).forEach((t, i) => { if (pct >= num(t)) idx = i; });
+  return idx;
+}
+function tierLabel(idx, thresholds) {
+  if (!idx) return "Base";
+  return `≥${num((thresholds || [])[idx])}%`;
+}
+
+// Walk up the org chart: [person, manager, manager's manager, ...]
+function managerChain(users, userId) {
+  const chain = [];
+  const seen = new Set();
+  let cur = users.find((u) => u.id === userId);
+  while (cur && !seen.has(cur.id) && chain.length < 20) {
+    chain.push(cur);
+    seen.add(cur.id);
+    cur = cur.managerId ? users.find((u) => u.id === cur.managerId) : null;
+  }
+  return chain;
+}
+
+function groupBy(list, keyFn) {
+  const out = {};
+  list.forEach((x) => {
+    const k = keyFn(x);
+    (out[k] = out[k] || []).push(x);
+  });
+  return out;
+}
+
+/**
+ * Core computation.
+ * @returns {
+ *   lines: [{ dealId, beneficiaryId, entitled, base, paid, remaining, uplift, detail:[...] }],
+ *   achievement(agentId, qKey) -> amount counted toward target,
+ *   achievementPct(agentId, qKey), tierOf(agentId, qKey),
+ *   collectedByDeal: {dealId: amount},
+ *   companyShareByDeal: {dealId: amount}   // only meaningful when all rates are visible (admins)
+ * }
+ */
+function computeFinance({ deals, dealAgents, dealRates, txns, targets, thresholds }) {
+  const approved = new Set(deals.filter((d) => d.status === "approved").map((d) => d.id));
+  const agentsByDeal = groupBy(dealAgents, (a) => a.deal_id);
+  const ratesByDealAgent = groupBy(dealRates, (r) => `${r.deal_id}|${r.agent_id}`);
+  const collections = txns.filter((t) => t.kind === "commission_in" && t.deal_id);
+
+  const collectedByDeal = {};
+  const ach = {}; // agentId -> qKey -> amount
+  collections.forEach((c) => {
+    collectedByDeal[c.deal_id] = round2((collectedByDeal[c.deal_id] || 0) + num(c.amount));
+    if (!approved.has(c.deal_id)) return;
+    const q = quarterKeyOf(c.occurred_at);
+    (agentsByDeal[c.deal_id] || []).forEach((a) => {
+      ach[a.agent_id] = ach[a.agent_id] || {};
+      ach[a.agent_id][q] = (ach[a.agent_id][q] || 0) + (num(c.amount) * num(a.split_pct)) / 100;
+    });
+  });
+
+  const achievement = (agentId, q) => round2((ach[agentId] && ach[agentId][q]) || 0);
+  const achievementPct = (agentId, q) => {
+    const target = num(targets[agentId]);
+    if (!target) return 0;
+    return (achievement(agentId, q) / target) * 100;
+  };
+  const tierOf = (agentId, q) => (num(targets[agentId]) ? tierIndexFor(achievementPct(agentId, q), thresholds) : 0);
+
+  const lines = {};
+  const lineFor = (dealId, beneficiaryId) => {
+    const k = `${dealId}|${beneficiaryId}`;
+    if (!lines[k]) lines[k] = { dealId, beneficiaryId, entitled: 0, base: 0, paid: 0, detail: [] };
+    return lines[k];
+  };
+
+  collections.forEach((c) => {
+    if (!approved.has(c.deal_id)) return;
+    const q = quarterKeyOf(c.occurred_at);
+    (agentsByDeal[c.deal_id] || []).forEach((a) => {
+      const portion = (num(c.amount) * num(a.split_pct)) / 100;
+      const tier = tierOf(a.agent_id, q);
+      (ratesByDealAgent[`${c.deal_id}|${a.agent_id}`] || []).forEach((r) => {
+        const rate = rateAt(r.rates, tier);
+        const line = lineFor(c.deal_id, r.beneficiary_id);
+        const amount = (portion * rate) / 100;
+        line.entitled += amount;
+        line.base += (portion * rateAt(r.rates, 0)) / 100;
+        line.detail.push({ agentId: a.agent_id, level: r.level, quarter: q, tier, rate, portion, amount, txId: c.id });
+      });
+    });
+  });
+
+  txns.filter((t) => t.kind === "payout" && t.deal_id && t.beneficiary_id).forEach((p) => {
+    lineFor(p.deal_id, p.beneficiary_id).paid += num(p.amount);
+  });
+
+  const out = Object.values(lines).map((l) => ({
+    ...l,
+    entitled: round2(l.entitled),
+    base: round2(l.base),
+    paid: round2(l.paid),
+    remaining: round2(l.entitled - l.paid),
+    uplift: round2(l.entitled - l.base),
+  }));
+
+  const companyShareByDeal = {};
+  Object.keys(collectedByDeal).forEach((dealId) => {
+    if (!approved.has(dealId)) return;
+    const distributed = out.filter((l) => l.dealId === dealId).reduce((s, l) => s + l.entitled, 0);
+    companyShareByDeal[dealId] = round2(collectedByDeal[dealId] - distributed);
+  });
+
+  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal };
+}
+
+// Preview of a pending deal's split using the CURRENT plans (before rates get frozen)
+function previewDistribution({ dealAgents, users, commissionRates, amount, tierOf, quarter, tierCount }) {
+  const rows = [];
+  dealAgents.forEach((a) => {
+    const portion = (num(amount) * num(a.split_pct)) / 100;
+    const tier = tierOf ? tierOf(a.agent_id, quarter) : 0;
+    managerChain(users, a.agent_id).forEach((person, level) => {
+      const plan = commissionRates.find((r) => r.seller_id === a.agent_id && r.beneficiary_id === person.id);
+      const rates = plan ? plan.rates : new Array(tierCount || 1).fill(0);
+      const rate = rateAt(rates, tier);
+      rows.push({ agentId: a.agent_id, beneficiaryId: person.id, level, tier, rate, amount: round2((portion * rate) / 100), missingPlan: !plan });
+    });
+  });
+  const distributed = rows.reduce((s, r) => s + r.amount, 0);
+  return { rows, company: round2(num(amount) - distributed) };
+}
+
+function accountBalances(accounts, txns, before) {
+  const bal = {};
+  accounts.forEach((a) => { bal[a.id] = 0; });
+  txns.forEach((t) => {
+    if (before && new Date(t.occurred_at) >= before) return;
+    bal[t.account_id] = round2((bal[t.account_id] || 0) + (t.direction === "in" ? 1 : -1) * num(t.amount));
+  });
+  return bal;
+}
+
+// Balanced 100% split between n people (last one absorbs rounding)
+function equalSplits(n) {
+  if (n <= 0) return [];
+  const each = Math.floor((100 / n) * 100) / 100;
+  const arr = new Array(n).fill(each);
+  arr[n - 1] = round2(100 - each * (n - 1));
+  return arr;
+}
+
+// =====================================================================
+// ---------- FINANCE: shared UI pieces ----------
+// =====================================================================
+const finCard = { background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 16 };
+const btnPrimary = { background: COLORS.navy, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 600 };
+const btnGhost = { border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 };
+const btnDanger = { ...btnGhost, border: `1px solid ${COLORS.danger}`, color: COLORS.danger };
+const btnSuccess = { ...btnPrimary, background: COLORS.success };
+const thStyle = { textAlign: "left", padding: "8px 10px", fontSize: 11.5, color: COLORS.textMuted, fontWeight: 600, borderBottom: `1px solid ${COLORS.border}`, whiteSpace: "nowrap", background: "#FBFAF6" };
+const tdStyle = { padding: "8px 10px", fontSize: 12.5, borderBottom: `1px solid ${COLORS.border}`, whiteSpace: "nowrap", color: COLORS.text };
+const tdNum = { ...tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums" };
+const thNum = { ...thStyle, textAlign: "right" };
+
+function egp(n) {
+  const v = round2(n);
+  return v.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+function egpFull(n) { return `${egp(n)} EGP`; }
+function todayInput() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function dateInputToIso(v) { return v ? new Date(`${v}T12:00:00`).toISOString() : new Date().toISOString(); }
+function isoToDateInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+const DEAL_STATUS = {
+  pending: { label: "Waiting for approval", tone: "pending" },
+  returned: { label: "Returned for changes", tone: "hold" },
+  approved: { label: "Approved", tone: "active" },
+  rejected: { label: "Rejected", tone: "hold" },
+  cancelled: { label: "Cancelled", tone: "neutral" },
+};
+const TX_KIND_LABEL = {
+  commission_in: "Commission collected",
+  payout: "Commission payout",
+  expense: "Expense",
+  salary: "Salary",
+  transfer: "Transfer",
+  adjustment: "Adjustment",
+};
+
+function FinStat({ label, value, sub, tone, onClick }) {
+  const color = tone === "danger" ? COLORS.danger : tone === "success" ? COLORS.success : COLORS.navy;
+  return (
+    <div onClick={onClick} style={{ ...finCard, padding: "12px 14px", minWidth: 170, flex: "1 1 170px", cursor: onClick ? "pointer" : "default" }}>
+      <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 19, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {sub && <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function FinModal({ title, onClose, children, width = 560 }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,26,48,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }} onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: width, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>{title}</div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={18} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FinTitle({ children, right }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+      <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>{children}</div>
+      {right && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>{right}</div>}
+    </div>
+  );
+}
+
+function FinError({ text }) {
+  if (!text) return null;
+  return <div style={{ color: COLORS.danger, fontSize: 12.5, background: "#F8ECE8", padding: "8px 10px", borderRadius: 8 }}>{text}</div>;
+}
+
+function TableWrap({ children }) {
+  return (
+    <div style={{ ...finCard, padding: 0, overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%" }}>{children}</table>
+    </div>
+  );
+}
+
+// Runs an async action, tracks "busy" and shows the error message if it fails
+function useAction() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const run = async (fn) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      return true;
+    } catch (e) {
+      setError(e.message || "Something went wrong");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, setError, run };
+}
+
+// Progress bar with a marker for every tier threshold
+function TargetBar({ pct, thresholds }) {
+  const shown = Math.min(Math.max(pct, 0), 130);
+  const scale = (v) => `${(Math.min(v, 130) / 130) * 100}%`;
+  return (
+    <div style={{ position: "relative", height: 12, background: COLORS.creamDark, borderRadius: 6, overflow: "visible", minWidth: 120 }}>
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: scale(shown), background: pct >= 100 ? COLORS.success : COLORS.gold, borderRadius: 6 }} />
+      {(thresholds || []).filter((t) => num(t) > 0).map((t) => (
+        <div key={t} title={`${t}%`} style={{ position: "absolute", left: scale(num(t)), top: -3, bottom: -3, width: 2, background: COLORS.navy, opacity: 0.6 }} />
+      ))}
+    </div>
+  );
+}
+
+// A dropdown whose last option lets an admin add a new item on the spot
+function SelectWithAdd({ value, onChange, options, placeholder, onAdd, allowAdd = true }) {
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (adding) {
+    return (
+      <div style={{ display: "flex", gap: 6 }}>
+        <input autoFocus style={inputStyle} placeholder="New option name" value={text} onChange={(e) => setText(e.target.value)} />
+        <button
+          disabled={!text.trim() || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const id = await onAdd(text.trim());
+              if (id) onChange(id);
+              setAdding(false);
+              setText("");
+            } catch (e) {
+              alert(e.message || "Could not add");
+            } finally {
+              setBusy(false);
+            }
+          }}
+          style={btnPrimary}
+        >{busy ? "…" : "Add"}</button>
+        <button onClick={() => { setAdding(false); setText(""); }} style={btnGhost}>Cancel</button>
+      </div>
+    );
+  }
+  return (
+    <select
+      value={value}
+      onChange={(e) => (e.target.value === "__add__" ? setAdding(true) : onChange(e.target.value))}
+      style={{ ...inputStyle, appearance: "none" }}
+    >
+      <option value="">{placeholder || "Select..."}</option>
+      {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+      {allowAdd && onAdd && <option value="__add__">+ Add new…</option>}
+    </select>
+  );
+}
+
+function PeriodPicker({ value, onChange, options }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, width: "auto", appearance: "none", padding: "7px 10px", fontSize: 13 }}>
+      {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function quarterOptions(extraKeys) {
+  const cur = currentQuarterKey();
+  const keys = new Set([cur, shiftQuarter(cur, -1), shiftQuarter(cur, -2), shiftQuarter(cur, -3), ...(extraKeys || [])]);
+  return [...keys].sort().reverse().map((k) => ({ id: k, label: quarterLabel(k) }));
+}
+
+// =====================================================================
+// ---------- FINANCE: "Mark as sold" deal form ----------
+// =====================================================================
+function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesIds, accounts, getProjectInfo, initial, editing, onSave, onClose }) {
+  const editingAgents = editing ? editing.agents : null;
+  const [unitId, setUnitId] = useState(editing?.deal.unit_id || initial?.unitId || "");
+  const [clientId, setClientId] = useState(editing?.deal.client_id || initial?.clientId || "");
+  const [salePrice, setSalePrice] = useState(editing ? String(editing.deal.sale_price) : "");
+  const [commission, setCommission] = useState(editing ? String(editing.deal.commission_total) : "");
+  const [collected, setCollected] = useState(editing ? String(editing.deal.commission_collected) : "");
+  const [collectedTouched, setCollectedTouched] = useState(!!editing);
+  const [dealDate, setDealDate] = useState(editing?.deal.deal_date || todayInput());
+  const [notes, setNotes] = useState(editing?.deal.notes || "");
+  const [agents, setAgents] = useState(() => {
+    if (editingAgents && editingAgents.length) return editingAgents.map((a) => ({ agentId: a.agent_id, split: String(a.split_pct) }));
+    const unit = units.find((u) => u.id === (initial?.unitId || ""));
+    const client = clients.find((c) => c.id === (initial?.clientId || ""));
+    const first = isAdmin ? (client?.assignedTo || unit?.salesIds?.[0] || "") : profile.id;
+    return [{ agentId: first, split: "100" }];
+  });
+  const activeAccounts = accounts.filter((a) => !a.archived);
+  const [approveNow, setApproveNow] = useState(isAdmin && !editing);
+  const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
+  const { busy, error, setError, run } = useAction();
+
+  const people = users.filter((u) => u.role !== "pending");
+  const unitOptions = units
+    .filter((u) => u.status === "active" || u.id === unitId)
+    .map((u) => ({ id: u.id, label: `${u.type} · ${u.unitNumber} · ${getProjectInfo(u).name}` }));
+  const clientOptions = clients
+    .filter((c) => (isAdmin || visibleSalesIds.includes(c.assignedTo)) && (c.stage !== "closed" || c.id === clientId))
+    .map((c) => ({ id: c.id, label: `${c.name} · ${c.phone}` }));
+
+  const splitSum = round2(agents.reduce((s, a) => s + num(a.split), 0));
+  const setSplitEqual = (list) => {
+    const s = equalSplits(list.length);
+    return list.map((a, i) => ({ ...a, split: String(s[i]) }));
+  };
+
+  const submit = () => run(async () => {
+    if (!unitId && !clientId) throw new Error("Choose the unit or the client of this deal.");
+    if (num(salePrice) <= 0) throw new Error("Enter the sale price.");
+    if (num(commission) <= 0) throw new Error("Enter the total commission.");
+    const coll = collectedTouched ? num(collected) : num(commission);
+    if (coll < 0 || coll > num(commission)) throw new Error("Collected commission can't be more than the total commission.");
+    if (agents.some((a) => !a.agentId)) throw new Error("Choose the sales person for every row.");
+    if (new Set(agents.map((a) => a.agentId)).size !== agents.length) throw new Error("The same person is listed twice.");
+    if (agents.some((a) => num(a.split) <= 0)) throw new Error("Every share must be more than 0%.");
+    if (Math.abs(splitSum - 100) > 0.05) throw new Error(`Shares must add up to 100% (now ${splitSum}%).`);
+    if (approveNow && coll > 0 && !accountId) throw new Error("Choose the account that received the money.");
+    // absorb tiny rounding into the last row so the database sees exactly 100
+    const fixed = agents.map((a) => ({ agent_id: a.agentId, split_pct: round2(num(a.split)) }));
+    const diff = round2(100 - fixed.reduce((s, a) => s + a.split_pct, 0));
+    fixed[fixed.length - 1].split_pct = round2(fixed[fixed.length - 1].split_pct + diff);
+    const unit = units.find((u) => u.id === unitId);
+    const client = clients.find((c) => c.id === clientId);
+    await onSave({
+      deal: {
+        unit_id: unitId || null,
+        client_id: clientId || null,
+        unit_label: unit ? `${unit.type} · ${unit.unitNumber} · ${getProjectInfo(unit).name}` : null,
+        client_label: client ? client.name : null,
+        sale_price: num(salePrice),
+        commission_total: num(commission),
+        commission_collected: coll,
+        deal_date: dealDate,
+        notes: notes.trim() || null,
+      },
+      agents: fixed,
+      approveNow,
+      accountId,
+    });
+  });
+
+  return (
+    <FinModal title={editing ? "Edit deal" : "Mark as sold — new deal"} onClose={onClose} width={620}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+          <Field label="Unit">
+            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <option value="">— Not in the system —</option>
+              {unitOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Client">
+            <select value={clientId} onChange={(e) => setClientId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <option value="">— Not in the system —</option>
+              {clientOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Sale price (EGP)" required>
+            <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
+          </Field>
+          <Field label="Total commission (EGP)" required>
+            <input type="number" min="0" style={inputStyle} value={commission} onChange={(e) => { setCommission(e.target.value); if (!collectedTouched) setCollected(e.target.value); }} />
+          </Field>
+          <Field label="Commission collected so far (EGP)">
+            <input type="number" min="0" style={inputStyle} value={collectedTouched ? collected : commission} onChange={(e) => { setCollected(e.target.value); setCollectedTouched(true); }} />
+          </Field>
+          <Field label="Deal / collection date" required>
+            <input type="date" style={inputStyle} value={dealDate} onChange={(e) => setDealDate(e.target.value)} />
+          </Field>
+        </div>
+
+        <div style={{ background: COLORS.cream, borderRadius: 10, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, color: COLORS.navy }}>Who closed it</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {agents.length > 1 && <button onClick={() => setAgents((l) => setSplitEqual(l))} style={{ ...btnGhost, padding: "5px 10px", fontSize: 12 }}>Split equally</button>}
+              <button onClick={() => setAgents((l) => setSplitEqual([...l, { agentId: "", split: "0" }]))} style={{ ...btnGhost, padding: "5px 10px", fontSize: 12 }}>+ Add colleague</button>
+            </div>
+          </div>
+          {agents.map((a, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+              <select
+                value={a.agentId}
+                disabled={!isAdmin && i === 0}
+                onChange={(e) => setAgents((l) => l.map((x, j) => (j === i ? { ...x, agentId: e.target.value } : x)))}
+                style={{ ...inputStyle, appearance: "none", flex: 1 }}
+              >
+                <option value="">Choose person…</option>
+                {people.map((u) => <option key={u.id} value={u.id}>{u.name} ({ROLE_LABEL[u.role]})</option>)}
+              </select>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <input type="number" min="0" max="100" step="0.01" style={{ ...inputStyle, width: 90 }} value={a.split}
+                  onChange={(e) => setAgents((l) => l.map((x, j) => (j === i ? { ...x, split: e.target.value } : x)))} />
+                <span style={{ fontSize: 13, color: COLORS.textMuted }}>%</span>
+              </div>
+              {agents.length > 1 && (isAdmin || i > 0) && (
+                <button onClick={() => setAgents((l) => setSplitEqual(l.filter((_, j) => j !== i)))} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.danger }}><X size={16} /></button>
+              )}
+            </div>
+          ))}
+          <div style={{ fontSize: 12, color: Math.abs(splitSum - 100) > 0.05 ? COLORS.danger : COLORS.textMuted }}>
+            Total: {splitSum}% {agents.length > 1 && "· e.g. 33.33 / 66.67 for a third and two thirds"}
+          </div>
+        </div>
+
+        <Field label="Notes">
+          <textarea style={{ ...inputStyle, minHeight: 60 }} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </Field>
+
+        {isAdmin && !editing && (
+          <div style={{ background: "#EEF3EF", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <input type="checkbox" checked={approveNow} onChange={(e) => setApproveNow(e.target.checked)} />
+              Approve immediately (you are adding it as Admin / CEO)
+            </label>
+            {approveNow && (
+              <Field label="Money received into">
+                <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                  {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </Field>
+            )}
+          </div>
+        )}
+
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button onClick={onClose} style={btnGhost}>Cancel</button>
+          <button disabled={busy} onClick={submit} style={btnPrimary}>
+            {busy ? "Saving…" : editing ? (isAdmin ? "Save changes" : "Save & resubmit") : isAdmin && approveNow ? "Save & approve" : "Submit for approval"}
+          </button>
+        </div>
+      </div>
+    </FinModal>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: approvals ----------
+// =====================================================================
+function FinApprovals({ ctx }) {
+  const { fin, users, calc, thresholds, userName, dealTitle, act, onEditDeal } = ctx;
+  const pending = fin.deals.filter((d) => d.status === "pending" || d.status === "returned")
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return (
+    <>
+      <FinTitle>Deals waiting for approval ({pending.length})</FinTitle>
+      {pending.length === 0 && <div style={{ color: COLORS.textMuted, fontSize: 14 }}>Nothing to approve right now.</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {pending.map((d) => (
+          <ApprovalCard key={d.id} deal={d} ctx={ctx} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function ApprovalCard({ deal, ctx }) {
+  const { fin, users, calc, thresholds, userName, dealTitle, act, onEditDeal } = ctx;
+  const agents = fin.dealAgents.filter((a) => a.deal_id === deal.id);
+  const activeAccounts = fin.accounts.filter((a) => !a.archived);
+  const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
+  const [collectedAt, setCollectedAt] = useState(deal.deal_date || todayInput());
+  const [note, setNote] = useState("");
+  const { busy, error, run } = useAction();
+  const quarter = quarterKeyOf(dateInputToIso(collectedAt));
+  const preview = previewDistribution({
+    dealAgents: agents, users, commissionRates: fin.rates, amount: deal.commission_collected,
+    tierOf: calc.tierOf, quarter, tierCount: thresholds.length,
+  });
+  const splitSum = round2(agents.reduce((s, a) => s + num(a.split_pct), 0));
+
+  return (
+    <div style={{ ...finCard, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 14.5 }}>{dealTitle(deal)}</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 2 }}>
+            Submitted by {userName(deal.created_by)} · {formatDate(deal.created_at)}
+          </div>
+        </div>
+        <Badge tone={DEAL_STATUS[deal.status].tone}>{DEAL_STATUS[deal.status].label}</Badge>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, fontSize: 12.5 }}>
+        <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
+        <div><b>Commission:</b> {egpFull(deal.commission_total)}</div>
+        <div><b>Collected:</b> {egpFull(deal.commission_collected)}</div>
+        <div><b>Date:</b> {deal.deal_date}</div>
+      </div>
+      <div style={{ fontSize: 12.5 }}>
+        <b>Sold by:</b> {agents.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ") || "—"}
+        {Math.abs(splitSum - 100) > 0.001 && <span style={{ color: COLORS.danger }}> — shares add up to {splitSum}%</span>}
+      </div>
+      {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 8 }}>{deal.notes}</div>}
+      {deal.review_note && <div style={{ fontSize: 12, color: COLORS.danger }}>Your last note: {deal.review_note}</div>}
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+          <thead><tr><th style={thStyle}>Gets paid</th><th style={thStyle}>From</th><th style={thStyle}>Tier</th><th style={thNum}>Rate</th><th style={thNum}>Amount</th></tr></thead>
+          <tbody>
+            {preview.rows.map((r, i) => (
+              <tr key={i}>
+                <td style={tdStyle}>{userName(r.beneficiaryId)}{r.missingPlan && <span style={{ color: COLORS.danger, fontSize: 11 }}> · no plan set</span>}</td>
+                <td style={{ ...tdStyle, color: COLORS.textMuted }}>{r.level === 0 ? "own sale" : `${userName(r.agentId)}'s sale`}</td>
+                <td style={tdStyle}>{tierLabel(r.tier, thresholds)}</td>
+                <td style={tdNum}>{r.rate}%</td>
+                <td style={tdNum}>{egp(r.amount)}</td>
+              </tr>
+            ))}
+            <tr>
+              <td style={{ ...tdStyle, fontWeight: 700 }} colSpan={4}>Company keeps</td>
+              <td style={{ ...tdNum, fontWeight: 700, color: preview.company < 0 ? COLORS.danger : COLORS.success }}>{egp(preview.company)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 4 }}>
+          Preview on the collected amount using today's plans. Tiers may go up later in the quarter and are applied retroactively.
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+        {num(deal.commission_collected) > 0 && (
+          <Field label="Money received into">
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Collected on">
+          <input type="date" style={inputStyle} value={collectedAt} onChange={(e) => setCollectedAt(e.target.value)} />
+        </Field>
+        <Field label="Note to sales (needed to return / reject)">
+          <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+      </div>
+      <FinError text={error} />
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        <button style={btnGhost} onClick={() => onEditDeal(deal)}>Edit</button>
+        <button style={btnDanger} disabled={busy} onClick={() => run(async () => {
+          if (!note.trim()) throw new Error("Write the reason in the note first.");
+          await act((t) => db.update("deals", deal.id, { status: "rejected", review_note: note.trim(), reviewed_by: ctx.profile.id, reviewed_at: new Date().toISOString() }, t));
+        })}>Reject</button>
+        <button style={btnGhost} disabled={busy} onClick={() => run(async () => {
+          if (!note.trim()) throw new Error("Write what needs changing in the note first.");
+          await act((t) => db.update("deals", deal.id, { status: "returned", review_note: note.trim() }, t));
+        })}>Return for changes</button>
+        <button style={btnSuccess} disabled={busy} onClick={() => run(async () => {
+          await act((t) => db.rpc("approve_deal", { p_deal: deal.id, p_account: accountId || null, p_collected_at: dateInputToIso(collectedAt) }, t), { full: true });
+        })}>{busy ? "Working…" : "Approve"}</button>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: deals & commissions list ----------
+// =====================================================================
+function FinDeals({ ctx }) {
+  const { fin, isAdmin, profile, calc, userName, dealTitle, onNewDeal } = ctx;
+  const [status, setStatus] = useState(isAdmin ? "approved" : "all");
+  const [quarter, setQuarter] = useState("all");
+  const [person, setPerson] = useState("");
+  const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState(null);
+
+  const agentsByDeal = useMemo(() => groupBy(fin.dealAgents, (a) => a.deal_id), [fin.dealAgents]);
+  const linesByDeal = useMemo(() => groupBy(calc.lines, (l) => l.dealId), [calc.lines]);
+  const qKeys = [...new Set(fin.deals.map((d) => quarterKeyOf(dateInputToIso(d.deal_date))))];
+
+  const rows = fin.deals
+    .filter((d) => status === "all" || d.status === status || (status === "open" && (d.status === "pending" || d.status === "returned")))
+    .filter((d) => quarter === "all" || quarterKeyOf(dateInputToIso(d.deal_date)) === quarter)
+    .filter((d) => !person || (agentsByDeal[d.id] || []).some((a) => a.agent_id === person))
+    .filter((d) => !q || dealTitle(d).toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => (b.deal_date || "").localeCompare(a.deal_date || "") || new Date(b.created_at) - new Date(a.created_at));
+
+  const sumLines = (d, key, onlyMe) => (linesByDeal[d.id] || []).filter((l) => !onlyMe || l.beneficiaryId === profile.id).reduce((s, l) => s + l[key], 0);
+  const totals = rows.reduce((acc, d) => {
+    acc.commission += num(d.commission_total);
+    acc.collected += num(calc.collectedByDeal[d.id]);
+    acc.entitled += sumLines(d, "entitled", !isAdmin);
+    acc.paid += sumLines(d, "paid", !isAdmin);
+    acc.company += num(calc.companyShareByDeal[d.id]);
+    return acc;
+  }, { commission: 0, collected: 0, entitled: 0, paid: 0, company: 0 });
+
+  const openDeal = fin.deals.find((d) => d.id === openId);
+  if (openDeal) return <DealDetail deal={openDeal} ctx={ctx} onBack={() => setOpenId(null)} />;
+
+  const people = ctx.users.filter((u) => u.role !== "pending" && fin.dealAgents.some((a) => a.agent_id === u.id));
+  return (
+    <>
+      <FinTitle right={<button style={btnPrimary} onClick={() => onNewDeal({})}>+ New deal</button>}>
+        {isAdmin ? "Deals & commissions" : "Deals"}
+      </FinTitle>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <PeriodPicker value={status} onChange={setStatus} options={[
+          { id: "all", label: "All statuses" }, { id: "approved", label: "Approved" }, { id: "open", label: "Waiting / returned" },
+          { id: "rejected", label: "Rejected" }, { id: "cancelled", label: "Cancelled" },
+        ]} />
+        <PeriodPicker value={quarter} onChange={setQuarter} options={[{ id: "all", label: "All quarters" }, ...quarterOptions(qKeys)]} />
+        <PeriodPicker value={person} onChange={setPerson} options={[{ id: "", label: "Everyone" }, ...people.map((u) => ({ id: u.id, label: u.name }))]} />
+        <input style={{ ...inputStyle, width: 200, padding: "7px 10px", fontSize: 13 }} placeholder="Search unit / client…" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <FinStat label="Deals" value={rows.length} />
+        <FinStat label="Total commission" value={egp(totals.commission)} sub={`Collected ${egp(totals.collected)}`} />
+        <FinStat label={isAdmin ? "Owed to the team" : "My earnings"} value={egp(totals.entitled)} sub={`Paid ${egp(totals.paid)}`} />
+        <FinStat label="Still to pay" value={egp(totals.entitled - totals.paid)} tone={totals.entitled - totals.paid > 0.5 ? "danger" : undefined} />
+        {isAdmin && <FinStat label="Company share" value={egp(totals.company)} tone="success" />}
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No deals match.</div>
+      ) : (
+        <TableWrap>
+          <thead>
+            <tr>
+              <th style={thStyle}>Date</th><th style={thStyle}>Deal</th><th style={thStyle}>Sold by</th><th style={thStyle}>Status</th>
+              <th style={thNum}>Commission</th><th style={thNum}>Collected</th>
+              <th style={thNum}>{isAdmin ? "Team share" : "My share"}</th><th style={thNum}>Paid</th><th style={thNum}>Remaining</th>
+              {isAdmin && <th style={thNum}>Company</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((d) => {
+              const ent = sumLines(d, "entitled", !isAdmin);
+              const paid = sumLines(d, "paid", !isAdmin);
+              const rem = round2(ent - paid);
+              return (
+                <tr key={d.id} onClick={() => setOpenId(d.id)} style={{ cursor: "pointer" }}>
+                  <td style={tdStyle}>{d.deal_date}</td>
+                  <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 180 }}>{dealTitle(d)}</td>
+                  <td style={{ ...tdStyle, whiteSpace: "normal" }}>{(agentsByDeal[d.id] || []).map((a) => userName(a.agent_id)).join(", ")}</td>
+                  <td style={tdStyle}><Badge tone={DEAL_STATUS[d.status].tone}>{DEAL_STATUS[d.status].label}</Badge></td>
+                  <td style={tdNum}>{egp(d.commission_total)}</td>
+                  <td style={tdNum}>{egp(calc.collectedByDeal[d.id] || 0)}</td>
+                  <td style={tdNum}>{egp(ent)}</td>
+                  <td style={tdNum}>{egp(paid)}</td>
+                  <td style={{ ...tdNum, color: rem > 0.5 ? COLORS.danger : rem < -0.5 ? COLORS.gold : COLORS.text, fontWeight: rem > 0.5 ? 700 : 400 }}>{egp(rem)}</td>
+                  {isAdmin && <td style={tdNum}>{d.status === "approved" ? egp(calc.companyShareByDeal[d.id] || 0) : "—"}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </TableWrap>
+      )}
+    </>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: one deal ----------
+// =====================================================================
+function DealDetail({ deal, ctx, onBack }) {
+  const { fin, isAdmin, profile, calc, thresholds, userName, dealTitle, act, onEditDeal, accountName } = ctx;
+  const agents = fin.dealAgents.filter((a) => a.deal_id === deal.id);
+  const lines = calc.lines.filter((l) => l.dealId === deal.id && (isAdmin || l.beneficiaryId === profile.id));
+  const collections = fin.txns.filter((t) => t.kind === "commission_in" && t.deal_id === deal.id);
+  const payouts = fin.txns.filter((t) => t.kind === "payout" && t.deal_id === deal.id && (isAdmin || t.beneficiary_id === profile.id));
+  const collected = num(calc.collectedByDeal[deal.id]);
+  const [modal, setModal] = useState(null); // 'cashout' | 'collect' | 'rates' | 'cancel'
+  const { busy, error, run } = useAction();
+  const mine = deal.created_by === profile.id && (deal.status === "pending" || deal.status === "returned");
+  const rateRows = fin.dealRates.filter((r) => r.deal_id === deal.id).sort((a, b) => (a.agent_id + a.level).localeCompare(b.agent_id + b.level));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <button onClick={onBack} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>&larr; Back to deals</button>
+      <div style={{ ...finCard, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 17, color: COLORS.navy }}>{dealTitle(deal)}</div>
+            <div style={{ fontSize: 12, color: COLORS.textMuted }}>Deal date {deal.deal_date} · added by {userName(deal.created_by)}</div>
+          </div>
+          <Badge tone={DEAL_STATUS[deal.status].tone}>{DEAL_STATUS[deal.status].label}</Badge>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, fontSize: 12.5 }}>
+          <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
+          <div><b>Total commission:</b> {egpFull(deal.commission_total)}</div>
+          <div><b>Collected:</b> {egpFull(deal.status === "approved" ? collected : deal.commission_collected)}</div>
+          {deal.status === "approved" && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
+        </div>
+        <div style={{ fontSize: 12.5 }}><b>Sold by:</b> {agents.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ")}</div>
+        {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 8 }}>{deal.notes}</div>}
+        {deal.review_note && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Review note:</b> {deal.review_note}</div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {mine && <button style={btnGhost} onClick={() => onEditDeal(deal)}>Edit & resubmit</button>}
+          {mine && <button style={btnDanger} disabled={busy} onClick={() => run(async () => {
+            if (!window.confirm("Withdraw this deal?")) return;
+            await act((t) => db.remove("deals", deal.id, t));
+            onBack();
+          })}>Withdraw</button>}
+          {isAdmin && deal.status === "approved" && (
+            <>
+              <button style={btnGhost} onClick={() => setModal("collect")}>+ Add collection</button>
+              <button style={btnGhost} onClick={() => setModal("rates")}>Adjust rates for this deal</button>
+              <button style={btnDanger} onClick={() => setModal("cancel")}>Cancel deal</button>
+              <button style={btnSuccess} onClick={() => setModal("cashout")}>Cash out</button>
+            </>
+          )}
+          {isAdmin && (deal.status === "rejected" || deal.status === "cancelled") && (
+            <button style={btnDanger} disabled={busy} onClick={() => run(async () => {
+              if (collections.length || payouts.length) throw new Error("This deal has money movements; it can't be deleted.");
+              if (!window.confirm("Delete this deal permanently?")) return;
+              await act((t) => db.remove("deals", deal.id, t));
+              onBack();
+            })}>Delete</button>
+          )}
+        </div>
+        <FinError text={error} />
+      </div>
+
+      {deal.status === "approved" && (
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>{isAdmin ? "Commission split" : "My share"}</div>
+          <TableWrap>
+            <thead><tr>
+              <th style={thStyle}>Person</th><th style={thStyle}>Rate applied</th>
+              <th style={thNum}>Earned</th><th style={thNum}>Incl. tier bonus</th><th style={thNum}>Paid</th><th style={thNum}>Remaining</th>
+            </tr></thead>
+            <tbody>
+              {lines.length === 0 && <tr><td style={tdStyle} colSpan={6}>Nothing earned yet (no money collected).</td></tr>}
+              {lines.map((l) => (
+                <tr key={l.beneficiaryId}>
+                  <td style={tdStyle}>{userName(l.beneficiaryId)}</td>
+                  <td style={{ ...tdStyle, whiteSpace: "normal", color: COLORS.textMuted, fontSize: 12 }}>
+                    {[...new Set(l.detail.map((x) => `${x.rate}% (${tierLabel(x.tier, thresholds)}, ${x.quarter}${x.level > 0 ? `, on ${userName(x.agentId)}` : ""})`))].join("; ")}
+                  </td>
+                  <td style={tdNum}>{egp(l.entitled)}</td>
+                  <td style={{ ...tdNum, color: l.uplift > 0 ? COLORS.success : COLORS.textMuted }}>{l.uplift > 0 ? `+${egp(l.uplift)}` : "—"}</td>
+                  <td style={tdNum}>{egp(l.paid)}</td>
+                  <td style={{ ...tdNum, fontWeight: 700, color: l.remaining > 0.5 ? COLORS.danger : l.remaining < -0.5 ? COLORS.gold : COLORS.success }}>
+                    {l.remaining < -0.5 ? `${egp(l.remaining)} (overpaid)` : egp(l.remaining)}
+                  </td>
+                </tr>
+              ))}
+              {isAdmin && (
+                <tr>
+                  <td style={{ ...tdStyle, fontWeight: 700 }} colSpan={2}>Company keeps</td>
+                  <td style={{ ...tdNum, fontWeight: 700, color: COLORS.success }}>{egp(calc.companyShareByDeal[deal.id] || 0)}</td>
+                  <td style={tdStyle} colSpan={3} />
+                </tr>
+              )}
+            </tbody>
+          </TableWrap>
+        </div>
+      )}
+
+      {(collections.length > 0 || payouts.length > 0) && (
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Money movements</div>
+          <TableWrap>
+            <thead><tr><th style={thStyle}>Date</th><th style={thStyle}>What</th><th style={thStyle}>Account</th><th style={thNum}>In</th><th style={thNum}>Out</th>{isAdmin && <th style={thStyle} />}</tr></thead>
+            <tbody>
+              {[...collections, ...payouts].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at)).map((t) => (
+                <tr key={t.id}>
+                  <td style={tdStyle}>{formatDate(t.occurred_at)}</td>
+                  <td style={tdStyle}>{t.kind === "commission_in" ? "Collected from client" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind !== "commission_in" ? ` · ${t.description}` : ""}</td>
+                  <td style={tdStyle}>{isAdmin ? accountName(t.account_id) : "—"}</td>
+                  <td style={tdNum}>{t.direction === "in" ? egp(t.amount) : ""}</td>
+                  <td style={tdNum}>{t.direction === "out" ? egp(t.amount) : ""}</td>
+                  {isAdmin && (
+                    <td style={tdStyle}>
+                      <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} onClick={() => run(async () => {
+                        if (!window.confirm("Delete this movement? Balances and commissions will be recalculated.")) return;
+                        await act((tok) => db.remove("finance_transactions", t.id, tok));
+                      })}>Delete</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
+      )}
+
+      {modal === "cashout" && <CashOutModal deal={deal} lines={lines} ctx={ctx} onClose={() => setModal(null)} />}
+      {modal === "collect" && <CollectionModal deal={deal} ctx={ctx} collected={collected} onClose={() => setModal(null)} />}
+      {modal === "rates" && <DealRatesModal deal={deal} rows={rateRows} ctx={ctx} onClose={() => setModal(null)} />}
+      {modal === "cancel" && (
+        <FinModal title="Cancel this deal" onClose={() => setModal(null)} width={440}>
+          <CancelDealForm deal={deal} ctx={ctx} onDone={() => setModal(null)} />
+        </FinModal>
+      )}
+    </div>
+  );
+}
+
+function CancelDealForm({ deal, ctx, onDone }) {
+  const [note, setNote] = useState("");
+  const { busy, error, run } = useAction();
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 13 }}>
+        The unit goes back to active and nobody earns commission from this deal anymore. Anything already paid will show as <b>overpaid</b> so you can recover it.
+      </div>
+      <Field label="Reason"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      <FinError text={error} />
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button style={btnGhost} onClick={onDone}>Back</button>
+        <button style={{ ...btnPrimary, background: COLORS.danger }} disabled={busy} onClick={() => run(async () => {
+          await ctx.act((t) => db.rpc("cancel_deal", { p_deal: deal.id, p_note: note.trim() || null }, t), { full: true });
+          onDone();
+        })}>Cancel deal</button>
+      </div>
+    </div>
+  );
+}
+
+function CashOutModal({ deal, lines, ctx, onClose }) {
+  const { fin, userName, act, balances } = ctx;
+  const owed = lines.filter((l) => l.remaining > 0.5);
+  const activeAccounts = fin.accounts.filter((a) => !a.archived);
+  const [selected, setSelected] = useState(() => Object.fromEntries(owed.map((l) => [l.beneficiaryId, true])));
+  const [amounts, setAmounts] = useState(() => Object.fromEntries(owed.map((l) => [l.beneficiaryId, String(l.remaining)])));
+  const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
+  const [date, setDate] = useState(todayInput());
+  const { busy, error, run } = useAction();
+  const chosen = owed.filter((l) => selected[l.beneficiaryId]);
+  const total = round2(chosen.reduce((s, l) => s + num(amounts[l.beneficiaryId]), 0));
+  const balance = num(balances[accountId]);
+  const collected = num(ctx.calc.collectedByDeal[deal.id]);
+
+  const pay = (list) => run(async () => {
+    if (!accountId) throw new Error("Choose the account the money comes out of.");
+    if (list.length === 0) throw new Error("Choose at least one person.");
+    const rows = list.map((l) => ({
+      kind: "payout", direction: "out", amount: round2(num(amounts[l.beneficiaryId])), account_id: accountId,
+      occurred_at: dateInputToIso(date), deal_id: deal.id, beneficiary_id: l.beneficiaryId,
+      description: l.uplift > 0 && l.paid > 0 ? "Includes tier bonus" : null,
+    }));
+    if (rows.some((r) => r.amount <= 0)) throw new Error("Amounts must be more than 0.");
+    const sum = rows.reduce((s, r) => s + r.amount, 0);
+    if (sum > balance + 0.5 && !window.confirm(`The account balance is ${egpFull(balance)}, less than ${egpFull(sum)}. Pay anyway?`)) return;
+    await act((t) => db.insert("finance_transactions", rows, t));
+    onClose();
+  });
+
+  return (
+    <FinModal title={`Cash out — ${ctx.dealTitle(deal)}`} onClose={onClose} width={560}>
+      {owed.length === 0 ? (
+        <div style={{ fontSize: 13, color: COLORS.textMuted }}>Everyone on this deal is fully paid.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {collected < num(deal.commission_total) - 0.5 && (
+            <div style={{ fontSize: 12.5, background: "#FBF3E4", color: "#8A6416", padding: 8, borderRadius: 8 }}>
+              Only {egpFull(collected)} of {egpFull(deal.commission_total)} has been collected from the client so far. Amounts below are based on what was collected.
+            </div>
+          )}
+          {owed.map((l) => (
+            <div key={l.beneficiaryId} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input type="checkbox" checked={!!selected[l.beneficiaryId]} onChange={(e) => setSelected((s) => ({ ...s, [l.beneficiaryId]: e.target.checked }))} />
+              <div style={{ flex: 1, fontSize: 13 }}>
+                {userName(l.beneficiaryId)}
+                <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>owed {egp(l.remaining)}{l.uplift > 0 && l.paid > 0 ? " · includes tier bonus" : ""}</div>
+              </div>
+              <input type="number" style={{ ...inputStyle, width: 130 }} value={amounts[l.beneficiaryId]} onChange={(e) => setAmounts((a) => ({ ...a, [l.beneficiaryId]: e.target.value }))} />
+            </div>
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="Paid from">
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({egp(balances[a.id] || 0)})</option>)}
+              </select>
+            </Field>
+            <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          </div>
+          <div style={{ fontSize: 13 }}>Total: <b>{egpFull(total)}</b> · balance after: <b style={{ color: balance - total < 0 ? COLORS.danger : COLORS.text }}>{egpFull(balance - total)}</b></div>
+          <FinError text={error} />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+            <button style={btnGhost} onClick={onClose}>Cancel</button>
+            <button style={btnGhost} disabled={busy} onClick={() => pay(chosen)}>Pay selected</button>
+            <button style={btnSuccess} disabled={busy} onClick={() => pay(owed)}>Pay everyone</button>
+          </div>
+        </div>
+      )}
+    </FinModal>
+  );
+}
+
+function CollectionModal({ deal, ctx, collected, onClose }) {
+  const activeAccounts = ctx.fin.accounts.filter((a) => !a.archived);
+  const [amount, setAmount] = useState(String(Math.max(0, round2(num(deal.commission_total) - collected))));
+  const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
+  const [date, setDate] = useState(todayInput());
+  const { busy, error, run } = useAction();
+  return (
+    <FinModal title="Add a commission collection" onClose={onClose} width={420}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Counts toward everyone's target in the quarter of the date you choose.</div>
+        <Field label="Amount (EGP)"><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Received into">
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button style={btnGhost} onClick={onClose}>Cancel</button>
+          <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+            if (num(amount) <= 0) throw new Error("Enter an amount.");
+            await ctx.act((t) => db.insert("finance_transactions", {
+              kind: "commission_in", direction: "in", amount: num(amount), account_id: accountId,
+              occurred_at: dateInputToIso(date), deal_id: deal.id, description: "Commission collected",
+            }, t));
+            onClose();
+          })}>Save</button>
+        </div>
+      </div>
+    </FinModal>
+  );
+}
+
+function DealRatesModal({ deal, rows, ctx, onClose }) {
+  const { thresholds, userName } = ctx;
+  const [edit, setEdit] = useState(() => Object.fromEntries(rows.map((r) => [
+    `${r.agent_id}|${r.beneficiary_id}`, thresholds.map((_, i) => String(rateAt(r.rates, i))),
+  ])));
+  const { busy, error, run } = useAction();
+  return (
+    <FinModal title="Rates for this deal only" onClose={onClose} width={640}>
+      <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>
+        Overrides the plan for this one deal. Everyone's normal plan stays the same.
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+          <thead><tr><th style={thStyle}>Person</th><th style={thStyle}>On sale by</th>{thresholds.map((t, i) => <th key={i} style={thStyle}>{tierLabel(i, thresholds)}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const k = `${r.agent_id}|${r.beneficiary_id}`;
+              return (
+                <tr key={k}>
+                  <td style={tdStyle}>{userName(r.beneficiary_id)}</td>
+                  <td style={tdStyle}>{userName(r.agent_id)}</td>
+                  {thresholds.map((_, i) => (
+                    <td key={i} style={tdStyle}>
+                      <input type="number" step="0.01" style={{ ...inputStyle, width: 72, padding: "6px 8px" }} value={edit[k][i]}
+                        onChange={(e) => setEdit((s) => ({ ...s, [k]: s[k].map((v, j) => (j === i ? e.target.value : v)) }))} />
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <FinError text={error} />
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+        <button style={btnGhost} onClick={onClose}>Cancel</button>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+          const payload = rows.map((r) => ({
+            deal_id: r.deal_id, agent_id: r.agent_id, beneficiary_id: r.beneficiary_id, level: r.level,
+            rates: edit[`${r.agent_id}|${r.beneficiary_id}`].map(num),
+          }));
+          await ctx.act((t) => db.upsert("deal_rates", payload, "deal_id,agent_id,beneficiary_id", t));
+          onClose();
+        })}>Save</button>
+      </div>
+    </FinModal>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: overview (Admin / CEO) ----------
+// =====================================================================
+function FinOverview({ ctx, goTab }) {
+  const { fin, calc, balances, users } = ctx;
+  const month = currentMonthKey();
+  const qKey = currentQuarterKey();
+  const inMonth = (t) => monthKeyOf(t.occurred_at) === month;
+  const sum = (list) => round2(list.reduce((s, t) => s + num(t.amount), 0));
+  const monthIn = sum(fin.txns.filter((t) => inMonth(t) && t.kind === "commission_in"));
+  const monthPayouts = sum(fin.txns.filter((t) => inMonth(t) && t.kind === "payout"));
+  const monthExpenses = sum(fin.txns.filter((t) => inMonth(t) && (t.kind === "expense" || t.kind === "salary")));
+  const quarterIn = sum(fin.txns.filter((t) => t.kind === "commission_in" && quarterKeyOf(t.occurred_at) === qKey));
+  const owed = round2(calc.lines.filter((l) => l.remaining > 0).reduce((s, l) => s + l.remaining, 0));
+  const overpaid = round2(calc.lines.filter((l) => l.remaining < -0.5).reduce((s, l) => s - l.remaining, 0));
+  const toCollect = round2(fin.deals.filter((d) => d.status === "approved").reduce((s, d) => s + Math.max(0, num(d.commission_total) - num(calc.collectedByDeal[d.id])), 0));
+  const pending = fin.deals.filter((d) => d.status === "pending").length;
+  const totalBalance = round2(Object.values(balances).reduce((s, v) => s + v, 0));
+
+  const salaryRows = fin.salaries.filter((s) => num(s.monthly_salary) > 0 && users.some((u) => u.id === s.user_id && u.role !== "pending"));
+  const unpaidSalaries = salaryRows.filter((s) => !fin.txns.some((t) => t.kind === "salary" && t.beneficiary_id === s.user_id && t.period === month));
+  const unpaidFixed = fin.recurring.filter((r) => !r.archived && !fin.txns.some((t) => t.recurring_id === r.id && t.period === month));
+  const unpaidCount = unpaidSalaries.length + unpaidFixed.length;
+
+  return (
+    <>
+      <FinTitle>Overview · {monthLabel(month)}</FinTitle>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <FinStat label="Money in all accounts" value={egp(totalBalance)} sub="EGP" onClick={() => goTab("treasury")} />
+        <FinStat label="Waiting for approval" value={pending} tone={pending ? "danger" : undefined} onClick={() => goTab("approvals")} />
+        <FinStat label="Commissions owed to team" value={egp(owed)} tone={owed > 0.5 ? "danger" : undefined} sub={overpaid > 0.5 ? `${egp(overpaid)} overpaid to recover` : undefined} onClick={() => goTab("deals")} />
+        <FinStat label="Left to collect from clients" value={egp(toCollect)} onClick={() => goTab("deals")} />
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        <FinStat label="Commissions in (this month)" value={egp(monthIn)} tone="success" sub={`This quarter ${egp(quarterIn)}`} />
+        <FinStat label="Commissions paid out (this month)" value={egp(monthPayouts)} />
+        <FinStat label="Expenses & salaries (this month)" value={egp(monthExpenses)} sub={unpaidCount ? `${unpaidCount} fixed items not paid yet` : "All fixed items paid"} onClick={() => goTab("expenses")} />
+        <FinStat label="Net (this month)" value={egp(monthIn - monthPayouts - monthExpenses)} tone={monthIn - monthPayouts - monthExpenses < 0 ? "danger" : "success"} />
+      </div>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Accounts</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {fin.accounts.filter((a) => !a.archived).map((a) => <FinStat key={a.id} label={a.name} value={egp(balances[a.id] || 0)} />)}
+      </div>
+    </>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: targets ----------
+// =====================================================================
+function TargetRow({ u, q, ctx }) {
+  const { calc, targetsMap, thresholds } = ctx;
+  const target = num(targetsMap[u.id]);
+  const achieved = calc.achievement(u.id, q);
+  const pct = target ? (achieved / target) * 100 : 0;
+  const tier = calc.tierOf(u.id, q);
+  const next = thresholds[tier + 1];
+  const needed = next !== undefined && target ? Math.max(0, (num(next) / 100) * target - achieved) : null;
+  return (
+    <tr>
+      <td style={tdStyle}>{u.name}</td>
+      <td style={tdNum}>{target ? egp(target) : "—"}</td>
+      <td style={tdNum}>{egp(achieved)}</td>
+      <td style={{ ...tdStyle, minWidth: 160 }}><TargetBar pct={pct} thresholds={thresholds} /></td>
+      <td style={tdNum}>{target ? `${round2(pct)}%` : "—"}</td>
+      <td style={tdStyle}><Badge tone={tier > 0 ? "active" : "neutral"}>{tierLabel(tier, thresholds)}</Badge></td>
+      <td style={{ ...tdStyle, color: COLORS.textMuted }}>{needed !== null ? `${egp(needed)} to ${tierLabel(tier + 1, thresholds)}` : target ? "Top tier" : "No target set"}</td>
+    </tr>
+  );
+}
+
+function FinTargets({ ctx, people }) {
+  const [q, setQ] = useState(currentQuarterKey());
+  const qKeys = [...new Set(ctx.fin.txns.filter((t) => t.kind === "commission_in").map((t) => quarterKeyOf(t.occurred_at)))];
+  const rows = people.filter((u) => num(ctx.targetsMap[u.id]) > 0 || ctx.calc.achievement(u.id, q) > 0);
+  return (
+    <>
+      <FinTitle right={<PeriodPicker value={q} onChange={setQ} options={quarterOptions(qKeys)} />}>Targets</FinTitle>
+      <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>
+        Achieved = commission collected this quarter (by collection date), split by each person's share in the deal.
+      </div>
+      {rows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No targets set yet. Set them from the Team tab.</div> : (
+        <TableWrap>
+          <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Target</th><th style={thNum}>Achieved</th><th style={thStyle}>Progress</th><th style={thNum}>%</th><th style={thStyle}>Tier</th><th style={thStyle}>Next</th></tr></thead>
+          <tbody>{rows.map((u) => <TargetRow key={u.id} u={u} q={q} ctx={ctx} />)}</tbody>
+        </TableWrap>
+      )}
+    </>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: expenses (fixed monthly + other) ----------
+// =====================================================================
+function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, accountName }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(String(expected || ""));
+  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [date, setDate] = useState(todayInput());
+  const { busy, error, run } = useAction();
+  return (
+    <tr>
+      <td style={tdStyle}>{name}{sub && <div style={{ fontSize: 11, color: COLORS.textMuted }}>{sub}</div>}</td>
+      <td style={tdNum}>{egp(expected)}</td>
+      <td style={{ ...tdStyle, whiteSpace: "normal" }}>
+        {paidTx.length > 0 ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <Badge tone="active">Paid {egp(paidTx.reduce((s, t) => s + num(t.amount), 0))}</Badge>
+            <span style={{ fontSize: 11.5, color: COLORS.textMuted }}>{formatDate(paidTx[0].occurred_at)} · {accountName(paidTx[0].account_id)}</span>
+            <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => run(async () => {
+              if (!window.confirm("Undo this payment?")) return;
+              await onUndo(paidTx);
+            })}>Undo</button>
+          </div>
+        ) : open ? (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <input type="number" style={{ ...inputStyle, width: 110, padding: "6px 8px" }} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "6px 8px", appearance: "none" }}>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <input type="date" style={{ ...inputStyle, width: 150, padding: "6px 8px" }} value={date} onChange={(e) => setDate(e.target.value)} />
+            <button style={{ ...btnSuccess, padding: "6px 10px" }} disabled={busy} onClick={() => run(async () => {
+              if (num(amount) <= 0) throw new Error("Enter the amount");
+              await onPay({ amount: num(amount), accountId, date });
+              setOpen(false);
+            })}>Confirm</button>
+            <button style={{ ...btnGhost, padding: "6px 10px" }} onClick={() => setOpen(false)}>✕</button>
+            <FinError text={error} />
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Badge tone="pending">Not paid</Badge>
+            <button style={{ ...btnPrimary, padding: "5px 10px", fontSize: 12 }} onClick={() => setOpen(true)}>Mark paid</button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function FinExpenses({ ctx }) {
+  const { fin, users, act, accountName, addCategory } = ctx;
+  const [month, setMonth] = useState(currentMonthKey());
+  const [adding, setAdding] = useState(false);
+  const accounts = fin.accounts.filter((a) => !a.archived);
+  const catName = (id) => fin.categories.find((c) => c.id === id)?.name || "—";
+
+  const salaryRows = fin.salaries
+    .filter((s) => num(s.monthly_salary) > 0)
+    .map((s) => ({ ...s, user: users.find((u) => u.id === s.user_id) }))
+    .filter((s) => s.user && s.user.role !== "pending");
+  const recurring = fin.recurring.filter((r) => !r.archived || fin.txns.some((t) => t.recurring_id === r.id && t.period === month));
+  const monthTx = fin.txns.filter((t) => t.period === month);
+  const others = fin.txns.filter((t) => t.kind === "expense" && !t.recurring_id && monthKeyOf(t.occurred_at) === month)
+    .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+
+  const fixedTotal = round2(salaryRows.reduce((s, r) => s + num(r.monthly_salary), 0) + recurring.filter((r) => !r.archived).reduce((s, r) => s + num(r.default_amount), 0));
+  const paidFixed = round2(monthTx.filter((t) => t.kind === "salary" || (t.kind === "expense" && t.recurring_id)).reduce((s, t) => s + num(t.amount), 0));
+  const otherTotal = round2(others.reduce((s, t) => s + num(t.amount), 0));
+  const undo = (txs) => act(async (t) => { for (const x of txs) await db.remove("finance_transactions", x.id, t); });
+
+  const monthOptions = [];
+  for (let i = -12; i <= 1; i++) {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + i);
+    const k = monthKeyOf(d);
+    monthOptions.push({ id: k, label: monthLabel(k) });
+  }
+
+  return (
+    <>
+      <FinTitle right={<>
+        <PeriodPicker value={month} onChange={setMonth} options={monthOptions.reverse()} />
+        <button style={btnPrimary} onClick={() => setAdding(true)}>+ Add expense</button>
+      </>}>Expenses</FinTitle>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        <FinStat label="Fixed this month (expected)" value={egp(fixedTotal)} />
+        <FinStat label="Fixed paid" value={egp(paidFixed)} tone={paidFixed + 0.5 < fixedTotal ? "danger" : "success"} />
+        <FinStat label="Other expenses" value={egp(otherTotal)} />
+        <FinStat label="Total spent" value={egp(paidFixed + otherTotal)} />
+      </div>
+
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Salaries</div>
+      {salaryRows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No salaries set. Add them from the Team tab.</div> : (
+        <div style={{ marginBottom: 16 }}>
+          <TableWrap>
+            <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Salary</th><th style={thStyle}>{monthLabel(month)}</th></tr></thead>
+            <tbody>
+              {salaryRows.map((s) => (
+                <FixedItemRow key={s.user_id} name={s.user.name} sub={ROLE_LABEL[s.user.role]} expected={num(s.monthly_salary)} accounts={accounts} accountName={accountName}
+                  paidTx={monthTx.filter((t) => t.kind === "salary" && t.beneficiary_id === s.user_id)}
+                  onUndo={undo}
+                  onPay={({ amount, accountId, date }) => act((t) => db.insert("finance_transactions", {
+                    kind: "salary", direction: "out", amount, account_id: accountId, occurred_at: dateInputToIso(date),
+                    beneficiary_id: s.user_id, period: month, description: `Salary ${monthLabel(month)}`,
+                  }, t))} />
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
+      )}
+
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Fixed monthly items</div>
+      {recurring.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No fixed items yet (rent, internet…). Add them in Settings.</div> : (
+        <div style={{ marginBottom: 16 }}>
+          <TableWrap>
+            <thead><tr><th style={thStyle}>Item</th><th style={thNum}>Usual amount</th><th style={thStyle}>{monthLabel(month)}</th></tr></thead>
+            <tbody>
+              {recurring.map((r) => (
+                <FixedItemRow key={r.id} name={r.name} sub={catName(r.category_id)} expected={num(r.default_amount)} accounts={accounts} accountName={accountName}
+                  paidTx={monthTx.filter((t) => t.recurring_id === r.id)}
+                  onUndo={undo}
+                  onPay={({ amount, accountId, date }) => act((t) => db.insert("finance_transactions", {
+                    kind: "expense", direction: "out", amount, account_id: accountId, occurred_at: dateInputToIso(date),
+                    category_id: r.category_id, recurring_id: r.id, period: month, description: r.name,
+                  }, t))} />
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
+      )}
+
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Other expenses</div>
+      {others.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13 }}>None this month.</div> : (
+        <TableWrap>
+          <thead><tr><th style={thStyle}>Date</th><th style={thStyle}>Category</th><th style={thStyle}>Description</th><th style={thStyle}>Account</th><th style={thNum}>Amount</th><th style={thStyle} /></tr></thead>
+          <tbody>
+            {others.map((t) => (
+              <tr key={t.id}>
+                <td style={tdStyle}>{formatDate(t.occurred_at)}</td>
+                <td style={tdStyle}>{catName(t.category_id)}</td>
+                <td style={{ ...tdStyle, whiteSpace: "normal" }}>{t.description || "—"}</td>
+                <td style={tdStyle}>{accountName(t.account_id)}</td>
+                <td style={tdNum}>{egp(t.amount)}</td>
+                <td style={tdStyle}><button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} onClick={() => window.confirm("Delete this expense?") && undo([t])}>Delete</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      )}
+      {adding && <ExpenseModal ctx={ctx} onClose={() => setAdding(false)} />}
+    </>
+  );
+}
+
+function ExpenseModal({ ctx, onClose }) {
+  const { fin, act, addCategory } = ctx;
+  const accounts = fin.accounts.filter((a) => !a.archived);
+  const [categoryId, setCategoryId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [date, setDate] = useState(todayInput());
+  const [description, setDescription] = useState("");
+  const { busy, error, run } = useAction();
+  return (
+    <FinModal title="Add expense" onClose={onClose} width={440}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Field label="Category" required>
+          <SelectWithAdd value={categoryId} onChange={setCategoryId} placeholder="Choose category"
+            options={fin.categories.filter((c) => !c.archived)} onAdd={addCategory} />
+        </Field>
+        <Field label="Amount (EGP)" required><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Paid from" required>
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Description"><input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button style={btnGhost} onClick={onClose}>Cancel</button>
+          <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+            if (!categoryId) throw new Error("Choose a category.");
+            if (num(amount) <= 0) throw new Error("Enter the amount.");
+            if (!accountId) throw new Error("Choose the account.");
+            await act((t) => db.insert("finance_transactions", {
+              kind: "expense", direction: "out", amount: num(amount), account_id: accountId, occurred_at: dateInputToIso(date),
+              category_id: categoryId, description: description.trim() || null,
+            }, t));
+            onClose();
+          })}>Save</button>
+        </div>
+      </div>
+    </FinModal>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: treasury & statement ----------
+// =====================================================================
+function periodRange(preset, from, to) {
+  const now = new Date();
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (preset === "today") { const s = startOfDay(now); return { from: s, to: new Date(s.getTime() + MS_DAY) }; }
+  if (preset === "week") {
+    const s = startOfDay(now);
+    const back = (s.getDay() + 1) % 7; // week starts Saturday
+    const ws = new Date(s.getTime() - back * MS_DAY);
+    return { from: ws, to: new Date(ws.getTime() + 7 * MS_DAY) };
+  }
+  if (preset === "month") return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 1) };
+  if (preset === "lastmonth") return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 1) };
+  if (preset === "quarter") return quarterBounds(currentQuarterKey());
+  if (preset === "year") return { from: new Date(now.getFullYear(), 0, 1), to: new Date(now.getFullYear() + 1, 0, 1) };
+  const f = from ? new Date(`${from}T00:00:00`) : new Date(2000, 0, 1);
+  const t = to ? new Date(new Date(`${to}T00:00:00`).getTime() + MS_DAY) : new Date(2100, 0, 1);
+  return { from: f, to: t };
+}
+
+function FinTreasury({ ctx }) {
+  const { fin, balances, userName, accountName, dealTitleById } = ctx;
+  const [preset, setPreset] = useState("month");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [account, setAccount] = useState("");
+  const [kind, setKind] = useState("");
+  const [category, setCategory] = useState("");
+  const [person, setPerson] = useState("");
+  const [modal, setModal] = useState(null);
+  const range = periodRange(preset, from, to);
+  const catName = (id) => fin.categories.find((c) => c.id === id)?.name || "";
+
+  const byAccount = (t) => !account || t.account_id === account;
+  const extraFilters = !!(kind || category || person);
+  const ordered = [...fin.txns].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at) || new Date(a.created_at) - new Date(b.created_at));
+  const signed = (t) => (t.direction === "in" ? 1 : -1) * num(t.amount);
+  const opening = round2(ordered.filter((t) => byAccount(t) && new Date(t.occurred_at) < range.from).reduce((s, t) => s + signed(t), 0));
+  let running = opening;
+  const rows = [];
+  ordered.forEach((t) => {
+    const d = new Date(t.occurred_at);
+    if (!byAccount(t) || d < range.from || d >= range.to) return;
+    running = round2(running + signed(t));
+    if (kind && t.kind !== kind) return;
+    if (category && t.category_id !== category) return;
+    if (person && t.beneficiary_id !== person) return;
+    rows.push({ ...t, before: round2(running - signed(t)), after: running });
+  });
+  const totalIn = round2(rows.filter((r) => r.direction === "in").reduce((s, r) => s + num(r.amount), 0));
+  const totalOut = round2(rows.filter((r) => r.direction === "out").reduce((s, r) => s + num(r.amount), 0));
+  const closing = round2(running);
+  const byKind = {};
+  rows.forEach((r) => { byKind[r.kind] = round2((byKind[r.kind] || 0) + signed(r)); });
+
+  const describe = (t) => [
+    TX_KIND_LABEL[t.kind],
+    t.deal_id ? dealTitleById(t.deal_id) : "",
+    t.beneficiary_id ? userName(t.beneficiary_id) : "",
+    t.category_id && t.kind === "expense" ? catName(t.category_id) : "",
+    t.description && t.description !== "Commission collected" ? t.description : "",
+  ].filter(Boolean).join(" · ");
+
+  const exportCsv = () => {
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [["Date", "Description", "Account", "In", "Out", "Balance before", "Balance after"].join(",")];
+    lines.push([esc(""), esc("Opening balance"), esc(account ? accountName(account) : "All accounts"), "", "", "", opening].join(","));
+    rows.forEach((r) => lines.push([
+      esc(formatDate(r.occurred_at)), esc(describe(r)), esc(accountName(r.account_id)),
+      r.direction === "in" ? r.amount : "", r.direction === "out" ? r.amount : "",
+      extraFilters ? "" : r.before, extraFilters ? "" : r.after,
+    ].join(",")));
+    lines.push([esc(""), esc("Closing balance"), "", totalIn, totalOut, "", closing].join(","));
+    const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `origin-statement-${isoToDateInput(range.from.toISOString())}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const peopleOptions = ctx.users.filter((u) => fin.txns.some((t) => t.beneficiary_id === u.id));
+  return (
+    <>
+      <FinTitle right={<>
+        <button style={btnGhost} onClick={() => setModal("transfer")}>Transfer between accounts</button>
+        <button style={btnGhost} onClick={() => setModal("adjust")}>Opening balance / adjustment</button>
+      </>}>Treasury</FinTitle>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        {fin.accounts.filter((a) => !a.archived).map((a) => <FinStat key={a.id} label={a.name} value={egp(balances[a.id] || 0)} />)}
+        <FinStat label="Total" value={egp(Object.values(balances).reduce((s, v) => s + v, 0))} tone="success" />
+      </div>
+
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Statement</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        <PeriodPicker value={preset} onChange={setPreset} options={[
+          { id: "today", label: "Today" }, { id: "week", label: "This week" }, { id: "month", label: "This month" },
+          { id: "lastmonth", label: "Last month" }, { id: "quarter", label: "This quarter" }, { id: "year", label: "This year" }, { id: "custom", label: "Custom dates" },
+        ]} />
+        {preset === "custom" && <>
+          <input type="date" style={{ ...inputStyle, width: 150, padding: "6px 8px", fontSize: 13 }} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <span style={{ fontSize: 12, color: COLORS.textMuted }}>to</span>
+          <input type="date" style={{ ...inputStyle, width: 150, padding: "6px 8px", fontSize: 13 }} value={to} onChange={(e) => setTo(e.target.value)} />
+        </>}
+        <PeriodPicker value={account} onChange={setAccount} options={[{ id: "", label: "All accounts" }, ...fin.accounts.map((a) => ({ id: a.id, label: a.name }))]} />
+        <PeriodPicker value={kind} onChange={setKind} options={[{ id: "", label: "All types" }, ...Object.entries(TX_KIND_LABEL).map(([id, label]) => ({ id, label }))]} />
+        <PeriodPicker value={category} onChange={setCategory} options={[{ id: "", label: "All categories" }, ...fin.categories.map((c) => ({ id: c.id, label: c.name }))]} />
+        <PeriodPicker value={person} onChange={setPerson} options={[{ id: "", label: "Anyone" }, ...peopleOptions.map((u) => ({ id: u.id, label: u.name }))]} />
+        <button style={btnGhost} onClick={exportCsv}>Export Excel (CSV)</button>
+        <button style={btnGhost} onClick={() => window.print()}>Print / PDF</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <FinStat label="Opening balance" value={egp(opening)} />
+        <FinStat label="Money in" value={egp(totalIn)} tone="success" />
+        <FinStat label="Money out" value={egp(totalOut)} tone="danger" />
+        <FinStat label="Closing balance" value={egp(closing)} />
+      </div>
+      {Object.keys(byKind).length > 0 && (
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>
+          {Object.entries(byKind).map(([k, v]) => `${TX_KIND_LABEL[k]}: ${v > 0 ? "+" : ""}${egp(v)}`).join("  ·  ")}
+        </div>
+      )}
+      {extraFilters && <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>Balances before/after are for the whole account; filtered rows are only a part of it.</div>}
+      <TableWrap>
+        <thead><tr>
+          <th style={thStyle}>Date</th><th style={thStyle}>Description</th><th style={thStyle}>Account</th>
+          <th style={thNum}>In</th><th style={thNum}>Out</th><th style={thNum}>Balance before</th><th style={thNum}>Balance after</th>
+        </tr></thead>
+        <tbody>
+          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Opening balance</td><td style={tdStyle} /><td style={tdNum} /><td style={tdNum} /><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(opening)}</td></tr>
+          {rows.length === 0 && <tr><td style={tdStyle} colSpan={7}>No movements in this period.</td></tr>}
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td style={tdStyle}>{formatDate(r.occurred_at)}</td>
+              <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 220 }}>{describe(r)}</td>
+              <td style={tdStyle}>{accountName(r.account_id)}</td>
+              <td style={{ ...tdNum, color: COLORS.success }}>{r.direction === "in" ? egp(r.amount) : ""}</td>
+              <td style={{ ...tdNum, color: COLORS.danger }}>{r.direction === "out" ? egp(r.amount) : ""}</td>
+              <td style={{ ...tdNum, color: COLORS.textMuted }}>{egp(r.before)}</td>
+              <td style={tdNum}>{egp(r.after)}</td>
+            </tr>
+          ))}
+          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Closing balance</td><td style={tdStyle} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalIn)}</td><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalOut)}</td><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(closing)}</td></tr>
+        </tbody>
+      </TableWrap>
+      {modal && <TreasuryModal mode={modal} ctx={ctx} onClose={() => setModal(null)} />}
+    </>
+  );
+}
+
+function TreasuryModal({ mode, ctx, onClose }) {
+  const accounts = ctx.fin.accounts.filter((a) => !a.archived);
+  const [fromId, setFromId] = useState(accounts[0]?.id || "");
+  const [toId, setToId] = useState(accounts[1]?.id || "");
+  const [direction, setDirection] = useState("in");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayInput());
+  const [description, setDescription] = useState("");
+  const { busy, error, run } = useAction();
+  const acctSelect = (v, set) => (
+    <select value={v} onChange={(e) => set(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+      {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({egp(ctx.balances[a.id] || 0)})</option>)}
+    </select>
+  );
+  return (
+    <FinModal title={mode === "transfer" ? "Transfer between accounts" : "Opening balance / adjustment"} onClose={onClose} width={440}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {mode === "transfer" ? (
+          <>
+            <Field label="From">{acctSelect(fromId, setFromId)}</Field>
+            <Field label="To">{acctSelect(toId, setToId)}</Field>
+          </>
+        ) : (
+          <>
+            <Field label="Account">{acctSelect(fromId, setFromId)}</Field>
+            <Field label="Type">
+              <select value={direction} onChange={(e) => setDirection(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                <option value="in">Add money (e.g. opening balance)</option>
+                <option value="out">Remove money (correction)</option>
+              </select>
+            </Field>
+          </>
+        )}
+        <Field label="Amount (EGP)"><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Note"><input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button style={btnGhost} onClick={onClose}>Cancel</button>
+          <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+            if (num(amount) <= 0) throw new Error("Enter the amount.");
+            const when = dateInputToIso(date);
+            if (mode === "transfer") {
+              if (!fromId || !toId || fromId === toId) throw new Error("Choose two different accounts.");
+              const group = (crypto.randomUUID && crypto.randomUUID()) || undefined;
+              await ctx.act((t) => db.insert("finance_transactions", [
+                { kind: "transfer", direction: "out", amount: num(amount), account_id: fromId, occurred_at: when, transfer_group: group, description: description.trim() || `To ${ctx.accountName(toId)}` },
+                { kind: "transfer", direction: "in", amount: num(amount), account_id: toId, occurred_at: when, transfer_group: group, description: description.trim() || `From ${ctx.accountName(fromId)}` },
+              ], t));
+            } else {
+              await ctx.act((t) => db.insert("finance_transactions", {
+                kind: "adjustment", direction, amount: num(amount), account_id: fromId, occurred_at: when, description: description.trim() || null,
+              }, t));
+            }
+            onClose();
+          })}>Save</button>
+        </div>
+      </div>
+    </FinModal>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: team plans (target, salary, commission chain) ----------
+// =====================================================================
+function FinTeam({ ctx, people }) {
+  const { fin, users, targetsMap, thresholds } = ctx;
+  const [editId, setEditId] = useState(null);
+  const salaryOf = (id) => num(fin.salaries.find((s) => s.user_id === id)?.monthly_salary);
+  const hasPlan = (id) => fin.rates.some((r) => r.seller_id === id);
+  const editing = users.find((u) => u.id === editId);
+  if (editing) return <TeamMemberPlan person={editing} ctx={ctx} onBack={() => setEditId(null)} />;
+  return (
+    <>
+      <FinTitle>Team plans</FinTitle>
+      <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>
+        Each person's quarterly target, salary, and how their sales commission is split up the chain. The chain comes from "Manage users" (who reports to whom).
+      </div>
+      <TableWrap>
+        <thead><tr><th style={thStyle}>Person</th><th style={thStyle}>Role</th><th style={thStyle}>Chain</th><th style={thNum}>Quarterly target</th><th style={thNum}>Salary</th><th style={thStyle}>Commission plan</th></tr></thead>
+        <tbody>
+          {people.map((u) => (
+            <tr key={u.id} onClick={() => setEditId(u.id)} style={{ cursor: "pointer" }}>
+              <td style={{ ...tdStyle, fontWeight: 600 }}>{u.name}</td>
+              <td style={tdStyle}>{ROLE_LABEL[u.role]}</td>
+              <td style={{ ...tdStyle, color: COLORS.textMuted }}>{managerChain(users, u.id).map((p) => p.name).join(" → ")}</td>
+              <td style={tdNum}>{targetsMap[u.id] !== undefined ? egp(targetsMap[u.id]) : "—"}</td>
+              <td style={tdNum}>{salaryOf(u.id) ? egp(salaryOf(u.id)) : "—"}</td>
+              <td style={tdStyle}>{hasPlan(u.id) ? <Badge tone="active">Set</Badge> : <Badge tone="pending">Not set</Badge>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </TableWrap>
+    </>
+  );
+}
+
+function TeamMemberPlan({ person, ctx, onBack }) {
+  const { fin, users, targetsMap, thresholds, act } = ctx;
+  const chain = managerChain(users, person.id);
+  const [target, setTarget] = useState(String(targetsMap[person.id] ?? 1000000));
+  const [salary, setSalary] = useState(String(num(fin.salaries.find((s) => s.user_id === person.id)?.monthly_salary)));
+  const [rates, setRates] = useState(() => Object.fromEntries(chain.map((p) => {
+    const row = fin.rates.find((r) => r.seller_id === person.id && r.beneficiary_id === p.id);
+    return [p.id, thresholds.map((_, i) => (row ? String(rateAt(row.rates, i)) : ""))];
+  })));
+  const { busy, error, run } = useAction();
+  const [saved, setSaved] = useState(false);
+  const colTotal = (i) => round2(chain.reduce((s, p) => s + num(rates[p.id][i]), 0));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <button onClick={onBack} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>&larr; Back to team</button>
+      <div style={finCard}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>{person.name}</div>
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 12 }}>{ROLE_LABEL[person.role]} · {chain.map((p) => p.name).join(" → ")}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
+          <Field label="Quarterly target (EGP of collected commission)">
+            <input type="number" style={inputStyle} value={target} onChange={(e) => setTarget(e.target.value)} />
+          </Field>
+          <Field label="Monthly salary (EGP)">
+            <input type="number" style={inputStyle} value={salary} onChange={(e) => setSalary(e.target.value)} />
+          </Field>
+        </div>
+        <div style={{ fontWeight: 600, fontSize: 13.5, color: COLORS.navy, marginBottom: 4 }}>When {person.name} closes a deal — % of the total commission</div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>Tiers depend on {person.name}'s own progress this quarter. Higher tiers apply retroactively to the whole quarter.</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead><tr><th style={thStyle}>Gets paid</th>{thresholds.map((t, i) => <th key={i} style={thStyle}>{i === 0 ? "Base" : `From ${t}% of target`}</th>)}</tr></thead>
+            <tbody>
+              {chain.map((p, level) => (
+                <tr key={p.id}>
+                  <td style={tdStyle}>{p.name} <span style={{ color: COLORS.textMuted, fontSize: 11.5 }}>{level === 0 ? "(the seller)" : level === 1 ? "(direct manager)" : "(higher manager)"}</span></td>
+                  {thresholds.map((_, i) => (
+                    <td key={i} style={tdStyle}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <input type="number" step="0.01" min="0" style={{ ...inputStyle, width: 80, padding: "6px 8px" }} value={rates[p.id][i]}
+                          onChange={(e) => setRates((s) => ({ ...s, [p.id]: s[p.id].map((v, j) => (j === i ? e.target.value : v)) }))} />
+                        <span style={{ fontSize: 12, color: COLORS.textMuted }}>%</span>
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              <tr>
+                <td style={{ ...tdStyle, fontWeight: 700 }}>Company keeps</td>
+                {thresholds.map((_, i) => <td key={i} style={{ ...tdStyle, fontWeight: 700, color: colTotal(i) > 100 ? COLORS.danger : COLORS.success }}>{round2(100 - colTotal(i))}%</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 8 }}>
+          Applies to deals approved from now on. Already-approved deals keep their rates (you can adjust a single deal from its page).
+        </div>
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12, alignItems: "center" }}>
+          {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
+          <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+            setSaved(false);
+            if (thresholds.some((_, i) => colTotal(i) > 100)) throw new Error("A column adds up to more than 100%.");
+            await act(async (t) => {
+              await db.upsert("staff_targets", { user_id: person.id, quarterly_target: num(target), updated_at: new Date().toISOString() }, "user_id", t);
+              await db.upsert("staff_salaries", { user_id: person.id, monthly_salary: num(salary), updated_at: new Date().toISOString() }, "user_id", t);
+              await db.upsert("commission_rates", chain.map((p) => ({
+                seller_id: person.id, beneficiary_id: p.id, rates: rates[p.id].map(num), updated_at: new Date().toISOString(),
+              })), "seller_id,beneficiary_id", t);
+            });
+            setSaved(true);
+          })}>{busy ? "Saving…" : "Save plan"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: settings ----------
+// =====================================================================
+function NamedListEditor({ title, items, onAdd, onToggleArchive, extra }) {
+  const [text, setText] = useState("");
+  const { busy, error, run } = useAction();
+  return (
+    <div style={finCard}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>{title}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+        {items.map((it) => (
+          <div key={it.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, opacity: it.archived ? 0.5 : 1 }}>
+            <span>{it.name}{extra ? extra(it) : ""}{it.archived ? " (hidden)" : ""}</span>
+            <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => run(() => onToggleArchive(it))}>{it.archived ? "Show" : "Hide"}</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input style={inputStyle} placeholder="New name" value={text} onChange={(e) => setText(e.target.value)} />
+        <button style={btnPrimary} disabled={busy || !text.trim()} onClick={() => run(async () => { await onAdd(text.trim()); setText(""); })}>Add</button>
+      </div>
+      <FinError text={error} />
+    </div>
+  );
+}
+
+function FinSettings({ ctx }) {
+  const { fin, act, thresholds, addCategory } = ctx;
+  const [tiers, setTiers] = useState(thresholds.map(String));
+  const tierAction = useAction();
+  const recAction = useAction();
+  const [rec, setRec] = useState({ name: "", categoryId: "", amount: "" });
+  const catName = (id) => fin.categories.find((c) => c.id === id)?.name || "—";
+  return (
+    <>
+      <FinTitle>Finance settings</FinTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
+        <div style={finCard}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Commission tiers</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>% of quarterly target where each higher rate starts. Rates per person are set in the Team tab.</div>
+          {tiers.map((t, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 13, width: 60 }}>{i === 0 ? "Base" : `Tier ${i}`}</span>
+              <input type="number" disabled={i === 0} style={{ ...inputStyle, width: 100, padding: "6px 8px" }} value={t}
+                onChange={(e) => setTiers((l) => l.map((x, j) => (j === i ? e.target.value : x)))} />
+              <span style={{ fontSize: 12, color: COLORS.textMuted }}>% of target</span>
+              {i > 0 && i === tiers.length - 1 && <button style={{ border: "none", background: "none", color: COLORS.danger, cursor: "pointer" }} onClick={() => setTiers((l) => l.slice(0, -1))}><X size={14} /></button>}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button style={btnGhost} onClick={() => setTiers((l) => [...l, String(num(l[l.length - 1]) + 30)])}>+ Add tier</button>
+            <button style={btnPrimary} disabled={tierAction.busy} onClick={() => tierAction.run(async () => {
+              const vals = tiers.map(num);
+              if (vals.some((v, i) => i > 0 && v <= vals[i - 1])) throw new Error("Each tier must be higher than the one before.");
+              await act((t) => db.update("finance_settings", 1, { tier_thresholds: vals, updated_at: new Date().toISOString() }, t));
+            })}>Save tiers</button>
+          </div>
+          <FinError text={tierAction.error} />
+        </div>
+
+        <NamedListEditor title="Accounts (treasuries)" items={fin.accounts}
+          onAdd={(name) => act((t) => db.insert("finance_accounts", { name }, t))}
+          onToggleArchive={(it) => act((t) => db.update("finance_accounts", it.id, { archived: !it.archived }, t))} />
+
+        <NamedListEditor title="Expense categories" items={fin.categories}
+          onAdd={(name) => addCategory(name)}
+          onToggleArchive={(it) => act((t) => db.update("expense_categories", it.id, { archived: !it.archived }, t))} />
+
+        <div style={finCard}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Fixed monthly items</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>Rent, internet, bills… They show up every month in Expenses with a "Mark paid" button. Salaries come from the Team tab.</div>
+          {fin.recurring.map((r) => (
+            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 6, opacity: r.archived ? 0.5 : 1 }}>
+              <span>{r.name} · {catName(r.category_id)} · {egp(r.default_amount)}{r.archived ? " (hidden)" : ""}</span>
+              <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} onClick={() => recAction.run(() => act((t) => db.update("recurring_expenses", r.id, { archived: !r.archived }, t)))}>{r.archived ? "Show" : "Hide"}</button>
+            </div>
+          ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            <input style={inputStyle} placeholder="Name (e.g. Office rent)" value={rec.name} onChange={(e) => setRec((s) => ({ ...s, name: e.target.value }))} />
+            <SelectWithAdd value={rec.categoryId} onChange={(v) => setRec((s) => ({ ...s, categoryId: v }))} placeholder="Category"
+              options={fin.categories.filter((c) => !c.archived)} onAdd={addCategory} />
+            <input type="number" style={inputStyle} placeholder="Usual monthly amount" value={rec.amount} onChange={(e) => setRec((s) => ({ ...s, amount: e.target.value }))} />
+            <button style={btnPrimary} disabled={recAction.busy} onClick={() => recAction.run(async () => {
+              if (!rec.name.trim()) throw new Error("Enter a name.");
+              await act((t) => db.insert("recurring_expenses", { name: rec.name.trim(), category_id: rec.categoryId || null, default_amount: num(rec.amount) }, t));
+              setRec({ name: "", categoryId: "", amount: "" });
+            })}>Add fixed item</button>
+          </div>
+          <FinError text={recAction.error} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: my earnings (everyone who isn't Admin / CEO) ----------
+// =====================================================================
+function MyEarnings({ ctx }) {
+  const { fin, profile, users, calc, targetsMap, thresholds, userName, dealTitleById } = ctx;
+  const [q, setQ] = useState(currentQuarterKey());
+  const qKeys = [...new Set(fin.txns.filter((t) => t.kind === "commission_in").map((t) => quarterKeyOf(t.occurred_at)))];
+  const myLines = calc.lines.filter((l) => l.beneficiaryId === profile.id);
+  const allEarned = round2(myLines.reduce((s, l) => s + l.entitled, 0));
+  const allPaid = round2(myLines.reduce((s, l) => s + l.paid, 0));
+  const quarterEarned = round2(myLines.reduce((s, l) => s + l.detail.filter((x) => x.quarter === q).reduce((a, x) => a + x.amount, 0), 0));
+  const target = num(targetsMap[profile.id]);
+  const achieved = calc.achievement(profile.id, q);
+  const pct = target ? (achieved / target) * 100 : 0;
+  const tier = calc.tierOf(profile.id, q);
+  const next = thresholds[tier + 1];
+  const needed = next !== undefined && target ? Math.max(0, (num(next) / 100) * target - achieved) : null;
+  const salary = fin.salaries.find((s) => s.user_id === profile.id);
+  const myPlans = fin.rates.filter((r) => r.beneficiary_id === profile.id);
+  const team = getSubtreeIds(users, profile.id).filter((id) => id !== profile.id).map((id) => users.find((u) => u.id === id)).filter(Boolean);
+  const teamWithTargets = team.filter((u) => targetsMap[u.id] !== undefined);
+  const salaryPayments = fin.txns.filter((t) => t.kind === "salary" && t.beneficiary_id === profile.id).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at)).slice(0, 6);
+
+  return (
+    <>
+      <FinTitle right={<PeriodPicker value={q} onChange={setQ} options={quarterOptions(qKeys)} />}>My earnings</FinTitle>
+      <div style={{ ...finCard, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          <div style={{ fontWeight: 600, color: COLORS.navy }}>My target · {quarterLabel(q)}</div>
+          <Badge tone={tier > 0 ? "active" : "neutral"}>{tierLabel(tier, thresholds)}</Badge>
+        </div>
+        {target ? (
+          <>
+            <TargetBar pct={pct} thresholds={thresholds} />
+            <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, fontSize: 12.5, marginTop: 8 }}>
+              <span><b>{egp(achieved)}</b> of {egp(target)} ({round2(pct)}%)</span>
+              <span style={{ color: COLORS.textMuted }}>{needed !== null ? `${egp(needed)} more to reach ${tierLabel(tier + 1, thresholds)}` : "You're on the top tier 🎉"}</span>
+            </div>
+          </>
+        ) : <div style={{ fontSize: 13, color: COLORS.textMuted }}>No target set for you yet.</div>}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        <FinStat label={`Earned in ${quarterLabel(q).split(" (")[0]}`} value={egp(quarterEarned)} tone="success" />
+        <FinStat label="Earned (all time)" value={egp(allEarned)} />
+        <FinStat label="Paid to me" value={egp(allPaid)} />
+        <FinStat label="Still owed to me" value={egp(allEarned - allPaid)} tone={allEarned - allPaid > 0.5 ? "danger" : undefined} />
+        {salary && <FinStat label="Monthly salary" value={egp(salary.monthly_salary)} />}
+      </div>
+
+      {myPlans.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>My commission rates</div>
+          <TableWrap>
+            <thead><tr><th style={thStyle}>When a deal is closed by</th>{thresholds.map((t, i) => <th key={i} style={thNum}>{i === 0 ? "Base" : `From ${t}%`}</th>)}</tr></thead>
+            <tbody>
+              {myPlans.map((r) => (
+                <tr key={r.seller_id}>
+                  <td style={tdStyle}>{r.seller_id === profile.id ? "Me" : userName(r.seller_id)}</td>
+                  {thresholds.map((_, i) => <td key={i} style={tdNum}>{rateAt(r.rates, i)}%</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
+      )}
+
+      {teamWithTargets.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>My team's targets</div>
+          <TableWrap>
+            <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Target</th><th style={thNum}>Achieved</th><th style={thStyle}>Progress</th><th style={thNum}>%</th><th style={thStyle}>Tier</th><th style={thStyle}>Next</th></tr></thead>
+            <tbody>{teamWithTargets.map((u) => <TargetRow key={u.id} u={u} q={q} ctx={ctx} />)}</tbody>
+          </TableWrap>
+        </div>
+      )}
+
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>My commissions by deal</div>
+      {myLines.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13 }}>No approved deals with collected commission yet.</div> : (
+        <TableWrap>
+          <thead><tr><th style={thStyle}>Deal</th><th style={thStyle}>Rate</th><th style={thNum}>Earned</th><th style={thNum}>Paid</th><th style={thNum}>Remaining</th></tr></thead>
+          <tbody>
+            {myLines.map((l) => (
+              <tr key={l.dealId}>
+                <td style={{ ...tdStyle, whiteSpace: "normal" }}>{dealTitleById(l.dealId)}</td>
+                <td style={{ ...tdStyle, color: COLORS.textMuted }}>{[...new Set(l.detail.map((x) => `${x.rate}%${x.level > 0 ? ` on ${userName(x.agentId)}` : ""}`))].join(", ")}</td>
+                <td style={tdNum}>{egp(l.entitled)}</td>
+                <td style={tdNum}>{egp(l.paid)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: l.remaining > 0.5 ? COLORS.danger : COLORS.success }}>{egp(l.remaining)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </TableWrap>
+      )}
+
+      {salaryPayments.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Recent salary payments</div>
+          <div style={{ fontSize: 13, display: "flex", flexDirection: "column", gap: 4 }}>
+            {salaryPayments.map((t) => <div key={t.id}>{formatDate(t.occurred_at)} — {egpFull(t.amount)}</div>)}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// =====================================================================
+// ---------- FINANCE: the section itself ----------
+// =====================================================================
+function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal }) {
+  const isAdmin = isFinanceAdmin(profile);
+  const [tab, setTab] = useState(isAdmin ? "overview" : "earnings");
+  const thresholds = (fin.settings?.tier_thresholds || [0, 70, 100]).map(num);
+  const targetsMap = useMemo(() => Object.fromEntries(fin.targets.map((t) => [t.user_id, num(t.quarterly_target)])), [fin.targets]);
+  const calc = useMemo(() => computeFinance({
+    deals: fin.deals, dealAgents: fin.dealAgents, dealRates: fin.dealRates, txns: fin.txns, targets: targetsMap, thresholds,
+  }), [fin, targetsMap]); // eslint-disable-line
+  const balances = useMemo(() => accountBalances(fin.accounts, fin.txns), [fin.accounts, fin.txns]);
+  const userName = (id) => users.find((u) => u.id === id)?.name || "—";
+  const accountName = (id) => fin.accounts.find((a) => a.id === id)?.name || "—";
+  const dealTitle = (d) => {
+    if (!d) return "—";
+    const unit = units.find((u) => u.id === d.unit_id);
+    const unitText = unit ? `${unit.type} · ${unit.unitNumber} · ${getProjectInfo(unit).name}` : d.unit_label;
+    return [unitText, d.client_label].filter(Boolean).join(" — ") || "Deal";
+  };
+  const dealTitleById = (id) => dealTitle(fin.deals.find((d) => d.id === id));
+  const addCategory = async (name) => {
+    let id = null;
+    await act(async (t) => {
+      const rows = await db.insert("expense_categories", { name }, t);
+      id = rows && rows[0] && rows[0].id;
+    });
+    return id;
+  };
+  const people = users.filter((u) => u.role !== "pending").sort((a, b) => a.name.localeCompare(b.name));
+  const ctx = { fin, users, profile, isAdmin, calc, thresholds, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
+
+  if (fin.error) {
+    return (
+      <div style={{ ...finCard, color: COLORS.danger, fontSize: 13.5 }}>
+        Finance data could not be loaded: {fin.error}
+        <div style={{ color: COLORS.textMuted, marginTop: 6 }}>If this is the first time, run <code>sql/add-finance-module.sql</code> in the Supabase SQL editor.</div>
+      </div>
+    );
+  }
+  if (!fin.loaded) return <div style={{ color: COLORS.textMuted, fontSize: 14 }}>Loading finance…</div>;
+
+  const pendingCount = fin.deals.filter((d) => d.status === "pending").length;
+  const tabs = isAdmin
+    ? [
+        { id: "overview", label: "Overview" },
+        { id: "approvals", label: `Approvals${pendingCount ? ` (${pendingCount})` : ""}` },
+        { id: "deals", label: "Deals & commissions" },
+        { id: "targets", label: "Targets" },
+        { id: "expenses", label: "Expenses" },
+        { id: "treasury", label: "Treasury & reports" },
+        { id: "team", label: "Team plans" },
+        { id: "settings", label: "Settings" },
+      ]
+    : [
+        { id: "earnings", label: "My earnings" },
+        { id: "deals", label: "Deals" },
+      ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 8 }}>
+        {tabs.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
+            background: tab === t.id ? COLORS.creamDark : "transparent", color: tab === t.id ? COLORS.navy : COLORS.textMuted,
+          }}>{t.label}</button>
+        ))}
+      </div>
+      {tab === "overview" && isAdmin && <FinOverview ctx={ctx} goTab={setTab} />}
+      {tab === "approvals" && isAdmin && <FinApprovals ctx={ctx} />}
+      {tab === "deals" && <FinDeals ctx={ctx} />}
+      {tab === "targets" && isAdmin && <FinTargets ctx={ctx} people={people} />}
+      {tab === "expenses" && isAdmin && <FinExpenses ctx={ctx} />}
+      {tab === "treasury" && isAdmin && <FinTreasury ctx={ctx} />}
+      {tab === "team" && isAdmin && <FinTeam ctx={ctx} people={people} />}
+      {tab === "settings" && isAdmin && <FinSettings ctx={ctx} />}
+      {tab === "earnings" && !isAdmin && <MyEarnings ctx={ctx} />}
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(() => loadSession()); // { access_token, refresh_token, user }
   const [profile, setProfile] = useState(null);
@@ -2596,6 +4602,9 @@ export default function App() {
   const [clientProjectLinks, setClientProjectLinks] = useState([]);
   const [clientUnitLinks, setClientUnitLinks] = useState([]);
   const [attendance, setAttendance] = useState([]);
+  const EMPTY_FIN = { loaded: false, error: "", deals: [], dealAgents: [], dealRates: [], txns: [], accounts: [], categories: [], recurring: [], targets: [], salaries: [], rates: [], settings: null };
+  const [fin, setFin] = useState(EMPTY_FIN);
+  const [dealModal, setDealModal] = useState(null); // { initial } | { editing: { deal, agents } }
   const [dataLoading, setDataLoading] = useState(() => !!loadSession());
   const [loadError, setLoadError] = useState("");
 
@@ -2674,6 +4683,64 @@ export default function App() {
 
     const me = profiles.find((p) => p.id === currentSession.user.id);
     setProfile(me || null);
+    loadFinance(t);
+  };
+
+  // Finance loads separately so a problem there never blocks the rest of the CRM
+  const loadFinance = async (t) => {
+    try {
+      const [deals, dealAgents, dealRates, txns, accounts, categories, recurring, targets, salaries, rates, settingsRows] = await Promise.all([
+        db.selectAll("deals", "&order=created_at.desc", t),
+        db.selectAll("deal_agents", "", t),
+        db.selectAll("deal_rates", "", t),
+        db.selectAll("finance_transactions", "&order=occurred_at.asc", t),
+        db.select("finance_accounts", "&order=created_at", t),
+        db.select("expense_categories", "&order=name", t),
+        db.select("recurring_expenses", "&order=name", t),
+        db.select("staff_targets", "", t),
+        db.select("staff_salaries", "", t),
+        db.select("commission_rates", "", t),
+        db.select("finance_settings", "", t),
+      ]);
+      setFin({
+        loaded: true, error: "", deals, dealAgents, dealRates, txns,
+        accounts: accounts || [], categories: categories || [], recurring: recurring || [],
+        targets: targets || [], salaries: salaries || [], rates: rates || [], settings: (settingsRows || [])[0] || null,
+      });
+    } catch (err) {
+      setFin((f) => ({ ...f, error: err.message || "Could not load finance data" }));
+    }
+  };
+  const refreshFinance = async () => loadFinance(await getValidToken());
+
+  // Every finance change goes through here: run it, then reload finance
+  // (and units/clients too when approving/cancelling, since those change them)
+  const finAct = async (fn, opts = {}) => {
+    const t = await getValidToken();
+    await fn(t);
+    await loadFinance(t);
+    if (opts.full) { await refreshUnits(); await refreshClients(); }
+  };
+
+  const saveDeal = async ({ deal, agents, approveNow, accountId }) => {
+    const t = await getValidToken();
+    let dealId;
+    if (dealModal && dealModal.editing) {
+      dealId = dealModal.editing.deal.id;
+      await db.update("deals", dealId, deal, t);
+      await db.removeWhere("deal_agents", `deal_id=eq.${dealId}`, t);
+    } else {
+      const created = await db.insert("deals", { ...deal, created_by: profile.id }, t);
+      dealId = (Array.isArray(created) ? created[0] : created).id;
+    }
+    await db.insert("deal_agents", agents.map((a) => ({ ...a, deal_id: dealId })), t);
+    if (approveNow) {
+      await db.rpc("approve_deal", { p_deal: dealId, p_account: accountId || null, p_collected_at: dateInputToIso(deal.deal_date) }, t);
+    }
+    setDealModal(null);
+    await loadFinance(t);
+    if (approveNow) { await refreshUnits(); await refreshClients(); }
+    if (!isFinanceAdmin(profile)) window.alert("Deal sent for approval ✓");
   };
 
   const fetchAll = async (currentSession) => {
@@ -2710,6 +4777,14 @@ export default function App() {
     })();
     // eslint-disable-next-line
   }, []);
+
+  // Keep finance numbers fresh while someone is looking at them
+  useEffect(() => {
+    if (!session || section !== "finance") return;
+    const id = setInterval(() => { refreshFinance().catch(() => {}); }, 60000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line
+  }, [section, session]);
 
   const handleAuthed = (newSession) => {
     saveSession(newSession);
@@ -2878,7 +4953,7 @@ export default function App() {
   };
   const pendingDeleteUnits = units.filter((u) => u.status === "pending_delete");
 
-  const myUnits = units.filter((u) => u.salesIds.some((id) => visibleSalesIds.includes(id)) && u.status !== "hold");
+  const myUnits = units.filter((u) => u.salesIds.some((id) => visibleSalesIds.includes(id)) && u.status !== "hold" && u.status !== "sold");
   const holdUnits = units.filter((u) => u.status === "hold" && (profile?.role === "admin" || profile?.role === "ceo" || u.salesIds.some((id) => visibleSalesIds.includes(id))));
   const randomUnits = useMemo(() => [...units].filter((u) => u.status === "active").sort(() => 0.5 - Math.random()).slice(0, 6), [units]);
 
@@ -3048,6 +5123,7 @@ export default function App() {
     setClientActivity([]);
     setClientProjectLinks([]);
     setClientUnitLinks([]);
+    setFin(EMPTY_FIN);
   };
 
   // --- Render states ---
@@ -3072,9 +5148,11 @@ export default function App() {
 
   if (!profile || profile.role === "pending") return <PendingScreen onSignOut={signOut} />;
 
+  const finPending = isFinanceAdmin(profile) ? fin.deals.filter((d) => d.status === "pending").length : 0;
   const SECTIONS = [
     { id: "clients", label: "Clients", icon: MessageSquare },
     { id: "units", label: "Units", icon: Building2 },
+    { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", icon: Wallet },
     { id: "profile", label: "My Profile", icon: UserRound },
   ];
   const UNITS_SUBNAV = [
@@ -3370,6 +5448,7 @@ export default function App() {
                     onRestore={() => setRestoreTarget(client)}
                     onOpenUnit={(u) => setOpenUnit(u)}
                     onToggleUnitLink={(uid) => toggleClientUnitLink(client, uid)}
+                    onMarkSold={() => setDealModal({ initial: { clientId: client.id, unitId: linkedUnitIds.length === 1 ? linkedUnitIds[0] : "" } })}
                   />
                 );
               })()
@@ -3442,6 +5521,19 @@ export default function App() {
               />
             )}
           </>
+        )}
+
+        {section === "finance" && (
+          <FinanceSection
+            profile={profile}
+            users={users}
+            units={units}
+            fin={fin}
+            act={finAct}
+            getProjectInfo={getProjectInfo}
+            onNewDeal={(initial) => setDealModal({ initial })}
+            onEditDeal={(deal) => setDealModal({ editing: { deal, agents: fin.dealAgents.filter((a) => a.deal_id === deal.id) } })}
+          />
         )}
 
         {section === "profile" && tab === "dashboard" && (profile.role === "admin" || profile.role === "ceo") && (
@@ -3530,6 +5622,23 @@ export default function App() {
         )}
       </div>
 
+      {dealModal && (
+        <DealFormModal
+          profile={profile}
+          isAdmin={isFinanceAdmin(profile)}
+          users={users}
+          units={units}
+          clients={clients}
+          visibleSalesIds={visibleSalesIds}
+          accounts={fin.accounts}
+          getProjectInfo={getProjectInfo}
+          initial={dealModal.initial}
+          editing={dealModal.editing}
+          onSave={saveDeal}
+          onClose={() => setDealModal(null)}
+        />
+      )}
+
       {openUnit && (
         <div>
           <UnitModal
@@ -3545,6 +5654,7 @@ export default function App() {
             onReassign={reassignUnit}
             canEdit={profile.role === "admin" || openUnit.salesIds.includes(profile.id)}
             onEditRequest={(u) => { setOpenUnit(null); setEditingUnit(u); setTab("add"); }}
+            onMarkSold={(u) => { setOpenUnit(null); setDealModal({ initial: { unitId: u.id } }); }}
             onRequestDelete={
               profile.role !== "admin" && openUnit.salesIds.some((id) => visibleSalesIds.includes(id))
                 ? requestDelete
