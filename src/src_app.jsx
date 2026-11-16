@@ -3883,7 +3883,7 @@ function FinExpenses({ ctx }) {
     <>
       <FinTitle right={<>
         <PeriodPicker value={month} onChange={setMonth} options={monthOptions.reverse()} />
-        <button style={btnPrimary} onClick={() => setAdding(true)}>+ Add expense</button>
+        <button style={btnPrimary} onClick={() => setAdding(true)}>− Money out</button>
       </>}>Expenses</FinTitle>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
         <FinStat label="Fixed this month (expected)" value={egp(fixedTotal)} />
@@ -3955,41 +3955,100 @@ function FinExpenses({ ctx }) {
   );
 }
 
-function ExpenseModal({ ctx, onClose }) {
-  const { fin, act, addCategory } = ctx;
+// Money out of any account, under any item: a fixed monthly item, a salary, or any category
+function ExpenseModal({ ctx, onClose, defaultAccountId }) {
+  const { fin, act, addCategory, users } = ctx;
   const accounts = fin.accounts.filter((a) => !a.archived);
-  const [categoryId, setCategoryId] = useState("");
+  const [item, setItem] = useState(""); // "cat:<id>" | "rec:<id>" | "sal:<userId>"
+  const [newCat, setNewCat] = useState(null);
   const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState(accounts[0]?.id || "");
+  const [accountId, setAccountId] = useState(defaultAccountId || accounts[0]?.id || "");
   const [date, setDate] = useState(todayInput());
   const [description, setDescription] = useState("");
   const { busy, error, run } = useAction();
+
+  const recurring = fin.recurring.filter((r) => !r.archived);
+  const salaries = fin.salaries.filter((x) => num(x.monthly_salary) > 0)
+    .map((x) => ({ ...x, user: users.find((u) => u.id === x.user_id) }))
+    .filter((x) => x.user && x.user.role !== "pending");
+  const categories = fin.categories.filter((c) => !c.archived);
+  const [type, id] = item.split(":");
+  const month = monthKeyOf(dateInputToIso(date));
+  const alreadyPaid = type === "rec" || type === "sal"
+    ? fin.txns.filter((t) => t.period === month && (type === "rec" ? t.recurring_id === id : t.kind === "salary" && t.beneficiary_id === id)).reduce((sum, t) => sum + num(t.amount), 0)
+    : 0;
+
+  const choose = (v) => {
+    if (v === "__add__") { setNewCat(""); return; }
+    setItem(v);
+    const [t, i] = v.split(":");
+    if (t === "rec") setAmount(String(num(recurring.find((r) => r.id === i)?.default_amount) || ""));
+    if (t === "sal") setAmount(String(num(salaries.find((x) => x.user_id === i)?.monthly_salary) || ""));
+  };
+
   return (
-    <FinModal title="Add expense" onClose={onClose} width={440}>
+    <FinModal title="Money out" onClose={onClose} width={460}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Field label="Category" required>
-          <SelectWithAdd value={categoryId} onChange={setCategoryId} placeholder="Choose category"
-            options={fin.categories.filter((c) => !c.archived)} onAdd={addCategory} />
-        </Field>
-        <Field label="Amount (EGP)" required><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Paid from" required>
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({egp(ctx.balances[a.id] || 0)})</option>)}
           </select>
         </Field>
+        <Field label="For" required>
+          {newCat !== null ? (
+            <div style={{ display: "flex", gap: 6 }}>
+              <input autoFocus style={inputStyle} placeholder="New category name" value={newCat} onChange={(e) => setNewCat(e.target.value)} />
+              <button style={btnPrimary} disabled={!newCat.trim()} onClick={() => run(async () => {
+                const cid = await addCategory(newCat.trim());
+                if (cid) setItem(`cat:${cid}`);
+                setNewCat(null);
+              })}>Add</button>
+              <button style={btnGhost} onClick={() => setNewCat(null)}>Cancel</button>
+            </div>
+          ) : (
+            <select value={item} onChange={(e) => choose(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <option value="">Choose…</option>
+              {recurring.length > 0 && (
+                <optgroup label="Fixed monthly items">
+                  {recurring.map((r) => <option key={r.id} value={`rec:${r.id}`}>{r.name}</option>)}
+                </optgroup>
+              )}
+              {salaries.length > 0 && (
+                <optgroup label="Salaries">
+                  {salaries.map((x) => <option key={x.user_id} value={`sal:${x.user_id}`}>Salary — {x.user.name}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Other (by category)">
+                {categories.map((c) => <option key={c.id} value={`cat:${c.id}`}>{c.name}</option>)}
+                <option value="__add__">+ Add new category…</option>
+              </optgroup>
+            </select>
+          )}
+        </Field>
+        {(type === "rec" || type === "sal") && (
+          <div style={{ fontSize: 12, color: alreadyPaid ? COLORS.danger : COLORS.textMuted }}>
+            {alreadyPaid ? `Already paid ${egpFull(alreadyPaid)} for ${monthLabel(month)} — this will be added on top.` : `Counts as paid for ${monthLabel(month)} (from the date below).`}
+          </div>
+        )}
+        <Field label="Amount (EGP)" required><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <Field label="Description"><input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <Field label="Note"><input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         <FinError text={error} />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button style={btnGhost} onClick={onClose}>Cancel</button>
           <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
-            if (!categoryId) throw new Error("Choose a category.");
+            if (!item) throw new Error("Choose what the money is for.");
             if (num(amount) <= 0) throw new Error("Enter the amount.");
             if (!accountId) throw new Error("Choose the account.");
-            await act((t) => db.insert("finance_transactions", {
-              kind: "expense", direction: "out", amount: num(amount), account_id: accountId, occurred_at: dateInputToIso(date),
-              category_id: categoryId, description: description.trim() || null,
-            }, t));
+            const base = { direction: "out", amount: num(amount), account_id: accountId, occurred_at: dateInputToIso(date) };
+            let row;
+            if (type === "cat") row = { ...base, kind: "expense", category_id: id, description: description.trim() || null };
+            if (type === "rec") {
+              const r = recurring.find((x) => x.id === id);
+              row = { ...base, kind: "expense", category_id: r?.category_id || null, recurring_id: id, period: month, description: description.trim() || r?.name || null };
+            }
+            if (type === "sal") row = { ...base, kind: "salary", beneficiary_id: id, period: month, description: description.trim() || `Salary ${monthLabel(month)}` };
+            await act((t) => db.insert("finance_transactions", row, t));
             onClose();
           })}>Save</button>
         </div>
@@ -4030,7 +4089,14 @@ function FinTreasury({ ctx }) {
   const [category, setCategory] = useState("");
   const [person, setPerson] = useState("");
   const [modal, setModal] = useState(null);
+  const delAction = useAction();
   const range = periodRange(preset, from, to);
+  const removeTx = (t) => delAction.run(async () => {
+    const what = `${TX_KIND_LABEL[t.kind]} of ${egpFull(t.amount)} on ${formatDate(t.occurred_at)}`;
+    const linked = t.kind === "transfer" && t.transfer_group ? fin.txns.filter((x) => x.transfer_group === t.transfer_group) : [t];
+    if (!window.confirm(`Delete this ${what}?${linked.length > 1 ? " Both sides of the transfer will be removed." : ""}${t.kind === "commission_in" ? " Commissions and targets will be recalculated." : ""}`)) return;
+    await ctx.act(async (tok) => { for (const x of linked) await db.remove("finance_transactions", x.id, tok); });
+  });
   const catName = (id) => fin.categories.find((c) => c.id === id)?.name || "";
 
   const byAccount = (t) => !account || t.account_id === account;
@@ -4086,8 +4152,9 @@ function FinTreasury({ ctx }) {
   return (
     <>
       <FinTitle right={<>
+        <button style={btnGhost} onClick={() => setModal("adjust")}>+ Money in / opening balance</button>
+        <button style={btnPrimary} onClick={() => setModal("out")}>− Money out</button>
         <button style={btnGhost} onClick={() => setModal("transfer")}>Transfer between accounts</button>
-        <button style={btnGhost} onClick={() => setModal("adjust")}>Opening balance / adjustment</button>
       </>}>Treasury</FinTitle>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         {fin.accounts.filter((a) => !a.archived).map((a) => <FinStat key={a.id} label={a.name} value={egp(balances[a.id] || 0)} />)}
@@ -4124,15 +4191,20 @@ function FinTreasury({ ctx }) {
           {Object.entries(byKind).map(([k, v]) => `${TX_KIND_LABEL[k]}: ${v > 0 ? "+" : ""}${egp(v)}`).join("  ·  ")}
         </div>
       )}
+      {opening !== 0 && preset !== "custom" && (
+        <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>
+          Opening balance = everything before this period. Choose "This year" or "Custom dates" to see those movements one by one.
+        </div>
+      )}
       {extraFilters && <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>Balances before/after are for the whole account; filtered rows are only a part of it.</div>}
       <TableWrap>
         <thead><tr>
           <th style={thStyle}>Date</th><th style={thStyle}>Description</th><th style={thStyle}>Account</th>
-          <th style={thNum}>In</th><th style={thNum}>Out</th><th style={thNum}>Balance before</th><th style={thNum}>Balance after</th>
+          <th style={thNum}>In</th><th style={thNum}>Out</th><th style={thNum}>Balance before</th><th style={thNum}>Balance after</th><th style={thStyle} />
         </tr></thead>
         <tbody>
-          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Opening balance</td><td style={tdStyle} /><td style={tdNum} /><td style={tdNum} /><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(opening)}</td></tr>
-          {rows.length === 0 && <tr><td style={tdStyle} colSpan={7}>No movements in this period.</td></tr>}
+          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Opening balance</td><td style={tdStyle} /><td style={tdNum} /><td style={tdNum} /><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(opening)}</td><td style={tdStyle} /></tr>
+          {rows.length === 0 && <tr><td style={tdStyle} colSpan={8}>No movements in this period.</td></tr>}
           {rows.map((r) => (
             <tr key={r.id}>
               <td style={tdStyle}>{formatDate(r.occurred_at)}</td>
@@ -4142,12 +4214,19 @@ function FinTreasury({ ctx }) {
               <td style={{ ...tdNum, color: COLORS.danger }}>{r.direction === "out" ? egp(r.amount) : ""}</td>
               <td style={{ ...tdNum, color: COLORS.textMuted }}>{egp(r.before)}</td>
               <td style={tdNum}>{egp(r.after)}</td>
+              <td style={tdStyle}>
+                {r.source_tx_id
+                  ? <span style={{ fontSize: 11, color: COLORS.textMuted }} title="Removed automatically when its collection is deleted">auto</span>
+                  : <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} disabled={delAction.busy} onClick={() => removeTx(r)}>Delete</button>}
+              </td>
             </tr>
           ))}
-          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Closing balance</td><td style={tdStyle} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalIn)}</td><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalOut)}</td><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(closing)}</td></tr>
+          <tr><td style={tdStyle} /><td style={{ ...tdStyle, fontWeight: 700 }}>Closing balance</td><td style={tdStyle} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalIn)}</td><td style={{ ...tdNum, fontWeight: 700 }}>{egp(totalOut)}</td><td style={tdNum} /><td style={{ ...tdNum, fontWeight: 700 }}>{egp(closing)}</td><td style={tdStyle} /></tr>
         </tbody>
       </TableWrap>
-      {modal && <TreasuryModal mode={modal} ctx={ctx} onClose={() => setModal(null)} />}
+      <FinError text={delAction.error} />
+      {modal === "out" && <ExpenseModal ctx={ctx} defaultAccountId={account} onClose={() => setModal(null)} />}
+      {modal && modal !== "out" && <TreasuryModal mode={modal} ctx={ctx} onClose={() => setModal(null)} />}
     </>
   );
 }
@@ -4167,7 +4246,7 @@ function TreasuryModal({ mode, ctx, onClose }) {
     </select>
   );
   return (
-    <FinModal title={mode === "transfer" ? "Transfer between accounts" : "Opening balance / adjustment"} onClose={onClose} width={440}>
+    <FinModal title={mode === "transfer" ? "Transfer between accounts" : "Money in / opening balance"} onClose={onClose} width={440}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {mode === "transfer" ? (
           <>
