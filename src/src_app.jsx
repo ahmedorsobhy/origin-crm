@@ -2765,18 +2765,24 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
     uplift: round2(l.entitled - l.base),
   }));
 
+  // "Floos Rabna": automatic % of each collection moved to its own account (company share only)
+  const charityByDeal = {};
+  txns.filter((t) => t.kind === "transfer" && t.direction === "out" && t.source_tx_id && t.deal_id).forEach((t) => {
+    charityByDeal[t.deal_id] = round2((charityByDeal[t.deal_id] || 0) + num(t.amount));
+  });
+
   const companyShareByDeal = {};
   Object.keys(collectedByDeal).forEach((dealId) => {
     if (!approved.has(dealId)) return;
     const distributed = out.filter((l) => l.dealId === dealId).reduce((s, l) => s + l.entitled, 0);
-    companyShareByDeal[dealId] = round2(collectedByDeal[dealId] - distributed);
+    companyShareByDeal[dealId] = round2(collectedByDeal[dealId] - distributed - (charityByDeal[dealId] || 0));
   });
 
-  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal };
+  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal, charityByDeal };
 }
 
 // Preview of a pending deal's split using the CURRENT plans (before rates get frozen)
-function previewDistribution({ dealAgents, users, commissionRates, amount, tierOf, quarter, tierCount }) {
+function previewDistribution({ dealAgents, users, commissionRates, amount, tierOf, quarter, tierCount, charityPct = 0 }) {
   const rows = [];
   dealAgents.forEach((a) => {
     const portion = (num(amount) * num(a.split_pct)) / 100;
@@ -2789,7 +2795,8 @@ function previewDistribution({ dealAgents, users, commissionRates, amount, tierO
     });
   });
   const distributed = rows.reduce((s, r) => s + r.amount, 0);
-  return { rows, company: round2(num(amount) - distributed) };
+  const charity = round2((num(amount) * num(charityPct)) / 100);
+  return { rows, charity, company: round2(num(amount) - distributed - charity) };
 }
 
 function accountBalances(accounts, txns, before) {
@@ -3195,7 +3202,7 @@ function ApprovalCard({ deal, ctx }) {
   const quarter = quarterKeyOf(dateInputToIso(collectedAt));
   const preview = previewDistribution({
     dealAgents: agents, users, commissionRates: fin.rates, amount: deal.commission_collected,
-    tierOf: calc.tierOf, quarter, tierCount: thresholds.length,
+    tierOf: calc.tierOf, quarter, tierCount: thresholds.length, charityPct: ctx.charityPct,
   });
   const splitSum = round2(agents.reduce((s, a) => s + num(a.split_pct), 0));
 
@@ -3236,6 +3243,12 @@ function ApprovalCard({ deal, ctx }) {
                 <td style={tdNum}>{egp(r.amount)}</td>
               </tr>
             ))}
+            {preview.charity > 0 && (
+              <tr>
+                <td style={tdStyle} colSpan={4}>Floos Rabna ({ctx.charityPct}%)</td>
+                <td style={tdNum}>{egp(preview.charity)}</td>
+              </tr>
+            )}
             <tr>
               <td style={{ ...tdStyle, fontWeight: 700 }} colSpan={4}>Company keeps</td>
               <td style={{ ...tdNum, fontWeight: 700, color: preview.company < 0 ? COLORS.danger : COLORS.success }}>{egp(preview.company)}</td>
@@ -3385,7 +3398,7 @@ function DealDetail({ deal, ctx, onBack }) {
   const agents = fin.dealAgents.filter((a) => a.deal_id === deal.id);
   const lines = calc.lines.filter((l) => l.dealId === deal.id && (isAdmin || l.beneficiaryId === profile.id));
   const collections = fin.txns.filter((t) => t.kind === "commission_in" && t.deal_id === deal.id);
-  const payouts = fin.txns.filter((t) => t.kind === "payout" && t.deal_id === deal.id && (isAdmin || t.beneficiary_id === profile.id));
+  const payouts = fin.txns.filter((t) => ((t.kind === "payout" && (isAdmin || t.beneficiary_id === profile.id)) || (isAdmin && t.kind === "transfer" && t.source_tx_id && t.direction === "out")) && t.deal_id === deal.id);
   const collected = num(calc.collectedByDeal[deal.id]);
   const [modal, setModal] = useState(null); // 'cashout' | 'collect' | 'rates' | 'cancel'
   const { busy, error, run } = useAction();
@@ -3463,6 +3476,13 @@ function DealDetail({ deal, ctx, onBack }) {
                   </td>
                 </tr>
               ))}
+              {isAdmin && num(calc.charityByDeal[deal.id]) > 0 && (
+                <tr>
+                  <td style={tdStyle} colSpan={2}>Floos Rabna</td>
+                  <td style={tdNum}>{egp(calc.charityByDeal[deal.id])}</td>
+                  <td style={tdStyle} colSpan={3} />
+                </tr>
+              )}
               {isAdmin && (
                 <tr>
                   <td style={{ ...tdStyle, fontWeight: 700 }} colSpan={2}>Company keeps</td>
@@ -3484,11 +3504,12 @@ function DealDetail({ deal, ctx, onBack }) {
               {[...collections, ...payouts].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at)).map((t) => (
                 <tr key={t.id}>
                   <td style={tdStyle}>{formatDate(t.occurred_at)}</td>
-                  <td style={tdStyle}>{t.kind === "commission_in" ? "Collected from client" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind !== "commission_in" ? ` · ${t.description}` : ""}</td>
+                  <td style={tdStyle}>{t.kind === "commission_in" ? "Collected from client" : t.kind === "transfer" ? "Moved to Floos Rabna (automatic)" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind === "payout" ? ` · ${t.description}` : ""}</td>
                   <td style={tdStyle}>{isAdmin ? accountName(t.account_id) : "—"}</td>
                   <td style={tdNum}>{t.direction === "in" ? egp(t.amount) : ""}</td>
                   <td style={tdNum}>{t.direction === "out" ? egp(t.amount) : ""}</td>
-                  {isAdmin && (
+                  {isAdmin && t.kind === "transfer" && <td style={tdStyle} />}
+                  {isAdmin && t.kind !== "transfer" && (
                     <td style={tdStyle}>
                       <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} onClick={() => run(async () => {
                         if (!window.confirm("Delete this movement? Balances and commissions will be recalculated.")) return;
@@ -4040,7 +4061,7 @@ function FinTreasury({ ctx }) {
     t.beneficiary_id ? userName(t.beneficiary_id) : "",
     t.category_id && t.kind === "expense" ? catName(t.category_id) : "",
     t.description && t.description !== "Commission collected" ? t.description : "",
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(" · ") + (t.source_tx_id ? " (automatic)" : "");
 
   const exportCsv = () => {
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -4332,6 +4353,41 @@ function NamedListEditor({ title, items, onAdd, onToggleArchive, extra }) {
   );
 }
 
+function CharitySettings({ ctx }) {
+  const { fin, act } = ctx;
+  const [pct, setPct] = useState(String(fin.settings?.charity_pct ?? 1));
+  const [accountId, setAccountId] = useState(fin.settings?.charity_account_id || "");
+  const { busy, error, run } = useAction();
+  const [saved, setSaved] = useState(false);
+  return (
+    <div style={finCard}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Floos Rabna</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>
+        This % of every collected commission moves automatically into the chosen account. It comes out of the company's share only — the team's commissions don't change and they don't see it.
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <input type="number" step="0.1" min="0" style={{ ...inputStyle, width: 90, padding: "6px 8px" }} value={pct} onChange={(e) => setPct(e.target.value)} />
+        <span style={{ fontSize: 12, color: COLORS.textMuted }}>% into</span>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none", padding: "6px 8px" }}>
+          <option value="">— Off —</option>
+          {fin.accounts.filter((a) => !a.archived || a.id === accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </div>
+      <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginBottom: 8 }}>Changes apply to new collections only.</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+          setSaved(false);
+          if (num(pct) < 0 || num(pct) > 100) throw new Error("Enter a % between 0 and 100.");
+          await act((t) => db.update("finance_settings", 1, { charity_pct: num(pct), charity_account_id: accountId || null, updated_at: new Date().toISOString() }, t));
+          setSaved(true);
+        })}>Save</button>
+        {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
+      </div>
+      <FinError text={error} />
+    </div>
+  );
+}
+
 function FinSettings({ ctx }) {
   const { fin, act, thresholds, addCategory } = ctx;
   const [tiers, setTiers] = useState(thresholds.map(String));
@@ -4365,6 +4421,8 @@ function FinSettings({ ctx }) {
           </div>
           <FinError text={tierAction.error} />
         </div>
+
+        <CharitySettings ctx={ctx} />
 
         <NamedListEditor title="Accounts (treasuries)" items={fin.accounts}
           onAdd={(name) => act((t) => db.insert("finance_accounts", { name }, t))}
@@ -4538,7 +4596,8 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
     return id;
   };
   const people = users.filter((u) => u.role !== "pending").sort((a, b) => a.name.localeCompare(b.name));
-  const ctx = { fin, users, profile, isAdmin, calc, thresholds, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
+  const charityPct = num(fin.settings?.charity_pct);
+  const ctx = { fin, users, profile, isAdmin, calc, thresholds, charityPct, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
 
   if (fin.error) {
     return (
