@@ -14,3 +14,10 @@ Create `src/src_app_deploy.jsx` by replacing the `lucide-react` import with `./i
     esbuild src/entry.jsx --bundle --minify --outfile=bundle.js --loader:.jsx=jsx
 
 Needs `react`, `react-dom`, `react-icons` installed.
+
+## Finance module
+Deals ("Mark as sold" → approval), commission splits up the manager chain with quarterly target tiers (retroactive within the quarter), cash out, salaries and fixed monthly expenses, treasury accounts and a statement report.
+
+- Run `sql/add-finance-module.sql` once in the Supabase SQL editor (safe to re-run).
+- Full finance access: **Admin** and **CEO** roles. Everyone else sees only their own deals, rates, earnings and salary (enforced by Row Level Security), and managers also see their team's deals and target progress.
+- Set each person's target, salary and commission chain from Finance → Team plans.
