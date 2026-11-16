@@ -2650,6 +2650,19 @@ function monthKeyOf(dateLike) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 }
 function currentMonthKey() { return monthKeyOf(new Date()); }
+// Salaries are paid after the month ends (October's salary is due 1 November);
+// fixed monthly items (rent…) are paid in advance (November's rent is due 1 November).
+function shiftMonth(key, delta) {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+function monthStart(key) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1);
+}
+const salaryDueDate = (monthKey) => monthStart(shiftMonth(monthKey, 1));
+const fixedDueDate = (monthKey) => monthStart(monthKey);
 function monthLabel(key) {
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -2847,10 +2860,12 @@ function isoToDateInput(iso) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+const dealShownDate = (d) => (d.status === "approved" && d.transfer_date ? d.transfer_date : d.deal_date);
 const DEAL_STATUS = {
   pending: { label: "Waiting for approval", tone: "pending" },
   returned: { label: "Returned for changes", tone: "hold" },
-  approved: { label: "Approved", tone: "active" },
+  reserved: { label: "Reserved · promise of sale", tone: "neutral" },
+  approved: { label: "Done deal", tone: "active" },
   rejected: { label: "Rejected", tone: "hold" },
   cancelled: { label: "Cancelled", tone: "neutral" },
 };
@@ -3010,8 +3025,10 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const [clientId, setClientId] = useState(editing?.deal.client_id || initial?.clientId || "");
   const [salePrice, setSalePrice] = useState(editing ? String(editing.deal.sale_price) : "");
   const [commission, setCommission] = useState(editing ? String(editing.deal.commission_total) : "");
-  const [collected, setCollected] = useState(editing ? String(editing.deal.commission_collected) : "");
-  const [collectedTouched, setCollectedTouched] = useState(!!editing);
+  const [collected, setCollected] = useState("");
+  const [collectedTouched, setCollectedTouched] = useState(false);
+  const [asDone, setAsDone] = useState(false);
+  const [transferDate, setTransferDate] = useState(todayInput());
   const [dealDate, setDealDate] = useState(editing?.deal.deal_date || todayInput());
   const [notes, setNotes] = useState(editing?.deal.notes || "");
   const [agents, setAgents] = useState(() => {
@@ -3044,13 +3061,14 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
     if (!unitId && !clientId) throw new Error("Choose the unit or the client of this deal.");
     if (num(salePrice) <= 0) throw new Error("Enter the sale price.");
     if (num(commission) <= 0) throw new Error("Enter the total commission.");
-    const coll = collectedTouched ? num(collected) : num(commission);
+    const done = isAdmin && approveNow && asDone;
+    const coll = done ? (collectedTouched ? num(collected) : num(commission)) : 0;
     if (coll < 0 || coll > num(commission)) throw new Error("Collected commission can't be more than the total commission.");
     if (agents.some((a) => !a.agentId)) throw new Error("Choose the sales person for every row.");
     if (new Set(agents.map((a) => a.agentId)).size !== agents.length) throw new Error("The same person is listed twice.");
     if (agents.some((a) => num(a.split) <= 0)) throw new Error("Every share must be more than 0%.");
     if (Math.abs(splitSum - 100) > 0.05) throw new Error(`Shares must add up to 100% (now ${splitSum}%).`);
-    if (approveNow && coll > 0 && !accountId) throw new Error("Choose the account that received the money.");
+    if (done && coll > 0 && !accountId) throw new Error("Choose the account that received the money.");
     // absorb tiny rounding into the last row so the database sees exactly 100
     const fixed = agents.map((a) => ({ agent_id: a.agentId, split_pct: round2(num(a.split)) }));
     const diff = round2(100 - fixed.reduce((s, a) => s + a.split_pct, 0));
@@ -3065,12 +3083,15 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         client_label: client ? client.name : null,
         sale_price: num(salePrice),
         commission_total: num(commission),
-        commission_collected: coll,
+        commission_collected: 0,
         deal_date: dealDate,
         notes: notes.trim() || null,
       },
       agents: fixed,
       approveNow,
+      asDone: done,
+      amount: coll,
+      transferDate,
       accountId,
     });
   });
@@ -3094,13 +3115,10 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
           <Field label="Sale price (EGP)" required>
             <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
           </Field>
-          <Field label="Total commission (EGP)" required>
-            <input type="number" min="0" style={inputStyle} value={commission} onChange={(e) => { setCommission(e.target.value); if (!collectedTouched) setCollected(e.target.value); }} />
+          <Field label="Expected commission (EGP)" required>
+            <input type="number" min="0" style={inputStyle} value={commission} onChange={(e) => setCommission(e.target.value)} />
           </Field>
-          <Field label="Commission collected so far (EGP)">
-            <input type="number" min="0" style={inputStyle} value={collectedTouched ? collected : commission} onChange={(e) => { setCollected(e.target.value); setCollectedTouched(true); }} />
-          </Field>
-          <Field label="Deal / collection date" required>
+          <Field label="Promise of sale date" required>
             <input type="date" style={inputStyle} value={dealDate} onChange={(e) => setDealDate(e.target.value)} />
           </Field>
         </div>
@@ -3147,14 +3165,28 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
           <div style={{ background: "#EEF3EF", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
               <input type="checkbox" checked={approveNow} onChange={(e) => setApproveNow(e.target.checked)} />
-              Approve immediately (you are adding it as Admin / CEO)
+              Approve now (you are adding it as Admin / CEO)
             </label>
             {approveNow && (
-              <Field label="Money received into">
-                <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-                  {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </Field>
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Reserved — promise of sale (no money yet)</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={asDone} onChange={() => setAsDone(true)} /> Done — transfer done, commission collected</label>
+              </div>
+            )}
+            {approveNow && asDone && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+                <Field label="Commission collected (EGP)">
+                  <input type="number" min="0" style={inputStyle} value={collectedTouched ? collected : commission} onChange={(e) => { setCollected(e.target.value); setCollectedTouched(true); }} />
+                </Field>
+                <Field label="Money received into">
+                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                    {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Money in / transfer date">
+                  <input type="date" style={inputStyle} value={transferDate} onChange={(e) => setTransferDate(e.target.value)} />
+                </Field>
+              </div>
             )}
           </div>
         )}
@@ -3196,12 +3228,14 @@ function ApprovalCard({ deal, ctx }) {
   const agents = fin.dealAgents.filter((a) => a.deal_id === deal.id);
   const activeAccounts = fin.accounts.filter((a) => !a.archived);
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
-  const [collectedAt, setCollectedAt] = useState(deal.deal_date || todayInput());
+  const [collectedAt, setCollectedAt] = useState(todayInput());
+  const [asDone, setAsDone] = useState(false);
+  const [amount, setAmount] = useState(String(num(deal.commission_total)));
   const [note, setNote] = useState("");
   const { busy, error, run } = useAction();
-  const quarter = quarterKeyOf(dateInputToIso(collectedAt));
+  const quarter = quarterKeyOf(dateInputToIso(asDone ? collectedAt : todayInput()));
   const preview = previewDistribution({
-    dealAgents: agents, users, commissionRates: fin.rates, amount: deal.commission_collected,
+    dealAgents: agents, users, commissionRates: fin.rates, amount: asDone ? num(amount) : deal.commission_total,
     tierOf: calc.tierOf, quarter, tierCount: thresholds.length, charityPct: ctx.charityPct,
   });
   const splitSum = round2(agents.reduce((s, a) => s + num(a.split_pct), 0));
@@ -3219,9 +3253,8 @@ function ApprovalCard({ deal, ctx }) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, fontSize: 12.5 }}>
         <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
-        <div><b>Commission:</b> {egpFull(deal.commission_total)}</div>
-        <div><b>Collected:</b> {egpFull(deal.commission_collected)}</div>
-        <div><b>Date:</b> {deal.deal_date}</div>
+        <div><b>Expected commission:</b> {egpFull(deal.commission_total)}</div>
+        <div><b>Promise of sale:</b> {deal.deal_date}</div>
       </div>
       <div style={{ fontSize: 12.5 }}>
         <b>Sold by:</b> {agents.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ") || "—"}
@@ -3256,21 +3289,30 @@ function ApprovalCard({ deal, ctx }) {
           </tbody>
         </table>
         <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 4 }}>
-          Preview on the collected amount using today's plans. Tiers may go up later in the quarter and are applied retroactively.
+          {asDone ? "Preview on the collected amount" : "Expected split once the commission is collected"}, using today's plans. Tiers may go up later in the quarter and are applied retroactively.
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Approve as <b>Reserved</b> (promise of sale, no money yet)</label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={asDone} onChange={() => setAsDone(true)} /> Approve as <b>Done</b> (transfer done, commission collected)</label>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-        {num(deal.commission_collected) > 0 && (
-          <Field label="Money received into">
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-              {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </Field>
+        {asDone && (
+          <>
+            <Field label="Commission collected (EGP)">
+              <input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </Field>
+            <Field label="Money received into">
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Money in / transfer date">
+              <input type="date" style={inputStyle} value={collectedAt} onChange={(e) => setCollectedAt(e.target.value)} />
+            </Field>
+          </>
         )}
-        <Field label="Collected on">
-          <input type="date" style={inputStyle} value={collectedAt} onChange={(e) => setCollectedAt(e.target.value)} />
-        </Field>
         <Field label="Note to sales (needed to return / reject)">
           <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
@@ -3287,8 +3329,12 @@ function ApprovalCard({ deal, ctx }) {
           await act((t) => db.update("deals", deal.id, { status: "returned", review_note: note.trim() }, t));
         })}>Return for changes</button>
         <button style={btnSuccess} disabled={busy} onClick={() => run(async () => {
-          await act((t) => db.rpc("approve_deal", { p_deal: deal.id, p_account: accountId || null, p_collected_at: dateInputToIso(collectedAt) }, t), { full: true });
-        })}>{busy ? "Working…" : "Approve"}</button>
+          if (asDone && num(amount) > num(deal.commission_total)) throw new Error("Collected can't be more than the expected commission.");
+          await act((t) => db.rpc("approve_deal", {
+            p_deal: deal.id, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(collectedAt),
+            p_as_done: asDone, p_amount: asDone ? num(amount) : null, p_transfer_date: asDone ? collectedAt : null,
+          }, t), { full: true });
+        })}>{busy ? "Working…" : asDone ? "Approve as Done" : "Approve as Reserved"}</button>
       </div>
     </div>
   );
@@ -3299,7 +3345,7 @@ function ApprovalCard({ deal, ctx }) {
 // =====================================================================
 function FinDeals({ ctx }) {
   const { fin, isAdmin, profile, calc, userName, dealTitle, onNewDeal } = ctx;
-  const [status, setStatus] = useState(isAdmin ? "approved" : "all");
+  const [status, setStatus] = useState("all");
   const [quarter, setQuarter] = useState("all");
   const [person, setPerson] = useState("");
   const [q, setQ] = useState("");
@@ -3307,14 +3353,14 @@ function FinDeals({ ctx }) {
 
   const agentsByDeal = useMemo(() => groupBy(fin.dealAgents, (a) => a.deal_id), [fin.dealAgents]);
   const linesByDeal = useMemo(() => groupBy(calc.lines, (l) => l.dealId), [calc.lines]);
-  const qKeys = [...new Set(fin.deals.map((d) => quarterKeyOf(dateInputToIso(d.deal_date))))];
+  const qKeys = [...new Set(fin.deals.map((d) => quarterKeyOf(dateInputToIso(dealShownDate(d)))))];
 
   const rows = fin.deals
     .filter((d) => status === "all" || d.status === status || (status === "open" && (d.status === "pending" || d.status === "returned")))
-    .filter((d) => quarter === "all" || quarterKeyOf(dateInputToIso(d.deal_date)) === quarter)
+    .filter((d) => quarter === "all" || quarterKeyOf(dateInputToIso(dealShownDate(d))) === quarter)
     .filter((d) => !person || (agentsByDeal[d.id] || []).some((a) => a.agent_id === person))
     .filter((d) => !q || dealTitle(d).toLowerCase().includes(q.toLowerCase()))
-    .sort((a, b) => (b.deal_date || "").localeCompare(a.deal_date || "") || new Date(b.created_at) - new Date(a.created_at));
+    .sort((a, b) => (dealShownDate(b) || "").localeCompare(dealShownDate(a) || "") || new Date(b.created_at) - new Date(a.created_at));
 
   const sumLines = (d, key, onlyMe) => (linesByDeal[d.id] || []).filter((l) => !onlyMe || l.beneficiaryId === profile.id).reduce((s, l) => s + l[key], 0);
   const totals = rows.reduce((acc, d) => {
@@ -3337,7 +3383,7 @@ function FinDeals({ ctx }) {
       </FinTitle>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         <PeriodPicker value={status} onChange={setStatus} options={[
-          { id: "all", label: "All statuses" }, { id: "approved", label: "Approved" }, { id: "open", label: "Waiting / returned" },
+          { id: "all", label: "All statuses" }, { id: "approved", label: "Done deals" }, { id: "reserved", label: "Reserved (promise of sale)" }, { id: "open", label: "Waiting for approval" },
           { id: "rejected", label: "Rejected" }, { id: "cancelled", label: "Cancelled" },
         ]} />
         <PeriodPicker value={quarter} onChange={setQuarter} options={[{ id: "all", label: "All quarters" }, ...quarterOptions(qKeys)]} />
@@ -3370,7 +3416,7 @@ function FinDeals({ ctx }) {
               const rem = round2(ent - paid);
               return (
                 <tr key={d.id} onClick={() => setOpenId(d.id)} style={{ cursor: "pointer" }}>
-                  <td style={tdStyle}>{d.deal_date}</td>
+                  <td style={tdStyle} title={d.status === "approved" ? "Money in / transfer date" : "Promise of sale date"}>{dealShownDate(d)}</td>
                   <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 180 }}>{dealTitle(d)}</td>
                   <td style={{ ...tdStyle, whiteSpace: "normal" }}>{(agentsByDeal[d.id] || []).map((a) => userName(a.agent_id)).join(", ")}</td>
                   <td style={tdStyle}><Badge tone={DEAL_STATUS[d.status].tone}>{DEAL_STATUS[d.status].label}</Badge></td>
@@ -3412,14 +3458,14 @@ function DealDetail({ deal, ctx, onBack }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 17, color: COLORS.navy }}>{dealTitle(deal)}</div>
-            <div style={{ fontSize: 12, color: COLORS.textMuted }}>Deal date {deal.deal_date} · added by {userName(deal.created_by)}</div>
+            <div style={{ fontSize: 12, color: COLORS.textMuted }}>Promise of sale {deal.deal_date}{deal.transfer_date ? ` · money in / transfer ${deal.transfer_date}` : ""} · added by {userName(deal.created_by)}</div>
           </div>
           <Badge tone={DEAL_STATUS[deal.status].tone}>{DEAL_STATUS[deal.status].label}</Badge>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, fontSize: 12.5 }}>
           <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
-          <div><b>Total commission:</b> {egpFull(deal.commission_total)}</div>
-          <div><b>Collected:</b> {egpFull(deal.status === "approved" ? collected : deal.commission_collected)}</div>
+          <div><b>{deal.status === "approved" ? "Total commission" : "Expected commission"}:</b> {egpFull(deal.commission_total)}</div>
+          {deal.status === "approved" && <div><b>Collected:</b> {egpFull(collected)}</div>}
           {deal.status === "approved" && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
         </div>
         <div style={{ fontSize: 12.5 }}><b>Sold by:</b> {agents.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ")}</div>
@@ -3438,6 +3484,12 @@ function DealDetail({ deal, ctx, onBack }) {
               <button style={btnGhost} onClick={() => setModal("rates")}>Adjust rates for this deal</button>
               <button style={btnDanger} onClick={() => setModal("cancel")}>Cancel deal</button>
               <button style={btnSuccess} onClick={() => setModal("cashout")}>Cash out</button>
+            </>
+          )}
+          {isAdmin && deal.status === "reserved" && (
+            <>
+              <button style={btnDanger} onClick={() => setModal("cancel")}>Cancel deal</button>
+              <button style={btnSuccess} onClick={() => setModal("done")}>Mark as done</button>
             </>
           )}
           {isAdmin && (deal.status === "rejected" || deal.status === "cancelled") && (
@@ -3526,6 +3578,7 @@ function DealDetail({ deal, ctx, onBack }) {
 
       {modal === "cashout" && <CashOutModal deal={deal} lines={lines} ctx={ctx} onClose={() => setModal(null)} />}
       {modal === "collect" && <CollectionModal deal={deal} ctx={ctx} collected={collected} onClose={() => setModal(null)} />}
+      {modal === "done" && <MarkDoneModal deal={deal} ctx={ctx} onClose={() => setModal(null)} />}
       {modal === "rates" && <DealRatesModal deal={deal} rows={rateRows} ctx={ctx} onClose={() => setModal(null)} />}
       {modal === "cancel" && (
         <FinModal title="Cancel this deal" onClose={() => setModal(null)} width={440}>
@@ -3624,6 +3677,42 @@ function CashOutModal({ deal, lines, ctx, onClose }) {
           </div>
         </div>
       )}
+    </FinModal>
+  );
+}
+
+function MarkDoneModal({ deal, ctx, onClose }) {
+  const activeAccounts = ctx.fin.accounts.filter((a) => !a.archived);
+  const [amount, setAmount] = useState(String(num(deal.commission_total)));
+  const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
+  const [date, setDate] = useState(todayInput());
+  const { busy, error, run } = useAction();
+  return (
+    <FinModal title="Mark as done — transfer done & commission collected" onClose={onClose} width={460}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>
+          From now on this deal counts toward targets and commissions (in the quarter of the date below), the unit is marked sold and the client moves to Deal Is Done.
+        </div>
+        <Field label="Commission collected (EGP)"><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Received into">
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Money in / transfer date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button style={btnGhost} onClick={onClose}>Cancel</button>
+          <button style={btnSuccess} disabled={busy} onClick={() => run(async () => {
+            if (num(amount) < 0) throw new Error("Enter the amount.");
+            if (num(amount) > num(deal.commission_total)) throw new Error("Collected can't be more than the expected commission.");
+            await ctx.act((t) => db.rpc("complete_deal", {
+              p_deal: deal.id, p_account: accountId || null, p_amount: num(amount), p_collected_at: dateInputToIso(date), p_transfer_date: date,
+            }, t), { full: true });
+            onClose();
+          })}>{busy ? "Saving…" : "Mark as done"}</button>
+        </div>
+      </div>
     </FinModal>
   );
 }
@@ -3727,11 +3816,14 @@ function FinOverview({ ctx, goTab }) {
   const owed = round2(calc.lines.filter((l) => l.remaining > 0).reduce((s, l) => s + l.remaining, 0));
   const overpaid = round2(calc.lines.filter((l) => l.remaining < -0.5).reduce((s, l) => s - l.remaining, 0));
   const toCollect = round2(fin.deals.filter((d) => d.status === "approved").reduce((s, d) => s + Math.max(0, num(d.commission_total) - num(calc.collectedByDeal[d.id])), 0));
+  const reserved = fin.deals.filter((d) => d.status === "reserved");
+  const reservedExpected = round2(reserved.reduce((s, d) => s + num(d.commission_total), 0));
   const pending = fin.deals.filter((d) => d.status === "pending").length;
   const totalBalance = round2(Object.values(balances).reduce((s, v) => s + v, 0));
 
   const salaryRows = fin.salaries.filter((s) => num(s.monthly_salary) > 0 && users.some((u) => u.id === s.user_id && u.role !== "pending"));
-  const unpaidSalaries = salaryRows.filter((s) => !fin.txns.some((t) => t.kind === "salary" && t.beneficiary_id === s.user_id && t.period === month));
+  const salaryMonth = shiftMonth(month, -1); // due on the 1st of this month
+  const unpaidSalaries = salaryRows.filter((s) => !fin.txns.some((t) => t.kind === "salary" && t.beneficiary_id === s.user_id && t.period === salaryMonth));
   const unpaidFixed = fin.recurring.filter((r) => !r.archived && !fin.txns.some((t) => t.recurring_id === r.id && t.period === month));
   const unpaidCount = unpaidSalaries.length + unpaidFixed.length;
 
@@ -3742,12 +3834,12 @@ function FinOverview({ ctx, goTab }) {
         <FinStat label="Money in all accounts" value={egp(totalBalance)} sub="EGP" onClick={() => goTab("treasury")} />
         <FinStat label="Waiting for approval" value={pending} tone={pending ? "danger" : undefined} onClick={() => goTab("approvals")} />
         <FinStat label="Commissions owed to team" value={egp(owed)} tone={owed > 0.5 ? "danger" : undefined} sub={overpaid > 0.5 ? `${egp(overpaid)} overpaid to recover` : undefined} onClick={() => goTab("deals")} />
-        <FinStat label="Left to collect from clients" value={egp(toCollect)} onClick={() => goTab("deals")} />
+        <FinStat label="Reserved deals (promise of sale)" value={reserved.length} sub={`Expected commission ${egp(reservedExpected)}${toCollect > 0.5 ? ` · ${egp(toCollect)} still to collect on done deals` : ""}`} onClick={() => goTab("deals")} />
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <FinStat label="Commissions in (this month)" value={egp(monthIn)} tone="success" sub={`This quarter ${egp(quarterIn)}`} />
         <FinStat label="Commissions paid out (this month)" value={egp(monthPayouts)} />
-        <FinStat label="Expenses & salaries (this month)" value={egp(monthExpenses)} sub={unpaidCount ? `${unpaidCount} fixed items not paid yet` : "All fixed items paid"} onClick={() => goTab("expenses")} />
+        <FinStat label="Expenses & salaries (this month)" value={egp(monthExpenses)} sub={unpaidCount ? `${unpaidCount} due items not paid yet` : "Everything due is paid"} onClick={() => goTab("expenses")} />
         <FinStat label="Net (this month)" value={egp(monthIn - monthPayouts - monthExpenses)} tone={monthIn - monthPayouts - monthExpenses < 0 ? "danger" : "success"} />
       </div>
       <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Accounts</div>
@@ -3805,11 +3897,13 @@ function FinTargets({ ctx, people }) {
 // =====================================================================
 // ---------- FINANCE: expenses (fixed monthly + other) ----------
 // =====================================================================
-function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, accountName }) {
+function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, accountName, dueDate }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(expected || ""));
   const [accountId, setAccountId] = useState(accounts[0]?.id || "");
-  const [date, setDate] = useState(todayInput());
+  const [date, setDate] = useState(() => (dueDate && dueDate > new Date() ? isoToDateInput(dueDate.toISOString()) : todayInput()));
+  const overdue = !dueDate || new Date() >= dueDate;
+  const dueText = dueDate ? dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
   const { busy, error, run } = useAction();
   return (
     <tr>
@@ -3842,7 +3936,7 @@ function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, ac
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Badge tone="pending">Not paid</Badge>
+            {overdue ? <Badge tone="pending">Not paid{dueText ? ` · was due ${dueText}` : ""}</Badge> : <Badge tone="neutral">Due {dueText}</Badge>}
             <button style={{ ...btnPrimary, padding: "5px 10px", fontSize: 12 }} onClick={() => setOpen(true)}>Mark paid</button>
           </div>
         )}
@@ -3896,10 +3990,10 @@ function FinExpenses({ ctx }) {
       {salaryRows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No salaries set. Add them from the Team tab.</div> : (
         <div style={{ marginBottom: 16 }}>
           <TableWrap>
-            <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Salary</th><th style={thStyle}>{monthLabel(month)}</th></tr></thead>
+            <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Salary</th><th style={thStyle}>{monthLabel(month)} salary · due {salaryDueDate(month).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</th></tr></thead>
             <tbody>
               {salaryRows.map((s) => (
-                <FixedItemRow key={s.user_id} name={s.user.name} sub={ROLE_LABEL[s.user.role]} expected={num(s.monthly_salary)} accounts={accounts} accountName={accountName}
+                <FixedItemRow key={s.user_id} name={s.user.name} sub={ROLE_LABEL[s.user.role]} expected={num(s.monthly_salary)} accounts={accounts} accountName={accountName} dueDate={salaryDueDate(month)}
                   paidTx={monthTx.filter((t) => t.kind === "salary" && t.beneficiary_id === s.user_id)}
                   onUndo={undo}
                   onPay={({ amount, accountId, date }) => act((t) => db.insert("finance_transactions", {
@@ -3916,10 +4010,10 @@ function FinExpenses({ ctx }) {
       {recurring.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No fixed items yet (rent, internet…). Add them in Settings.</div> : (
         <div style={{ marginBottom: 16 }}>
           <TableWrap>
-            <thead><tr><th style={thStyle}>Item</th><th style={thNum}>Usual amount</th><th style={thStyle}>{monthLabel(month)}</th></tr></thead>
+            <thead><tr><th style={thStyle}>Item</th><th style={thNum}>Usual amount</th><th style={thStyle}>{monthLabel(month)} · due {fixedDueDate(month).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} (in advance)</th></tr></thead>
             <tbody>
               {recurring.map((r) => (
-                <FixedItemRow key={r.id} name={r.name} sub={catName(r.category_id)} expected={num(r.default_amount)} accounts={accounts} accountName={accountName}
+                <FixedItemRow key={r.id} name={r.name} sub={catName(r.category_id)} expected={num(r.default_amount)} accounts={accounts} accountName={accountName} dueDate={fixedDueDate(month)}
                   paidTx={monthTx.filter((t) => t.recurring_id === r.id)}
                   onUndo={undo}
                   onPay={({ amount, accountId, date }) => act((t) => db.insert("finance_transactions", {
@@ -3973,7 +4067,9 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
     .filter((x) => x.user && x.user.role !== "pending");
   const categories = fin.categories.filter((c) => !c.archived);
   const [type, id] = item.split(":");
-  const month = monthKeyOf(dateInputToIso(date));
+  const [monthOverride, setMonthOverride] = useState("");
+  const dateMonth = monthKeyOf(dateInputToIso(date));
+  const month = monthOverride || (type === "sal" ? shiftMonth(dateMonth, -1) : dateMonth);
   const alreadyPaid = type === "rec" || type === "sal"
     ? fin.txns.filter((t) => t.period === month && (type === "rec" ? t.recurring_id === id : t.kind === "salary" && t.beneficiary_id === id)).reduce((sum, t) => sum + num(t.amount), 0)
     : 0;
@@ -4027,8 +4123,15 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
         </Field>
         {(type === "rec" || type === "sal") && (
           <div style={{ fontSize: 12, color: alreadyPaid ? COLORS.danger : COLORS.textMuted }}>
-            {alreadyPaid ? `Already paid ${egpFull(alreadyPaid)} for ${monthLabel(month)} — this will be added on top.` : `Counts as paid for ${monthLabel(month)} (from the date below).`}
+            {alreadyPaid ? `Already paid ${egpFull(alreadyPaid)} for ${monthLabel(month)} — this will be added on top.` : `Counts as ${type === "sal" ? "the salary" : "paid"} for ${monthLabel(month)}.`}
           </div>
+        )}
+        {(type === "rec" || type === "sal") && (
+          <Field label={type === "sal" ? "Salary for month" : "For month"}>
+            <select value={month} onChange={(e) => setMonthOverride(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              {[-2, -1, 0, 1].map((d) => shiftMonth(dateMonth, d)).map((k) => <option key={k} value={k}>{monthLabel(k)}</option>)}
+            </select>
+          </Field>
         )}
         <Field label="Amount (EGP)" required><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
@@ -4559,6 +4662,13 @@ function MyEarnings({ ctx }) {
   const myPlans = fin.rates.filter((r) => r.beneficiary_id === profile.id);
   const team = getSubtreeIds(users, profile.id).filter((id) => id !== profile.id).map((id) => users.find((u) => u.id === id)).filter(Boolean);
   const teamWithTargets = team.filter((u) => targetsMap[u.id] !== undefined);
+  // What I'd earn from reserved deals (promise of sale) once they're done, at base rate
+  const reservedIds = new Set(fin.deals.filter((d) => d.status === "reserved").map((d) => d.id));
+  const expectedReserved = round2(fin.dealRates.filter((r) => reservedIds.has(r.deal_id) && r.beneficiary_id === profile.id).reduce((sum, r) => {
+    const d = fin.deals.find((x) => x.id === r.deal_id);
+    const a = fin.dealAgents.find((x) => x.deal_id === r.deal_id && x.agent_id === r.agent_id);
+    return sum + (num(d?.commission_total) * num(a?.split_pct) / 100) * rateAt(r.rates, 0) / 100;
+  }, 0));
   const salaryPayments = fin.txns.filter((t) => t.kind === "salary" && t.beneficiary_id === profile.id).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at)).slice(0, 6);
 
   return (
@@ -4585,6 +4695,7 @@ function MyEarnings({ ctx }) {
         <FinStat label="Earned (all time)" value={egp(allEarned)} />
         <FinStat label="Paid to me" value={egp(allPaid)} />
         <FinStat label="Still owed to me" value={egp(allEarned - allPaid)} tone={allEarned - allPaid > 0.5 ? "danger" : undefined} />
+        {expectedReserved > 0 && <FinStat label="Expected from reserved deals" value={egp(expectedReserved)} sub="Once transfer is done & commission collected" />}
         {salary && <FinStat label="Monthly salary" value={egp(salary.monthly_salary)} />}
       </div>
 
@@ -4860,7 +4971,7 @@ export default function App() {
     if (opts.full) { await refreshUnits(); await refreshClients(); }
   };
 
-  const saveDeal = async ({ deal, agents, approveNow, accountId }) => {
+  const saveDeal = async ({ deal, agents, approveNow, asDone, amount, transferDate, accountId }) => {
     const t = await getValidToken();
     let dealId;
     if (dealModal && dealModal.editing) {
@@ -4873,7 +4984,10 @@ export default function App() {
     }
     await db.insert("deal_agents", agents.map((a) => ({ ...a, deal_id: dealId })), t);
     if (approveNow) {
-      await db.rpc("approve_deal", { p_deal: dealId, p_account: accountId || null, p_collected_at: dateInputToIso(deal.deal_date) }, t);
+      await db.rpc("approve_deal", {
+        p_deal: dealId, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(asDone ? transferDate : deal.deal_date),
+        p_as_done: !!asDone, p_amount: asDone ? amount : null, p_transfer_date: asDone ? transferDate : null,
+      }, t);
     }
     setDealModal(null);
     await loadFinance(t);
