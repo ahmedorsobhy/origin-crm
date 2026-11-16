@@ -21,3 +21,4 @@ Deals ("Mark as sold" → approval), commission splits up the manager chain with
 - Run `sql/add-finance-module.sql` once in the Supabase SQL editor (safe to re-run).
 - Full finance access: **Admin** and **CEO** roles. Everyone else sees only their own deals, rates, earnings and salary (enforced by Row Level Security), and managers also see their team's deals and target progress.
 - Set each person's target, salary and commission chain from Finance → Team plans.
+- **Floos Rabna**: run `sql/add-finance-charity.sql` after the finance module. 1% (editable in Finance → Settings) of every collected commission moves automatically into the "Floos Rabna" account, taken from the company's share only.
