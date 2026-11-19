@@ -75,8 +75,25 @@ const db = {
   },
 };
 
+// Phone photos are 3–6 MB; shrink to max 1600px JPEG (~250 KB) so the free 1 GB lasts for thousands of photos
+async function shrinkImage(file, maxSide = 1600, quality = 0.82) {
+  try {
+    if (!file || !/^image\/(jpeg|jpg|png|webp|heic|heif)/i.test(file.type || "") || file.size < 400 * 1024) return file;
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", quality));
+    return blob && blob.size < file.size ? blob : file;
+  } catch (e) { return file; } // if the browser can't read it, upload the original
+}
+
 const storage = {
-  upload: async (bucket, path, file, accessToken) => {
+  upload: async (bucket, path, rawFile, accessToken) => {
+    const file = await shrinkImage(rawFile);
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
       method: "POST",
       headers: {
@@ -350,8 +367,8 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
       <div style={{ position: "relative", height: 150, background: COLORS.creamDark }}>
         <img src={unit.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         <div style={{ position: "absolute", top: 8, left: 8 }}>
-          <Badge tone={unit.status === "hold" ? "hold" : unit.status === "pending_delete" ? "pending" : "active"}>
-            {unit.status === "hold" ? (unit.holdReason === "Rented" ? "Rented" : "On hold") : unit.status === "pending_delete" ? "Deletion pending" : "Available"}
+          <Badge tone={unit.status === "hold" ? "hold" : unit.status === "pending_delete" ? "pending" : unit.status === "sold" ? "neutral" : "active"}>
+            {unit.status === "hold" ? (unit.holdReason === "Rented" ? "Rented" : "On hold") : unit.status === "pending_delete" ? "Deletion pending" : unit.status === "sold" ? "Sold" : "Available"}
           </Badge>
         </div>
         {isForRent(unit) && (
@@ -404,7 +421,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
 
 // ---------- Unit detail modal ----------
 
-function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot }) {
+function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside }) {
   const [reassignId, setReassignId] = useState("");
   if (!unit) return null;
 
@@ -555,7 +572,12 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
           {matchSlot && <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${COLORS.border}` }}>{matchSlot}</div>}
 
           {unit.status === "sold" && (
-            <div style={{ marginTop: 14 }}><Badge tone="active">Sold</Badge></div>
+            <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", fontSize: 12.5 }}>
+              <Badge tone="active">{unit.soldVia === "us" ? "Sold through us" : "Sold"}</Badge>
+              {unit.soldAt && <span>{formatDate(unit.soldAt)}</span>}
+              {unit.soldPrice ? <span>· {money(unit.soldPrice)}</span> : null}
+              {unit.newOwnerName && <span>· New owner: <b>{unit.newOwnerName}</b>{canSeeOwner && unit.newOwnerPhone ? ` (${unit.newOwnerPhone})` : ""}</span>}
+            </div>
           )}
           {unit.status === "hold" && unit.holdReason === "Rented" && (
             <div style={{ marginTop: 14 }}><Badge tone="active">Rented</Badge></div>
@@ -570,6 +592,11 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
               {onMarkSold && unit.status === "active" && isForRent(unit) && (
                 <button onClick={() => onMarkSold(unit, "rent")} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                   Mark as rented
+                </button>
+              )}
+              {onSoldOutside && unit.status === "active" && isForSale(unit) && (
+                <button onClick={() => onSoldOutside(unit)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.navy, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  Sold without us
                 </button>
               )}
               {canEdit && (
@@ -1462,6 +1489,12 @@ function mapUnit(row, salesIds) {
     description: row.description || "",
     status: row.status,
     holdReason: row.hold_reason || "",
+    soldVia: row.sold_via || "",
+    soldAt: row.sold_at,
+    soldPrice: row.sold_price,
+    newOwnerName: row.new_owner_name || "",
+    newOwnerPhone: row.new_owner_phone || "",
+    soldNote: row.sold_note || "",
     previousStatus: row.previous_status,
     photos: row.photos || [],
     createdAt: row.created_at,
@@ -4050,6 +4083,283 @@ function SideTeamEditor({ title, team, setTeam, people, lockFirst }) {
   );
 }
 
+// ---------- Sold units ----------
+function SoldDetailsModal({ unit, mode, onSave, onClose }) {
+  // mode: "outside" = the owner sold it without us · "edit" = fix the sold details
+  const [f, setF] = useState({
+    soldAt: (unit.soldAt || new Date().toISOString()).slice(0, 10),
+    soldPrice: unit.soldPrice ?? "",
+    newOwnerName: unit.newOwnerName || "",
+    newOwnerPhone: unit.newOwnerPhone || "",
+    soldNote: unit.soldNote || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const via = mode === "outside" ? "outside" : unit.soldVia || "outside";
+  return (
+    <FinModal title={mode === "outside" ? `Sold without us · ${unit.type} ${unit.unitNumber}` : `Sold details · ${unit.type} ${unit.unitNumber}`} onClose={onClose} width={460}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {mode === "outside" && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>The unit moves to the Sold list and leaves the available units. Nothing goes to Finance.</div>}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Sold on"><input type="date" style={inputStyle} value={f.soldAt} onChange={set("soldAt")} /></Field>
+          <Field label="Price (EGP)"><input type="number" min="0" style={inputStyle} value={f.soldPrice} onChange={set("soldPrice")} placeholder="If known" /></Field>
+        </div>
+        {(via === "us" || mode === "edit") && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="New owner" required={via === "us"}><input style={inputStyle} value={f.newOwnerName} onChange={set("newOwnerName")} placeholder="Buyer's name" /></Field>
+            <Field label="New owner phone" required={via === "us"}><input inputMode="tel" style={inputStyle} value={f.newOwnerPhone} onChange={set("newOwnerPhone")} placeholder="01xxxxxxxxx" /></Field>
+          </div>
+        )}
+        <Field label="Note"><input style={inputStyle} value={f.soldNote} onChange={set("soldNote")} placeholder={mode === "outside" ? "e.g. owner sold through another broker" : ""} /></Field>
+        {err && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{err}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button onClick={onClose} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 999, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+          <button disabled={busy} className="btn-primary" onClick={async () => {
+            if (via === "us" && (!f.newOwnerName.trim() || String(f.newOwnerPhone).replace(/\D/g, "").length < 10)) { setErr("Write the new owner's name and phone."); return; }
+            setBusy(true); setErr("");
+            try {
+              await onSave({
+                status: "sold", hold_reason: null, sold_via: via,
+                sold_at: new Date(f.soldAt + "T12:00:00").toISOString(),
+                sold_price: f.soldPrice === "" ? null : Number(f.soldPrice),
+                new_owner_name: f.newOwnerName.trim() || null, new_owner_phone: f.newOwnerPhone ? cleanPhone(f.newOwnerPhone) : null,
+                sold_note: f.soldNote.trim() || null,
+              });
+              onClose();
+            } catch (e) { setErr(e.message || "Could not save"); } finally { setBusy(false); }
+          }} style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "9px 18px", borderRadius: 999, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>{mode === "outside" ? "Move to Sold" : "Save"}</button>
+        </div>
+      </div>
+    </FinModal>
+  );
+}
+
+function SoldUnits({ units, projects, getProjectInfo, canSeeOwner, getHandledBy, canEditUnit, onOpen, onEdit, onReactivate }) {
+  const [q, setQ] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [via, setVia] = useState("");
+  const sold = units.filter((u) => u.status === "sold")
+    .filter((u) => !projectId || u.projectId === projectId)
+    .filter((u) => !via || (u.soldVia || "outside") === via)
+    .filter((u) => {
+      if (!q.trim()) return true;
+      const t = q.trim().toLowerCase();
+      const info = getProjectInfo(u);
+      return [u.unitNumber, u.type, info.name, info.destination, u.newOwnerName, u.newOwnerPhone, u.ownerName].some((x) => String(x || "").toLowerCase().includes(t));
+    })
+    .sort((a, b) => new Date(b.soldAt || b.updatedAt || 0) - new Date(a.soldAt || a.updatedAt || 0));
+  const usedProjects = projects.filter((p) => units.some((u) => u.status === "sold" && u.projectId === p.id));
+  const all = units.filter((u) => u.status === "sold");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>Sold units</div>
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{all.length} sold · {all.filter((u) => u.soldVia === "us").length} through us</div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input style={{ ...inputStyle, flex: "1 1 220px" }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search unit, project, new owner…" />
+        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ ...inputStyle, flex: "0 1 200px", appearance: "none" }}>
+          <option value="">All projects</option>
+          {usedProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <div className="seg" style={{ display: "flex", gap: 4, background: COLORS.creamDark, padding: 4, borderRadius: 999 }}>
+          {[["", "All"], ["us", "Through us"], ["outside", "Without us"]].map(([id, label]) => (
+            <button key={id || "all"} onClick={() => setVia(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: via === id ? "#fff" : "transparent", color: via === id ? COLORS.navy : COLORS.textMuted }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {sold.length === 0 ? (
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 24, color: COLORS.textMuted, fontSize: 14 }}>No sold units{q || projectId || via ? " match these filters" : " yet"}.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {sold.map((u) => {
+            const info = getProjectInfo(u);
+            const us = u.soldVia === "us";
+            const showOwner = canSeeOwner(u);
+            return (
+              <div key={u.id} className="card lift" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                <div onClick={() => onOpen(u)} style={{ position: "relative", height: 120, background: COLORS.creamDark, cursor: "pointer" }}>
+                  {u.photos[0] && <img src={u.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "saturate(.75)" }} />}
+                  <span className="pill" style={{ position: "absolute", top: 8, left: 8, fontSize: 11, fontWeight: 800, padding: "4px 10px", borderRadius: 999, background: us ? COLORS.success : COLORS.navy, color: "#fff" }}>{us ? "Sold through us" : "Sold without us"}</span>
+                </div>
+                <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                  <div onClick={() => onOpen(u)} style={{ cursor: "pointer" }}>
+                    <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 14 }}>{u.type} · {u.unitNumber}</div>
+                    <div style={{ fontSize: 12, color: COLORS.textMuted }}>{info.name} · {info.destination}</div>
+                  </div>
+                  <div style={{ fontSize: 12.5 }}>
+                    {u.soldAt ? formatDate(u.soldAt) : "Date not set"}{u.soldPrice ? ` · ${money(u.soldPrice)}` : ""}
+                  </div>
+                  {us || u.newOwnerName ? (
+                    <div style={{ background: COLORS.cream, borderRadius: 10, padding: "8px 10px", fontSize: 12.5 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 800, color: COLORS.textMuted, letterSpacing: 0.4 }}>NEW OWNER</div>
+                      {u.newOwnerName ? (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{u.newOwnerName}</div>
+                            {showOwner && u.newOwnerPhone && <div style={{ color: COLORS.textMuted }}>{u.newOwnerPhone}</div>}
+                          </div>
+                          {showOwner && u.newOwnerPhone && <ContactButtons phone={u.newOwnerPhone} />}
+                        </div>
+                      ) : <div style={{ color: COLORS.danger }}>Missing — add it</div>}
+                    </div>
+                  ) : null}
+                  {u.soldNote && <div style={{ fontSize: 12, color: COLORS.textMuted }}>{u.soldNote}</div>}
+                  {getHandledBy(u)?.name && <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Handled by {getHandledBy(u).name}</div>}
+                  {canEditUnit(u) && (
+                    <div style={{ display: "flex", gap: 6, marginTop: "auto", paddingTop: 4 }}>
+                      <button onClick={() => onEdit(u)} style={{ flex: 1, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 10px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Edit details</button>
+                      {!us && <button onClick={() => onReactivate(u)} style={{ flex: 1, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 10px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Back to available</button>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Pick a unit / a client from a grid (used in the deal form) ----------
+function PickerShell({ title, onClose, children, filters }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,26,48,0.55)", zIndex: 140, display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }} onClick={onClose}>
+      <div className="fade-in" onClick={(e) => e.stopPropagation()} style={{ background: COLORS.cream, borderRadius: 20, width: "100%", maxWidth: 980, height: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+        <div style={{ padding: "14px 16px", background: "#fff", borderBottom: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 15, color: COLORS.navy }}>{title}</div>
+            <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={20} /></button>
+          </div>
+          {filters}
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+const pickSel = { ...inputStyle, flex: "1 1 150px", appearance: "none", padding: "8px 10px", fontSize: 13 };
+
+function UnitGridPicker({ units, getProjectInfo, isRent, selectedId, onPick, onClose }) {
+  const [f, setF] = useState({ q: "", destination: "", projectId: "", type: "", min: "", max: "" });
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const base = units.filter((u) => (u.status === "active" && (isRent ? isForRent(u) : isForSale(u))) || u.id === selectedId);
+  const price = (u) => (isRent ? Number(u.rentPrice) : Number(u.totalPrice)) || 0;
+  const list = base.filter((u) => {
+    const info = getProjectInfo(u);
+    if (f.destination && info.destination !== f.destination) return false;
+    if (f.projectId && u.projectId !== f.projectId) return false;
+    if (f.type && u.type !== f.type) return false;
+    if (f.min && price(u) < Number(f.min)) return false;
+    if (f.max && price(u) > Number(f.max)) return false;
+    if (f.q.trim()) { const t = f.q.trim().toLowerCase(); if (![u.unitNumber, info.name, info.developerName, u.ownerName, u.type].some((x) => String(x || "").toLowerCase().includes(t))) return false; }
+    return true;
+  });
+  const dests = [...new Set(base.map((u) => getProjectInfo(u).destination))].filter((d) => d && d !== "—").sort();
+  const projs = [...new Map(base.filter((u) => !f.destination || getProjectInfo(u).destination === f.destination).map((u) => [u.projectId, getProjectInfo(u).name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const types = [...new Set(base.map((u) => u.type))].filter(Boolean).sort();
+  return (
+    <PickerShell title={`Choose the unit · ${list.length} ${isRent ? "for rent" : "for sale"}`} onClose={onClose} filters={
+      <>
+        <input autoFocus style={{ ...inputStyle, padding: "9px 12px", fontSize: 14 }} value={f.q} onChange={set("q")} placeholder="Search unit number, project, developer, owner…" />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <select style={pickSel} value={f.destination} onChange={(e) => setF((x) => ({ ...x, destination: e.target.value, projectId: "" }))}><option value="">All areas</option>{dests.map((d) => <option key={d}>{d}</option>)}</select>
+          <select style={pickSel} value={f.projectId} onChange={set("projectId")}><option value="">All projects</option>{projs.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
+          <select style={pickSel} value={f.type} onChange={set("type")}><option value="">All types</option>{types.map((t) => <option key={t}>{t}</option>)}</select>
+          <input type="number" style={{ ...pickSel, flex: "1 1 110px" }} value={f.min} onChange={set("min")} placeholder="Min price" />
+          <input type="number" style={{ ...pickSel, flex: "1 1 110px" }} value={f.max} onChange={set("max")} placeholder="Max price" />
+        </div>
+      </>
+    }>
+      {list.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 14, padding: 10 }}>No units match. Clear a filter, or close and choose "Not in the system".</div> : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
+          {list.map((u) => {
+            const info = getProjectInfo(u); const on = u.id === selectedId;
+            return (
+              <button key={u.id} onClick={() => { onPick(u); onClose(); }} className="card lift" style={{ textAlign: "left", padding: 0, overflow: "hidden", cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, display: "flex", flexDirection: "column" }}>
+                <div style={{ height: 110, width: "100%", background: COLORS.creamDark }}>{u.photos[0] && <img src={u.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
+                <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}><b style={{ color: COLORS.navy, fontSize: 13.5 }}>{u.type}</b><span style={{ fontSize: 12, color: COLORS.textMuted }}>{u.unitNumber}</span></div>
+                  <div style={{ fontSize: 12, color: COLORS.textMuted }}>{info.name} · {info.destination}</div>
+                  <div style={{ fontSize: 12, color: COLORS.textMuted }}>{[u.bua ? `${u.bua} m²` : "", u.floor !== "" && u.floor != null ? `Floor ${floorLabel(u.floor)}` : "", u.finishing].filter(Boolean).join(" · ")}</div>
+                  <div style={{ fontWeight: 800, color: COLORS.gold, fontSize: 13.5 }}>{isRent ? rentMoney(u.rentPrice) : money(u.totalPrice)}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </PickerShell>
+  );
+}
+
+function ClientGridPicker({ clients, users, isRent, selectedId, onPick, onClose }) {
+  const [f, setF] = useState({ q: "", stage: "", salesId: "", interest: isRent ? "rent" : "" });
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const ORDER = ["negotiation", "contracted", "meeting_generated", "options_sent", "new_lead", "long_term", "not_responding", "deal_done", "closed"];
+  const list = clients.filter((c) => {
+    if (f.stage && c.stage !== f.stage) return false;
+    if (f.salesId && c.assignedTo !== f.salesId) return false;
+    if (f.interest && (c.interest || "buy") !== f.interest) return false;
+    if (f.q.trim()) { const t = f.q.trim().toLowerCase(), d = t.replace(/\D/g, ""); if (!(c.name.toLowerCase().includes(t) || (d.length >= 3 && String(c.phone).replace(/\D/g, "").includes(d)))) return false; }
+    return true;
+  }).sort((a, b) => ORDER.indexOf(a.stage) - ORDER.indexOf(b.stage) || new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  const sales = users.filter((u) => clients.some((c) => c.assignedTo === u.id));
+  return (
+    <PickerShell title={`Choose the client · ${list.length}`} onClose={onClose} filters={
+      <>
+        <input autoFocus style={{ ...inputStyle, padding: "9px 12px", fontSize: 14 }} value={f.q} onChange={set("q")} placeholder="Search name or phone…" />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <select style={pickSel} value={f.stage} onChange={set("stage")}><option value="">All stages</option>{[...PIPELINE_STAGES, ...EXCEPTION_STAGES].map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}</select>
+          <select style={pickSel} value={f.interest} onChange={set("interest")}><option value="">Buy & rent</option><option value="buy">Buying</option><option value="rent">Renting</option></select>
+          {sales.length > 1 && <select style={pickSel} value={f.salesId} onChange={set("salesId")}><option value="">All sales</option>{sales.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
+        </div>
+      </>
+    }>
+      {list.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 14, padding: 10 }}>No clients match. Clear a filter, or close and choose "Not in the system".</div> : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+          {list.map((c) => {
+            const on = c.id === selectedId;
+            return (
+              <button key={c.id} onClick={() => { onPick(c); onClose(); }} className="card lift" style={{ textAlign: "left", cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 5 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="avatar" style={{ width: 30, height: 30, fontSize: 11.5 }}>{c.name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                    <div style={{ fontSize: 12, color: COLORS.textMuted }}>{c.phone}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <ClientStageBadge stage={c.stage} />
+                  {c.interest === "rent" && <Badge tone="neutral">Rent</Badge>}
+                  <span style={{ fontSize: 11.5, color: COLORS.textMuted }}>{users.find((u) => u.id === c.assignedTo)?.name || ""}</span>
+                </div>
+                {Number(c.budget) > 0 && <div style={{ fontSize: 12, color: COLORS.textMuted }}>Budget {c.interest === "rent" ? rentMoney(c.budget) : money(c.budget)}</div>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </PickerShell>
+  );
+}
+
+function PickField({ label, value, sub, onOpen, onClear, emptyText }) {
+  return (
+    <Field label={label}>
+      <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+        <button type="button" onClick={onOpen} style={{ ...inputStyle, flex: 1, textAlign: "left", cursor: "pointer", display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, minHeight: 44, background: value ? "#fff" : COLORS.cream }}>
+          <span style={{ fontWeight: value ? 700 : 500, color: value ? COLORS.navy : COLORS.textMuted, fontSize: 13.5 }}>{value || emptyText}</span>
+          {sub && <span style={{ fontSize: 11.5, color: COLORS.textMuted }}>{sub}</span>}
+        </button>
+        {value && <button type="button" title="Clear" onClick={onClear} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 10, padding: "0 10px", cursor: "pointer", color: COLORS.textMuted }}><X size={14} /></button>}
+      </div>
+    </Field>
+  );
+}
+
 function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesIds, accounts, getProjectInfo, initial, editing, onSave, onClose, defaults }) {
   const ed = editing ? editing.deal : null;
   const [unitId, setUnitId] = useState(ed?.unit_id || initial?.unitId || "");
@@ -4064,6 +4374,9 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const [commSeller, setCommSeller] = useState(ed ? String(sideCommission(ed, "seller") || "") : "");
   const [dealDate, setDealDate] = useState(ed?.deal_date || todayInput());
   const [notes, setNotes] = useState(ed?.notes || "");
+  const [picker, setPicker] = useState(null); // "unit" | "client"
+  const [buyerName, setBuyerName] = useState(ed?.buyer_name || "");
+  const [buyerPhone, setBuyerPhone] = useState(ed?.buyer_phone || "");
   const firstAgent = (() => {
     if (!isAdmin) return profile.id;
     const unit = units.find((u) => u.id === (initial?.unitId || ""));
@@ -4105,12 +4418,6 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const commHint = ed ? "" : isRent ? (rentMonths ? `Filled with ${rentMonths} month${rentMonths === 1 ? "" : "s"} of rent — change it if different.` : "") : (salePct ? `Filled with ${salePct}% of the price — change it if different.` : "");
 
   const people = users.filter((u) => u.role !== "pending");
-  const unitOptions = units
-    .filter((u) => ((u.status === "active" && (isRent ? isForRent(u) : isForSale(u))) || u.id === unitId))
-    .map((u) => ({ id: u.id, label: `${u.type} · ${u.unitNumber} · ${getProjectInfo(u).name}` }));
-  const clientOptions = clients
-    .filter((c) => (isAdmin || visibleSalesIds.includes(c.assignedTo)) && (c.stage !== "closed" || c.id === clientId))
-    .map((c) => ({ id: c.id, label: `${c.name} · ${c.phone}${c.interest === "rent" ? " · rent" : ""}` }));
   const contractValue = num(rentMonthly) * num(leaseMonths);
   const hasBuyer = sides !== "seller";
   const hasSeller = sides !== "buyer";
@@ -4163,6 +4470,8 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         commission_collected: 0,
         deal_date: dealDate,
         notes: notes.trim() || null,
+        buyer_name: !isRent && unitId ? (buyerName.trim() || null) : null,
+        buyer_phone: !isRent && unitId && buyerPhone.trim() ? cleanPhone(buyerPhone) : null,
       },
       agents: rows,
       approveNow,
@@ -4181,8 +4490,13 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
     }}>{label}</button>
   );
 
+  const pickableClients = clients.filter((c) => (isAdmin || visibleSalesIds.includes(c.assignedTo)) && (c.stage !== "closed" || c.id === clientId));
+  const pickedClient = clients.find((c) => c.id === clientId);
+  const buyerFromClient = pickedClient && sides !== "seller";
   return (
     <FinModal title={editing ? "Edit deal" : isRent ? "Mark as rented — reservation" : "Mark as sold — promise of sale"} onClose={onClose} width={640}>
+      {picker === "unit" && <UnitGridPicker units={units} getProjectInfo={getProjectInfo} isRent={isRent} selectedId={unitId} onPick={(u) => setUnitId(u.id)} onClose={() => setPicker(null)} />}
+      {picker === "client" && <ClientGridPicker clients={pickableClients} users={users} isRent={isRent} selectedId={clientId} onPick={(c) => setClientId(c.id)} onClose={() => setPicker(null)} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div role="group" aria-label="Deal type" style={{ display: "flex", gap: 8 }}>
           {[["sale", "Sale"], ["rent", "Rent"]].map(([id, label]) => (
@@ -4193,18 +4507,14 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
           ))}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-          <Field label="Unit">
-            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-              <option value="">— Not in the system —</option>
-              {unitOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Client">
-            <select value={clientId} onChange={(e) => setClientId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-              <option value="">— Not in the system —</option>
-              {clientOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          </Field>
+          {(() => {
+            const u = units.find((x) => x.id === unitId); const info = u ? getProjectInfo(u) : null;
+            return <PickField label="Unit" value={u ? `${u.type} · ${u.unitNumber}` : ""} sub={u ? `${info.name} · ${isRent ? rentMoney(u.rentPrice) : money(u.totalPrice)}` : "Tap to choose from the units"} emptyText="Not in the system" onOpen={() => setPicker("unit")} onClear={() => setUnitId("")} />;
+          })()}
+          {(() => {
+            const c = clients.find((x) => x.id === clientId);
+            return <PickField label="Client" value={c ? c.name : ""} sub={c ? `${c.phone} · ${STAGE_LABEL[c.stage] || c.stage}` : "Tap to choose from your clients"} emptyText="Not in the system" onOpen={() => setPicker("client")} onClear={() => setClientId("")} />;
+          })()}
           {isRent ? (
             <>
               <Field label="Monthly rent (EGP)" required>
@@ -4232,6 +4542,19 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
               : <>{sideBtn("buyer", "Buyer")}{sideBtn("seller", "Seller")}{sideBtn("both", "Buyer & Seller")}</>}
           </div>
         </div>
+        {!isRent && unitId && (
+          buyerFromClient && !buyerName ? (
+            <div style={{ fontSize: 12.5, color: COLORS.textMuted, background: COLORS.cream, borderRadius: 10, padding: "8px 12px" }}>
+              When the deal is done, the unit moves to <b>Sold</b> with <b style={{ color: COLORS.navy }}>{pickedClient.name}</b> as the new owner.
+              <button type="button" onClick={() => { setBuyerName(pickedClient.name); setBuyerPhone(pickedClient.phone); }} style={{ marginLeft: 6, border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>Change</button>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+              <Field label="New owner (buyer) name"><input style={inputStyle} value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Who bought the unit" /></Field>
+              <Field label="New owner phone"><input inputMode="tel" style={inputStyle} value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} placeholder="01xxxxxxxxx" /></Field>
+            </div>
+          )
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
           {hasBuyer && (
             <Field label={`Commission from the ${partyName(dealType, "buyer")} (EGP)`} required>
@@ -6610,6 +6933,17 @@ export default function App() {
     setHoldTarget(null);
     await refreshUnits();
   };
+  const [soldEdit, setSoldEdit] = useState(null); // { unit, mode: "outside" | "edit" }
+  const saveSoldDetails = async (unit, patch) => {
+    await db.update("units", unit.id, patch, await getValidToken());
+    await refreshUnits();
+  };
+  const backToAvailable = async (unit) => {
+    if (!window.confirm(`Put ${unit.type} ${unit.unitNumber} back in the available units?`)) return;
+    await db.update("units", unit.id, { status: "active", sold_via: null, sold_at: null, sold_price: null, new_owner_name: null, new_owner_phone: null, sold_note: null }, await getValidToken());
+    await refreshUnits();
+  };
+  const canEditUnit = (u) => profile.role === "admin" || profile.role === "ceo" || u.salesIds.some((id) => visibleSalesIds.includes(id));
   const releaseHold = async (unit) => {
     await db.update("units", unit.id, { status: "active", hold_reason: null }, await getValidToken());
     await refreshUnits();
@@ -6740,6 +7074,7 @@ export default function App() {
     { id: "all", label: "All units", icon: LayoutGrid },
     { id: "add", label: "Add unit", icon: PlusCircle },
     { id: "hold", label: "On hold", icon: PauseCircle },
+    { id: "sold", label: "Sold", icon: CheckCircle },
   ];
   const PROFILE_SUBNAV = [{ id: "profile", label: "My profile", icon: UserRound }];
   if (profile.role === "admin" || profile.role === "ceo") {
@@ -6980,6 +7315,14 @@ export default function App() {
               onDoneEditing={() => setEditingUnit(null)}
             />
           </>
+        )}
+
+        {section === "units" && tab === "sold" && (
+          <SoldUnits units={units} projects={projects} getProjectInfo={getProjectInfo} canSeeOwner={canSeeOwner} getHandledBy={getHandledBy}
+            canEditUnit={canEditUnit} onOpen={setOpenUnit} onEdit={(u) => setSoldEdit({ unit: u, mode: "edit" })} onReactivate={backToAvailable} />
+        )}
+        {soldEdit && (
+          <SoldDetailsModal unit={soldEdit.unit} mode={soldEdit.mode} onClose={() => setSoldEdit(null)} onSave={(patch) => saveSoldDetails(soldEdit.unit, patch)} />
         )}
 
         {section === "units" && tab === "hold" && (
@@ -7293,6 +7636,7 @@ export default function App() {
             assignableUsers={users.filter((u) => u.role !== "admin" && u.role !== "pending")}
             onReassign={reassignUnit}
             canEdit={profile.role === "admin" || openUnit.salesIds.includes(profile.id)}
+            onSoldOutside={canEditUnit(openUnit) ? (u) => { setOpenUnit(null); setSoldEdit({ unit: u, mode: "outside" }); } : undefined}
             onEditRequest={(u) => { setOpenUnit(null); setEditingUnit(u); setTab("add"); }}
             onMarkSold={(u, dealType) => { setOpenUnit(null); setDealModal({ initial: { unitId: u.id, dealType, sides: "seller" } }); }}
             onRequestDelete={
