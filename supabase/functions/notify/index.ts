@@ -102,7 +102,7 @@ const first = (name: string) => String(name || "").trim().split(/\s+/)[0] || "th
 
 async function run() {
   const now = cairoNow();
-  const [settings] = (await sb("finance_settings?id=eq.1&select=late_after,work_days")) || [{}];
+  const [settings] = (await sb("finance_settings?id=eq.1&select=late_after,work_days,late_lead_hours,auto_reassign")) || [{}];
   const workDays: number[] = settings?.work_days?.length ? settings.work_days : [0, 1, 2, 3, 4];
   const [lh, lm] = String(settings?.late_after || "11:00").split(":").map(Number);
   const cutoff = lh * 60 + lm;
@@ -154,13 +154,91 @@ async function run() {
     }
   }
 
-  // 5) Everything the database queued (new lead, deal sent, deal approved…)
+  // 5) Late leads: a new lead nobody touched after N hours → tell the sales person and their manager,
+  //    and (if the admin turned it on) move it to the least-busy colleague in the same team. Once per lead.
+  if (now.minutes >= 9 * 60 && now.minutes < 22 * 60) {
+    const hours = Number(settings?.late_lead_hours) || 2;
+    const olderThan = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+    const notBefore = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+    const leads = await sb(`clients?select=id,name,assigned_to,created_at&stage=eq.new_lead&created_at=lte.${olderThan}&created_at=gte.${notBefore}&limit=300`);
+    if (leads && leads.length) {
+      const ids = leads.map((c: any) => c.id).join(",");
+      const acts = await sb(`client_activity?select=client_id,action&client_id=in.(${ids})&action=neq.created`);
+      const touched = new Set((acts || []).map((a: any) => a.client_id));
+      const byId = Object.fromEntries(people.map((p: any) => [p.id, p]));
+      const all = await sb("profiles?select=id,name,role,manager_id&role=neq.pending");
+      const mgrOf = (id: string) => all.find((p: any) => p.id === id)?.manager_id;
+      const openLoad = settings?.auto_reassign ? await sb("clients?select=assigned_to&stage=not.in.(closed,deal_done)") : [];
+      const load: Record<string, number> = {};
+      (openLoad || []).forEach((c: any) => { load[c.assigned_to] = (load[c.assigned_to] || 0) + 1; });
+      for (const c of leads.filter((c: any) => c.assigned_to && !touched.has(c.id))) {
+        const key = `late:${c.id}`;
+        const fresh = await sb("notification_log?on_conflict=user_id,key", { method: "POST", body: JSON.stringify({ user_id: c.assigned_to, key }), prefer: "resolution=ignore-duplicates,return=representation" });
+        if (!fresh || !fresh.length) continue;
+        const owner = byId[c.assigned_to];
+        const mgr = mgrOf(c.assigned_to);
+        const mates = settings?.auto_reassign && mgr ? all.filter((p: any) => p.role === "sales_agent" && p.manager_id === mgr && p.id !== c.assigned_to) : [];
+        if (mates.length) {
+          mates.sort((a: any, b: any) => (load[a.id] || 0) - (load[b.id] || 0));
+          const to = mates[0];
+          load[to.id] = (load[to.id] || 0) + 1;
+          await sb(`clients?id=eq.${c.id}`, { method: "PATCH", body: JSON.stringify({ assigned_to: to.id }) });
+          await sb("client_activity", { method: "POST", body: JSON.stringify({ client_id: c.id, action: "field_update", field_name: "assigned_to", old_value: owner?.name || "—", new_value: to.name, note: `Not contacted within ${hours}h — moved automatically from ${owner?.name || "—"} to ${to.name}` }) });
+          await send(to.id, `New lead for you: ${c.name}`, `Moved to you — ${owner ? first(owner.name) : "the first sales person"} didn't reach them in ${hours}h. Call now 📞`, `?open=client:${c.id}`);
+          await send(c.assigned_to, `Lead moved: ${c.name}`, `Not contacted within ${hours}h, so it went to ${to.name}`, `?open=client:${c.id}`);
+          if (mgr) await send(mgr, `Lead moved: ${c.name}`, `${owner?.name || "Sales"} didn't contact it in ${hours}h → now with ${to.name}`, `?open=client:${c.id}`);
+        } else {
+          await send(c.assigned_to, `Lead waiting ${hours}h+: ${c.name}`, "Nobody called this lead yet — call now 📞", `?open=client:${c.id}`);
+          if (mgr) await send(mgr, `Late lead: ${c.name}`, `${owner?.name || "Sales"} hasn't contacted it for ${hours}h+`, `?open=client:${c.id}`);
+        }
+      }
+    }
+  }
+
+  // 6) Weekly backup — Sunday ~03:00 Cairo, kept in the private "backups" bucket (last 8)
+  if (now.dow === 0 && now.minutes >= 180 && now.minutes < 185) {
+    const fresh = await sb("notification_log?on_conflict=user_id,key", { method: "POST", body: JSON.stringify({ user_id: people[0]?.id, key: `backup:${now.date}` }), prefer: "resolution=ignore-duplicates,return=representation" });
+    if (fresh && fresh.length) await backup(now.date);
+  }
+
+  // 7) Everything the database queued (new lead, deal sent, deal approved…)
   const queued = await sb("notification_queue?select=id,user_id,title,body,url&sent_at=is.null&order=created_at&limit=200");
   for (const q of queued || []) {
     await sb(`notification_queue?id=eq.${q.id}`, { method: "PATCH", body: JSON.stringify({ sent_at: new Date().toISOString() }) });
     await send(q.user_id, q.title, q.body || "", q.url || "");
   }
   return { queued: (queued || []).length };
+}
+
+export const BACKUP_TABLES = ["profiles", "developers", "projects", "units", "unit_sales", "clients", "client_activity", "client_units", "client_projects", "lead_duplicates", "deals", "deal_agents", "deal_rates",
+  "finance_transactions", "finance_accounts", "expense_categories", "recurring_expenses", "staff_targets", "staff_salaries", "commission_rates", "finance_settings",
+  "attendance", "cold_sheets", "cold_leads", "cold_activity", "campaign_spend", "share_links", "finance_audit"];
+async function dumpAll() {
+  const out: Record<string, unknown[]> = {};
+  for (const t of BACKUP_TABLES) {
+    const rows: unknown[] = [];
+    try {
+      for (let from = 0; ; from += 1000) {
+        const res = await fetch(`${SB_URL}/rest/v1/${t}?select=*`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Range: `${from}-${from + 999}` } });
+        if (!res.ok) break;
+        const part = await res.json();
+        rows.push(...part);
+        if (part.length < 1000) break;
+      }
+    } catch (_) { /* table missing — skip */ }
+    out[t] = rows;
+  }
+  return out;
+}
+async function backup(date: string) {
+  const data = await dumpAll();
+  const body = JSON.stringify({ made_at: new Date().toISOString(), tables: data });
+  const st = (path: string, init: RequestInit) => fetch(`${SB_URL}/storage/v1/${path}`, { ...init, headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", "x-upsert": "true", ...(init.headers || {}) } });
+  const up = await st(`object/backups/backup-${date}.json`, { method: "POST", body });
+  if (!up.ok) throw new Error(`backup upload: ${up.status} ${await up.text()}`);
+  const list = await (await st("object/list/backups", { method: "POST", body: JSON.stringify({ prefix: "", limit: 100, sortBy: { column: "name", order: "desc" } }) })).json();
+  const old = (list || []).map((f: any) => f.name).filter((n: string) => /^backup-/.test(n)).sort().reverse().slice(8);
+  if (old.length) await st("object/backups", { method: "DELETE", body: JSON.stringify({ prefixes: old }) });
 }
 
 Deno.serve(async () => {

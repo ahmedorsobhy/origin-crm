@@ -208,6 +208,9 @@ body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helv
 .ca { transform-box: fill-box; transform-origin: center; }
 .celebrate { animation: fadeIn .2s ease both; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .celebrate .glass { background: rgba(255,255,255,.86) !important; }
+.celebrate-toast { position: fixed; right: 18px; bottom: 22px; z-index: 300; pointer-events: none; display: flex; gap: 10px; align-items: center; max-width: 340px; padding: 8px 14px 8px 8px; border-radius: 18px; background: rgba(255,255,255,.88); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,.8); box-shadow: 0 14px 34px rgba(14,24,48,.22); animation: toastIn 3.2s cubic-bezier(.2,.9,.25,1.2) both; }
+@keyframes toastIn { 0% { opacity: 0; transform: translateY(20px) scale(.95); } 10% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(10px); } }
+@media (max-width: 760px) { .celebrate-toast { left: 12px; right: 12px; max-width: none; bottom: calc(96px + env(safe-area-inset-bottom)); } }
 .confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .confetti i { position: absolute; top: -20px; width: 9px; height: 14px; border-radius: 3px; animation: confetti 2.6s cubic-bezier(.3,.6,.4,1) forwards; }
 @keyframes confetti { 0% { transform: translateY(0) rotate(0); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
@@ -556,6 +559,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
         <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 4 }}>
           Added {formatDate(unit.createdAt)}
           {unit.updatedAt && unit.updatedAt !== unit.createdAt && <> · Updated {formatDate(unit.updatedAt)}</>}
+          {unit.status === "active" && unitAgeDays(unit) >= STALE_UNIT_DAYS && <span style={{ marginLeft: 6, background: "#FDECEC", color: COLORS.danger, borderRadius: 999, padding: "1px 8px", fontWeight: 700 }}>Stale · {unitAgeDays(unit)}d</span>}
         </div>
       </div>
     </div>
@@ -564,7 +568,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
 
 // ---------- Unit detail modal ----------
 
-function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside }) {
+function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside, onShareLink }) {
   const [reassignId, setReassignId] = useState("");
   if (!unit) return null;
 
@@ -747,6 +751,11 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
                   Edit unit
                 </button>
               )}
+              {onShareLink && unit.status === "active" && (
+                <button onClick={() => onShareLink(unit)} title="A page with photos and details — you'll be told when it's opened" style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                  🔗 Share link
+                </button>
+              )}
               <button onClick={shareOnWhatsApp} style={{ border: "none", background: "#25D366", color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                 Share on WhatsApp
               </button>
@@ -799,7 +808,7 @@ function autoUnitDescription(form, project, developer) {
 }
 const LAST_UNIT_KEY = "origin_last_unit_place";
 
-function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing, units = [], onOpenUnit }) {
+function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing, units = [], onOpenUnit, prefill }) {
   const empty = {
     developerId: "", projectId: "", phase: "", type: "", landArea: "", bua: "",
     extraArea: "", floor: "", finishing: "", downpayment: "", remaining: "",
@@ -845,7 +854,7 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
     } catch (e) {}
     return {};
   };
-  const [form, setForm] = useState(() => (isEditing ? buildFromUnit(editingUnit) : { ...empty, ...remembered() }));
+  const [form, setForm] = useState(() => (isEditing ? buildFromUnit(editingUnit) : prefill ? { ...empty, ...remembered(), ...Object.fromEntries(Object.entries(prefill).filter(([k, v]) => v && k !== "n")) } : { ...empty, ...remembered() }));
   const [descAuto, setDescAuto] = useState(!isEditing);
   const [existingPhotos, setExistingPhotos] = useState(isEditing ? editingUnit.photos : []);
   const [photoFiles, setPhotoFiles] = useState([]); // { file, previewUrl }
@@ -1804,6 +1813,7 @@ function mapClient(row) {
     email: row.email || "",
     source: row.source || "",
     referralName: row.referral_name || "",
+    campaign: row.campaign || "",
     budget: row.budget,
     interest: row.interest || "buy",
     notes: row.notes || "",
@@ -1833,6 +1843,7 @@ function clientToDbRow(form, createdBy) {
     budget: form.budget === "" ? null : form.budget,
     interest: form.interest || "buy",
     notes: form.notes || null,
+    ...(form.campaign ? { campaign: form.campaign.trim() } : {}),
     stage: form.stage || "new_lead",
     assigned_to: form.assignedTo,
     created_by: createdBy,
@@ -2247,6 +2258,680 @@ function PastBuyers({ units, profile, visibleSalesIds, getProjectInfo, onContact
   );
 }
 
+// ---------- Owner follow-up: check with the owner every 30 days ----------
+const OWNER_CHECK_DAYS = 30, STALE_UNIT_DAYS = 60;
+const unitAgeDays = (u) => Math.floor((Date.now() - new Date(u.updatedAt || u.createdAt).getTime()) / MS_DAY);
+function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStill, onPriceChanged, onSold }) {
+  const [busy, setBusy] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const list = units.filter((u) => u.status === "active" && unitAgeDays(u) >= OWNER_CHECK_DAYS
+    && u.salesIds.some((id) => (profile.role === "sales_agent" ? id === profile.id : visibleSalesIds.includes(id))))
+    .sort((a, b) => unitAgeDays(b) - unitAgeDays(a));
+  if (!list.length) return null;
+  const shown = showAll ? list : list.slice(0, 5);
+  const btn = { border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" };
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <span style={{ width: 8, height: 8, borderRadius: 8, background: COLORS.gold, display: "inline-block" }} />
+        <b style={{ color: COLORS.navy }}>Check with the owner</b><span style={{ fontSize: 12, color: COLORS.textMuted }}>{list.length} · not updated for {OWNER_CHECK_DAYS}+ days — still for sale? same price?</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {shown.map((u) => (
+          <div key={u.id} className="card lift" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 180px" }}>
+              <div style={{ fontWeight: 700, color: COLORS.navy }}>{u.type} {u.unitNumber} · {getProjectInfo(u).name}</div>
+              <div style={{ fontSize: 12, color: COLORS.textMuted }}>{u.ownerName || "Owner"} · last update {unitAgeDays(u)} days ago{unitAgeDays(u) >= STALE_UNIT_DAYS ? " · stale" : ""}</div>
+            </div>
+            {u.ownerNumber && <ContactButtons phone={u.ownerNumber} size={16} onContact={() => {}} />}
+            <button style={{ ...btn, background: COLORS.success, color: "#fff", border: "none" }} disabled={busy === u.id} onClick={async () => { setBusy(u.id); try { await onStill(u); } finally { setBusy(""); } }}>{busy === u.id ? "…" : "Still available"}</button>
+            <button style={btn} onClick={() => onPriceChanged(u)}>Price changed</button>
+            <button style={btn} onClick={() => onSold(u)}>Sold</button>
+          </div>
+        ))}
+      </div>
+      {list.length > 5 && <button onClick={() => setShowAll(!showAll)} style={{ ...btn, marginTop: 8 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
+    </div>
+  );
+}
+
+// ---------- Sales ranking: deals and money show positions only ----------
+const RANK_BOARDS = [
+  { id: "deals", label: "Deals", icon: "🤝", rankOnly: true, key: "deals_rank" },
+  { id: "money", label: "Commission collected", icon: "💰", rankOnly: true, key: "money_rank" },
+  { id: "calls", label: "Calls", icon: "📞", key: "calls" },
+  { id: "cold", label: "Cold calls", icon: "🧊", key: "cold_calls" },
+  { id: "meetings", label: "Meetings", icon: "📅", key: "meetings" },
+  { id: "units", label: "Units added", icon: "🏠", key: "units_added" },
+  { id: "clients", label: "New clients", icon: "👤", key: "new_clients" },
+  { id: "reply", label: "Fastest reply", icon: "⚡", key: "reply_minutes", lowWins: true },
+];
+const fmtMins = (m) => (m == null ? "—" : m < 60 ? `${m} min` : m < 48 * 60 ? `${(m / 60).toFixed(1)} h` : `${Math.round(m / 1440)} d`);
+function boardRows(rows, b) {
+  if (b.rankOnly) return rows.filter((r) => r[b.key] != null).sort((x, y) => x[b.key] - y[b.key]).map((r) => ({ r, pos: r[b.key] }));
+  const list = rows.filter((r) => r[b.key] != null && (b.lowWins || r[b.key] > 0)).sort((x, y) => (b.lowWins ? x[b.key] - y[b.key] : y[b.key] - x[b.key]));
+  let pos = 0, prev = null;
+  return list.map((r, i) => { if (r[b.key] !== prev) { pos = i + 1; prev = r[b.key]; } return { r, pos }; });
+}
+function rankRange(p) {
+  const now = new Date();
+  if (p === "week") { const r = dateRangeOf({ p: "week" }); return r; }
+  if (p === "quarter") return dateRangeOf({ p: "quarter" });
+  if (p === "lastmonth") return dateRangeOf({ p: "lastmonth" });
+  return [new Date(now.getFullYear(), now.getMonth(), 1), new Date(now.getFullYear(), now.getMonth() + 1, 1)];
+}
+function useRanking(getToken, period) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const [f, t] = rankRange(period);
+        const r = await db.rpc("sales_ranking", { p_from: f.toISOString(), p_to: t.toISOString() }, await getToken());
+        if (live) setRows(Array.isArray(r) ? r : []);
+      } catch (e) { if (live) setRows([]); }
+    })();
+    return () => { live = false; };
+  }, [period]); // eslint-disable-line
+  return rows;
+}
+const MEDAL = ["🥇", "🥈", "🥉"];
+function RankingPage({ profile, getToken }) {
+  const [period, setPeriod] = useState("month");
+  const rows = useRanking(getToken, period);
+  const last = useRanking(getToken, "lastmonth");
+  const champions = (last || []).length ? RANK_BOARDS.map((b) => ({ b, top: boardRows(last, b)[0] })).filter((x) => x.top) : [];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>🏆 Sales ranking</div>
+        <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999 }}>
+          {[["week", "This week"], ["month", "This month"], ["quarter", "This quarter"], ["lastmonth", "Last month"]].map(([id, l]) => (
+            <button key={id} onClick={() => setPeriod(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: period === id ? "#fff" : "transparent", color: period === id ? COLORS.navy : COLORS.textMuted }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {champions.length > 0 && (
+        <div className="hero" style={{ padding: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>👑 Last month's champions</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {champions.map(({ b, top }) => (
+              <div key={b.id} className="glass" style={{ borderRadius: 14, padding: "6px 12px", fontSize: 12.5 }}>
+                {b.icon} <b>{b.label}</b>: {top.r.name}{top.r.user_id === profile.id ? " (you!)" : ""}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {rows === null ? <div className="skeleton" style={{ height: 240 }} /> : rows.length === 0 ? (
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted }}>No sales people yet.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+          {RANK_BOARDS.map((b) => {
+            const list = boardRows(rows, b);
+            const max = Math.max(1, ...list.map((x) => (b.rankOnly ? 0 : x.r[b.key] || 0)));
+            return (
+              <div key={b.id} className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 14 }}>{b.icon} {b.label}{b.rankOnly ? <span style={{ fontWeight: 500, fontSize: 11, color: COLORS.textMuted }}> · positions only</span> : null}</div>
+                {list.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Nobody yet — be the first.</div>}
+                {list.slice(0, 10).map(({ r, pos }) => (
+                  <div key={r.user_id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: r.user_id === profile.id ? 800 : 500, color: COLORS.navy }}>
+                    <span style={{ width: 24, textAlign: "center" }}>{MEDAL[pos - 1] || pos}</span>
+                    <span style={{ flex: "0 1 auto", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}{r.user_id === profile.id ? " (you)" : ""}</span>
+                    {!b.rankOnly && (
+                      <>
+                        <div style={{ flex: 1, height: 7, borderRadius: 7, background: COLORS.cream, overflow: "hidden", minWidth: 30 }}>
+                          <div className="grow-bar" style={{ width: `${b.lowWins ? 100 - Math.min(90, ((r[b.key] || 0) / Math.max(1, ...list.map((x) => x.r[b.key] || 0))) * 90) : ((r[b.key] || 0) / max) * 100}%`, height: "100%", borderRadius: 7, background: pos === 1 ? COLORS.gold : COLORS.navy }} />
+                        </div>
+                        <span style={{ minWidth: 46, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.lowWins ? fmtMins(r[b.key]) : r[b.key]}</span>
+                      </>
+                    )}
+                    {b.rankOnly && <span style={{ flex: 1 }} />}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+// Small card on Today: where I stand this month
+// Monthly awards: in the first days of a month, last month's #1 in any board gets a celebration once.
+function MonthlyAwards({ profile, getToken }) {
+  const last = useRanking(getToken, "lastmonth");
+  useEffect(() => {
+    if (!last || !last.length || new Date().getDate() > 10) return;
+    const won = RANK_BOARDS.filter((b) => { const top = boardRows(last, b)[0]; return top && top.r.user_id === profile.id && top.pos === 1; });
+    if (!won.length) return;
+    const key = `origin_award:${profile.id}:${monthKeyOf(new Date())}`;
+    try { if (localStorage.getItem(key)) return; localStorage.setItem(key, "1"); } catch (e) { return; }
+    setTimeout(() => celebrate("milestone", `🏆 #1 last month in ${won.map((b) => b.label).join(", ")}!`), 1200);
+  }, [last]); // eslint-disable-line
+  return null;
+}
+function MyRankCard({ profile, getToken, onOpen }) {
+  const rows = useRanking(getToken, "month");
+  if (!rows || !rows.length) return null;
+  const me = rows.find((r) => r.user_id === profile.id);
+  const items = RANK_BOARDS.map((b) => { const list = boardRows(rows, b); const mine = list.find((x) => x.r.user_id === profile.id); const top = list[0]; return { b, mine, top }; });
+  return (
+    <button onClick={onOpen} className="card lift" style={{ textAlign: "left", cursor: "pointer", background: "#fff", border: `1px solid ${COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <b style={{ color: COLORS.navy, fontSize: 14 }}>🏆 This month's ranking</b>
+        <span style={{ fontSize: 12, color: COLORS.navy, fontWeight: 700 }}>See all →</span>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {items.map(({ b, mine, top }) => (
+          <span key={b.id} className="pill" style={{ fontSize: 12, padding: "4px 10px", borderRadius: 999, background: mine && mine.pos === 1 ? "#FBF1E6" : COLORS.cream, color: COLORS.navy, fontWeight: 600 }}>
+            {b.icon} {b.label}: {me ? (mine ? `${MEDAL[mine.pos - 1] || `#${mine.pos}`}` : "—") : top ? `${MEDAL[0]} ${top.r.name.split(" ")[0]}` : "—"}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+
+// ---------- Meetings calendar ----------
+function gcalLink(client, salesName) {
+  const s = new Date(client.meetingAt), e = new Date(s.getTime() + 60 * 60 * 1000);
+  const f = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const q = new URLSearchParams({ action: "TEMPLATE", text: `Meeting: ${client.name}`, dates: `${f(s)}/${f(e)}`, details: `Client: ${client.name} · ${client.phone || ""}\nSales: ${salesName || ""}\nOrigin Real Estate CRM` });
+  return `https://calendar.google.com/calendar/render?${q.toString()}`;
+}
+function MeetingsCalendar({ clients, users, profile, onOpenClient }) {
+  const [offset, setOffset] = useState(0);
+  const [mine, setMine] = useState(profile.role === "sales_agent");
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay() + offset * 7); // week starts Sunday
+  const days = Array.from({ length: 7 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
+  const end = new Date(start.getTime() + 7 * MS_DAY);
+  const list = clients.filter((c) => c.meetingAt && new Date(c.meetingAt) >= start && new Date(c.meetingAt) < end && (!mine || c.assignedTo === profile.id))
+    .sort((a, b) => new Date(a.meetingAt) - new Date(b.meetingAt));
+  const nm = (id) => users.find((u) => u.id === id)?.name || "";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>📅 Meetings · {days[0].toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {days[6].toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {profile.role !== "sales_agent" && <button onClick={() => setMine((m) => !m)} className="chip" style={{ border: `1px solid ${COLORS.border}`, background: mine ? COLORS.navy : "#fff", color: mine ? "#fff" : COLORS.navy, borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{mine ? "✓ Only mine" : "Only mine"}</button>}
+          <button onClick={() => setOffset((o) => o - 1)} aria-label="Previous week" style={{ border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 999, width: 34, height: 34, cursor: "pointer" }}>‹</button>
+          <button onClick={() => setOffset(0)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>This week</button>
+          <button onClick={() => setOffset((o) => o + 1)} aria-label="Next week" style={{ border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 999, width: 34, height: 34, cursor: "pointer" }}>›</button>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+        {days.map((d) => {
+          const k = dateKey(new Date(d.getTime() + 12 * 3600000).toISOString());
+          const dayList = list.filter((c) => dateKey(c.meetingAt) === k);
+          const today = k === todayKey();
+          return (
+            <div key={k} className="card" style={{ background: "#fff", border: `${today ? 2 : 1}px solid ${today ? COLORS.gold : COLORS.border}`, padding: 10, minHeight: 110, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontWeight: 800, fontSize: 12.5, color: today ? COLORS.gold : COLORS.navy }}>{d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
+              {dayList.length === 0 && <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>—</div>}
+              {dayList.map((c) => (
+                <div key={c.id} style={{ background: COLORS.cream, borderRadius: 10, padding: "6px 8px", fontSize: 12 }}>
+                  <button onClick={() => onOpenClient(c)} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", textAlign: "left", width: "100%" }}>
+                    <div style={{ fontWeight: 800, color: COLORS.navy }}>{new Date(c.meetingAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · {c.name}</div>
+                    <div style={{ color: COLORS.textMuted }}>{nm(c.assignedTo)}</div>
+                  </button>
+                  <a href={gcalLink(c, nm(c.assignedTo))} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: COLORS.navy }}>+ Google Calendar</a>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Read .xlsx in the browser (no library): unzip + read the first sheet ----------
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream("deflate-raw");
+  const out = new Response(new Blob([bytes]).stream().pipeThrough(ds));
+  return new Uint8Array(await out.arrayBuffer());
+}
+async function unzipEntries(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+  if (eocd < 0) throw new Error("This doesn't look like an Excel file.");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const files = {};
+  const td = new TextDecoder();
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+    const name = td.decode(u8.subarray(p + 46, p + 46 + nlen));
+    files[name] = { method, csize, off };
+    p += 46 + nlen + xlen + clen;
+  }
+  const read = async (name) => {
+    const f = files[name]; if (!f) return null;
+    const lnl = dv.getUint16(f.off + 26, true), lxl = dv.getUint16(f.off + 28, true);
+    const start = f.off + 30 + lnl + lxl;
+    const data = u8.subarray(start, start + f.csize);
+    const raw = f.method === 0 ? data : await inflateRaw(data);
+    return td.decode(raw);
+  };
+  return { names: Object.keys(files), read };
+}
+async function readXlsx(buf) {
+  const z = await unzipEntries(buf);
+  const parse = (xml) => new DOMParser().parseFromString(xml, "application/xml");
+  const shared = [];
+  const ss = await z.read("xl/sharedStrings.xml");
+  if (ss) parse(ss).querySelectorAll("si").forEach((si) => shared.push([...si.getElementsByTagName("t")].map((t) => t.textContent).join("")));
+  let sheetPath = z.names.filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]))[0];
+  const wb = await z.read("xl/workbook.xml"), rels = await z.read("xl/_rels/workbook.xml.rels");
+  if (wb && rels) {
+    const firstSheet = parse(wb).getElementsByTagName("sheet")[0];
+    const rid = firstSheet && (firstSheet.getAttribute("r:id") || firstSheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id"));
+    const rel = rid && [...parse(rels).getElementsByTagName("Relationship")].find((r) => r.getAttribute("Id") === rid);
+    if (rel) { const t = rel.getAttribute("Target").replace(/^\/?xl\//, "").replace(/^\//, ""); sheetPath = `xl/${t}`; }
+  }
+  const xml = await z.read(sheetPath);
+  if (!xml) throw new Error("Couldn't find a sheet in this file.");
+  const colIdx = (ref) => { const m = String(ref).match(/^([A-Z]+)/); let n = 0; for (const ch of m ? m[1] : "A") n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+  const grid = [];
+  parse(xml).querySelectorAll("sheetData row").forEach((row) => {
+    const out = [];
+    row.querySelectorAll("c").forEach((c) => {
+      const t = c.getAttribute("t"), v = c.getElementsByTagName("v")[0];
+      let val = "";
+      if (t === "s") val = shared[Number(v?.textContent)] ?? "";
+      else if (t === "inlineStr") val = [...c.getElementsByTagName("t")].map((x) => x.textContent).join("");
+      else val = v ? v.textContent : "";
+      if (t !== "s" && t !== "inlineStr" && /^\d+(\.0+)?E\+?\d+$/i.test(val)) val = String(Math.round(Number(val)));
+      out[colIdx(c.getAttribute("r"))] = String(val).trim();
+    });
+    if (out.some((x) => x)) grid.push(Array.from(out, (x) => x || ""));
+  });
+  return grid;
+}
+async function readSheetFile(file) {
+  const buf = await file.arrayBuffer();
+  if (/\.xlsx$/i.test(file.name) || (new Uint8Array(buf)[0] === 0x50 && new Uint8Array(buf)[1] === 0x4b)) return readXlsx(buf);
+  return parseDelimited(decodeUpload(buf));
+}
+// =====================================================================
+// Cold calls: each sheet belongs to one sales person and has a due day
+// =====================================================================
+const COLD_OUTCOMES = [
+  { id: "no_answer", label: "No answer", tone: "muted" },
+  { id: "call_later", label: "Call back later", tone: "muted", asksWhen: true },
+  { id: "not_selling", label: "Not selling", tone: "bad" },
+  { id: "dnc", label: "Don't call again", tone: "bad" },
+  { id: "wrong", label: "Wrong number", tone: "bad" },
+  { id: "selling", label: "Selling ✅", tone: "good" },
+];
+const COLD_STATUS_LABEL = { new: "Not called", no_answer: "No answer", call_later: "Call back later", not_selling: "Not selling", dnc: "Don't call again", wrong: "Wrong number", selling: "Selling" };
+const DEFAULT_COLD_WA = "{greeting} 🌷 معاك {sales} من Origin Real Estate، بكلم حضرتك بخصوص وحدتك{in_project}. هل حضرتك عارضها للبيع؟";
+function coldWaText(template, lead, salesName) {
+  const h = new Date().getHours();
+  const greeting = h < 12 ? "صباح الخير" : "مساء الخير";
+  const project = lead.project_name || "";
+  return String(template || DEFAULT_COLD_WA)
+    .replace(/\{greeting\}/g, greeting).replace(/\{sales\}/g, salesName || "")
+    .replace(/\{in_project\}/g, project ? ` في ${project}` : "").replace(/\{project\}/g, project)
+    .replace(/\{owner\}/g, lead.owner_name || "").replace(/\{unit\}/g, lead.unit_number || "");
+}
+const isTried = (l) => l.status !== "new" || l.attempts > 0;
+const needsRetry = (l) => l.status === "no_answer" || l.status === "call_later";
+function sheetState(sheet, leads) {
+  const mine = leads.filter((l) => l.sheet_id === sheet.id);
+  const tried = mine.filter(isTried).length;
+  const today = todayKey();
+  const done = mine.length > 0 && tried === mine.length;
+  const days = Math.round((new Date(`${today}T12:00:00`) - new Date(`${sheet.due_date}T12:00:00`)) / MS_DAY);
+  const state = done ? "done" : days > 0 ? "late" : days === 0 ? "today" : "upcoming";
+  return { total: mine.length, tried, done, state, daysLate: days, selling: mine.filter((l) => l.status === "selling").length, retry: mine.filter(needsRetry).length };
+}
+const STATE_BADGE = {
+  done: { text: "✅ Done", bg: "#E6F4EA", color: COLORS.success },
+  today: { text: "🟡 Today", bg: "#FBF1E6", color: COLORS.gold },
+  late: { text: "🔴 Not finished", bg: "#FCEBEB", color: COLORS.danger },
+  upcoming: { text: "⏳ Upcoming", bg: COLORS.creamDark, color: COLORS.navy },
+};
+function lateText(st) { return st.state === "late" ? (st.daysLate === 1 ? "from yesterday — not finished" : `from ${st.daysLate} days ago — not finished`) : ""; }
+
+function ColdUpload({ users, projects, getToken, onDone }) {
+  const [rows, setRows] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [salesId, setSalesId] = useState(users[0]?.id || "");
+  const [due, setDue] = useState(todayInput());
+  const [perDay, setPerDay] = useState("");
+  const [name, setName] = useState("");
+  const [includeKnown, setIncludeKnown] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    setErr(""); setFileName(f.name); setName(f.name.replace(/\.(xlsx|csv|txt|tsv)$/i, ""));
+    try {
+      const grid = await readSheetFile(f);
+      if (grid.length < 2) throw new Error("The file looks empty.");
+      const H = grid[0].map((h) => String(h).toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, ""));
+      const find = (keys) => H.findIndex((h) => keys.some((k) => h.includes(k)));
+      let iPhone = find(["phone", "mobile", "number", "tel", "whatsapp", "رقم", "موبايل", "تليفون", "هاتف"]);
+      const iName = find(["name", "owner", "client", "الاسم", "اسم", "المالك"]);
+      const iProject = find(["project", "compound", "المشروع", "الكمبوند", "مشروع", "كمبوند"]);
+      const iUnit = find(["unit", "villa", "apartment", "الوحدة", "وحدة"]);
+      if (iPhone < 0) iPhone = grid[1].findIndex((v) => String(v).replace(/\D/g, "").length >= 10);
+      if (iPhone < 0) throw new Error("Couldn't find a phone column. Put headers in the first row (e.g. Name, Phone, Project, Unit).");
+      const seen = new Set();
+      const parsed = grid.slice(1).map((r, i) => {
+        const phone = cleanPhone(String(r[iPhone] || ""));
+        const key = phoneKey(phone);
+        const repeated = key && seen.has(key); if (key) seen.add(key);
+        const used = new Set([iPhone, iName, iProject, iUnit]);
+        const extra = grid[0].map((h, j) => (used.has(j) || !String(r[j] || "").trim() ? null : `${h}: ${r[j]}`)).filter(Boolean).join(" · ");
+        return { i, phone, key, owner_name: iName >= 0 ? r[iName] : "", project_name: iProject >= 0 ? r[iProject] : "", unit_number: iUnit >= 0 ? r[iUnit] : "", extra, repeated, invalid: key.length < 10 };
+      });
+      const known = {};
+      const keys = parsed.filter((x) => !x.invalid).map((x) => x.phone);
+      for (let k = 0; k < keys.length; k += 500) {
+        try { (await db.rpc("known_phones", { p_phones: keys.slice(k, k + 500) }, await getToken()) || []).forEach((x) => { known[x.phone_key] = known[x.phone_key] || x.kind; }); } catch (e2) {}
+      }
+      setRows(parsed.map((x) => ({ ...x, known: known[x.key] || null })));
+    } catch (e2) { setErr(e2.message || "Could not read the file"); setRows(null); }
+  };
+  const usable = rows ? rows.filter((r) => !r.invalid && !r.repeated && (includeKnown || !r.known)) : [];
+  const projectIdFor = (n) => { const t = String(n || "").trim().toLowerCase(); return t ? projects.find((p) => p.name.toLowerCase() === t)?.id || null : null; };
+  const upload = async () => {
+    if (!salesId) { setErr("Choose the sales person."); return; }
+    if (!usable.length) { setErr("No numbers to upload."); return; }
+    setBusy(true); setErr("");
+    try {
+      const t = await getToken();
+      const size = Number(perDay) > 0 ? Math.round(Number(perDay)) : usable.length;
+      let day = new Date(`${due}T12:00:00`);
+      const nextWork = (d) => { const x = new Date(d.getTime() + MS_DAY); while (!DEFAULT_WORK_DAYS.includes(x.getDay())) x.setTime(x.getTime() + MS_DAY); return x; };
+      const parts = Math.ceil(usable.length / size);
+      for (let p = 0; p < parts; p++) {
+        const chunk = usable.slice(p * size, (p + 1) * size);
+        const [sheet] = await db.insert("cold_sheets", { name: parts > 1 ? `${name || "Sheet"} · ${p + 1}/${parts}` : name || "Sheet", assigned_to: salesId, due_date: isoToDateInput(day.toISOString()) }, t);
+        for (let k = 0; k < chunk.length; k += 200) {
+          await db.insert("cold_leads", chunk.slice(k, k + 200).map((r, j) => ({ sheet_id: sheet.id, assigned_to: salesId, owner_name: String(r.owner_name || "").trim() || null, phone: r.phone, project_name: String(r.project_name || "").trim() || null, project_id: projectIdFor(r.project_name), unit_number: String(r.unit_number || "").trim() || null, extra: r.extra || null, position: k + j })), t);
+        }
+        day = nextWork(day);
+      }
+      onDone(`${usable.length} numbers in ${parts} sheet${parts > 1 ? "s" : ""}`);
+    } catch (e2) { setErr(e2.message || "Upload failed"); } finally { setBusy(false); }
+  };
+  return (
+    <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontWeight: 800, color: COLORS.navy }}>Upload a cold-call sheet</div>
+      <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Excel (.xlsx) or CSV. First row = headers like Name, Phone, Project, Unit. Numbers already in the CRM (clients, unit owners, other sheets) are skipped.</div>
+      <label className="drop" style={{ border: `2px dashed ${COLORS.border}`, borderRadius: 14, padding: 18, textAlign: "center", cursor: "pointer", color: COLORS.navy, fontWeight: 700, fontSize: 13.5, background: COLORS.cream }}>
+        {fileName || "Choose the Excel file"}
+        <input type="file" accept=".xlsx,.csv,.tsv,.txt" onChange={onFile} style={{ display: "none" }} />
+      </label>
+      {rows && (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <FinStat label="Ready to upload" value={usable.length} tone="success" />
+            <FinStat label="Already in the CRM" value={rows.filter((r) => r.known && !r.invalid && !r.repeated).length} sub={includeKnown ? "included" : "skipped"} />
+            <FinStat label="Bad or repeated" value={rows.filter((r) => r.invalid || r.repeated).length} />
+          </div>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}><input type="checkbox" checked={includeKnown} onChange={(e) => setIncludeKnown(e.target.checked)} /> Include numbers already in the CRM</label>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+            <Field label="Sheet name"><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+            <Field label="Sales person" required>
+              <select style={{ ...inputStyle, appearance: "none" }} value={salesId} onChange={(e) => setSalesId(e.target.value)}>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Due day" required><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+            <Field label="Numbers per day (optional)"><input type="number" min="1" style={inputStyle} value={perDay} onChange={(e) => setPerDay(e.target.value)} placeholder="e.g. 100" /></Field>
+          </div>
+          {Number(perDay) > 0 && usable.length > Number(perDay) && <div style={{ fontSize: 12.5, color: COLORS.navy }}>Will be split into {Math.ceil(usable.length / Number(perDay))} sheets of {perDay}, one per work day starting {formatDate(`${due}T12:00:00`)}.</div>}
+          <div style={{ maxHeight: 220, overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead><tr><th style={thStyle}>Owner</th><th style={thStyle}>Phone</th><th style={thStyle}>Project</th><th style={thStyle}>Unit</th><th style={thStyle}>Status</th></tr></thead>
+              <tbody>{rows.slice(0, 200).map((r) => (
+                <tr key={r.i}><td style={tdStyle}>{r.owner_name || "—"}</td><td style={tdStyle}>{r.phone}</td><td style={tdStyle}>{r.project_name || "—"}</td><td style={tdStyle}>{r.unit_number || "—"}</td>
+                  <td style={tdStyle}>{r.invalid ? <Badge tone="hold">Bad number</Badge> : r.repeated ? <Badge tone="neutral">Repeated</Badge> : r.known ? <Badge tone="pending">In CRM ({r.known})</Badge> : <Badge tone="active">New</Badge>}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <button disabled={busy} onClick={upload} className="btn-primary" style={{ alignSelf: "flex-end", border: "none", background: COLORS.navy, color: "#fff", padding: "10px 18px", borderRadius: 999, fontWeight: 700, cursor: "pointer" }}>{busy ? "Uploading…" : `Upload ${usable.length} numbers`}</button>
+        </>
+      )}
+      {err && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{err}</div>}
+    </div>
+  );
+}
+
+function ColdOutcomeModal({ lead, onSave, onClose }) {
+  const [pending, setPending] = useState(null);
+  const [when, setWhen] = useState("tomorrow");
+  const [at, setAt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (status, extra = {}) => { setBusy(true); try { await onSave(lead, status, extra); onClose(); } finally { setBusy(false); } };
+  const whenIso = () => (when === "custom" ? (at ? new Date(at).toISOString() : null) : (CALL_LATER_OPTIONS.find((o) => o.id === when)?.at() || atHour(1)));
+  return (
+    <FinModal title={`How did it go with ${lead.owner_name || lead.phone}?`} onClose={onClose} width={500}>
+      <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>{lead.phone}{lead.project_name ? ` · ${lead.project_name}` : ""}{lead.unit_number ? ` · ${lead.unit_number}` : ""}</div>
+      {!pending && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {COLD_OUTCOMES.map((o) => (
+            <button key={o.id} disabled={busy} onClick={() => (o.asksWhen ? setPending("later") : o.id === "selling" ? setPending("selling") : save(o.id))} className="chip"
+              style={{ border: "none", borderRadius: 999, padding: "9px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", background: o.tone === "good" ? "#E6F4EA" : o.tone === "bad" ? "#FCEBEB" : COLORS.creamDark, color: o.tone === "good" ? COLORS.success : o.tone === "bad" ? COLORS.danger : COLORS.navy }}>{o.label}</button>
+          ))}
+        </div>
+      )}
+      {pending === "later" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {CALL_LATER_OPTIONS.map((o) => <button key={o.id} onClick={() => setWhen(o.id)} className="chip" style={{ border: `1px solid ${when === o.id ? COLORS.navy : COLORS.border}`, background: when === o.id ? COLORS.navy : "#fff", color: when === o.id ? "#fff" : COLORS.navy, borderRadius: 999, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{o.label}</button>)}
+          </div>
+          {when === "custom" && <input type="datetime-local" style={inputStyle} value={at} onChange={(e) => setAt(e.target.value)} />}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => setPending(null)} style={btnGhost}>Back</button>
+            <button disabled={busy} onClick={() => save("call_later", { callback_at: whenIso() })} style={btnPrimary}>Save</button>
+          </div>
+        </div>
+      )}
+      {pending === "selling" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontWeight: 700, color: COLORS.success }}>Great! Add the unit now or later?</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button disabled={busy} onClick={() => save("selling", { addNow: true })} className="btn-primary" style={{ border: "none", background: COLORS.success, color: "#fff", borderRadius: 999, padding: "10px 16px", fontWeight: 700, cursor: "pointer" }}>Add the unit now</button>
+            <button disabled={busy} onClick={() => save("selling", { unit_pending: true })} style={{ ...btnGhost, padding: "10px 16px" }}>I'll add it later</button>
+            <button onClick={() => setPending(null)} style={{ border: "none", background: "none", color: COLORS.textMuted, cursor: "pointer" }}>Back</button>
+          </div>
+        </div>
+      )}
+    </FinModal>
+  );
+}
+
+function ColdLeadRow({ lead, template, salesName, onCall, onWhatsApp, onOutcome }) {
+  const tone = lead.status === "selling" ? COLORS.success : ["not_selling", "dnc", "wrong"].includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
+  return (
+    <div className="card lift" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${tone}`, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+        <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 14 }}>{lead.owner_name || "Owner"} <span style={{ fontWeight: 500, color: COLORS.textMuted, fontSize: 12.5 }}>· {lead.phone}</span></div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted }}>{[lead.project_name, lead.unit_number].filter(Boolean).join(" · ") || "—"}{lead.extra ? ` · ${lead.extra}` : ""}</div>
+        <div style={{ fontSize: 11.5, color: tone, fontWeight: 700, marginTop: 2 }}>
+          {COLD_STATUS_LABEL[lead.status]}{lead.attempts > 1 ? ` · ${lead.attempts} tries` : ""}{lead.status === "call_later" && lead.callback_at ? ` · ${formatDateTime(lead.callback_at)}` : ""}{lead.status === "selling" && lead.unit_pending ? " · unit not added yet" : lead.status === "selling" && lead.unit_id ? " · unit added ✓" : ""}
+        </div>
+      </div>
+      <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} className="round-btn" aria-label="Call" style={{ width: 40, height: 40, borderRadius: 20, background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><Phone size={17} /></a>
+      <a href={`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(coldWaText(template, lead, salesName))}`} target="_blank" rel="noreferrer" onClick={() => onWhatsApp(lead)} className="round-btn" aria-label="WhatsApp" style={{ width: 40, height: 40, borderRadius: 20, background: "#25D366", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><MessageSquare size={17} /></a>
+      <button onClick={() => onOutcome(lead)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 999, padding: "8px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: COLORS.navy }}>Result</button>
+    </div>
+  );
+}
+
+function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, getToken, settings, onRefresh, onAddUnit, onLog, onOutcome }) {
+  const isManager = profile.role !== "sales_agent";
+  const [openSheet, setOpenSheet] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [outcomeFor, setOutcomeFor] = useState(null);
+  const [fv, setF, resetF, setAllF] = useFilters("cold", { q: "", salesId: isManager ? "" : profile.id, state: "", due: { p: "" } });
+  const sales = users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
+  const nm = (id) => users.find((u) => u.id === id)?.name || "";
+  const withState = cold.sheets.map((s) => ({ s, st: sheetState(s, cold.leads) }));
+  const order = { late: 0, today: 1, upcoming: 2, done: 3 };
+  const list = withState.filter(({ s, st }) => (!fv.salesId || s.assigned_to === fv.salesId) && (!fv.state || st.state === fv.state) && inDate(`${s.due_date}T12:00:00`, fv.due) && (!(fv.q || "").trim() || s.name.toLowerCase().includes(fv.q.trim().toLowerCase())))
+    .sort((a, b) => order[a.st.state] - order[b.st.state] || (a.st.state === "upcoming" ? a.s.due_date.localeCompare(b.s.due_date) : b.s.due_date.localeCompare(a.s.due_date)));
+  const toAdd = cold.leads.filter((l) => l.status === "selling" && l.unit_pending && !l.unit_id && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id));
+  const template = settings?.wa_cold_template || DEFAULT_COLD_WA;
+  const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet);
+
+  const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} onClose={() => setOutcomeFor(null)} onSave={onOutcome} />;
+
+  if (sheet) {
+    const st = sheetState(sheet, cold.leads);
+    const leads = cold.leads.filter((l) => l.sheet_id === sheet.id).sort((a, b) => a.position - b.position);
+    const groups = [
+      ["To call", leads.filter((l) => l.status === "new")],
+      ["Try again", leads.filter(needsRetry).sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
+      ["Owners selling", leads.filter((l) => l.status === "selling")],
+      ["Done", leads.filter((l) => ["not_selling", "dnc", "wrong"].includes(l.status))],
+    ];
+    const salesName = nm(sheet.assigned_to) || profile.name;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button onClick={() => setOpenSheet(null)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>← All sheets</button>
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>{sheet.name}</div>
+              <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{nm(sheet.assigned_to)} · due {formatDate(`${sheet.due_date}T12:00:00`)}{st.state === "late" ? ` · ${lateText(st)}` : ""}</div>
+            </div>
+            <span className="pill" style={{ fontSize: 12, fontWeight: 800, padding: "5px 12px", borderRadius: 999, background: STATE_BADGE[st.state].bg, color: STATE_BADGE[st.state].color }}>{STATE_BADGE[st.state].text}</span>
+          </div>
+          <div style={{ height: 9, borderRadius: 9, background: COLORS.cream, overflow: "hidden" }}><div className="grow-bar" style={{ width: `${st.total ? (st.tried / st.total) * 100 : 0}%`, height: "100%", background: st.done ? COLORS.success : COLORS.gold }} /></div>
+          <div style={{ fontSize: 12.5, color: COLORS.navy, fontWeight: 600 }}>{st.tried} / {st.total} called · {st.retry} to try again · {st.selling} selling</div>
+        </div>
+        {groups.map(([title, g]) => g.length > 0 && (
+          <div key={title} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontWeight: 800, color: COLORS.navy }}>{title} <span style={{ color: COLORS.textMuted, fontWeight: 500, fontSize: 12.5 }}>· {g.length}</span></div>
+            {g.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
+          </div>
+        ))}
+        {outcomeModal}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>📞 Cold calls</div>
+        {isManager && <button onClick={() => setUploading((u) => !u)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>{uploading ? "Close" : "+ Upload sheet"}</button>}
+      </div>
+      {msg && <div style={{ fontSize: 13, color: COLORS.success, fontWeight: 700 }}>{msg}</div>}
+      {uploading && <ColdUpload users={sales} projects={projects} getToken={getToken} onDone={async (m) => { setUploading(false); setMsg(`Uploaded ✓ ${m}`); await onRefresh(); }} />}
+      {toAdd.length > 0 && (
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontWeight: 800, color: COLORS.navy }}>🏠 Units to add · {toAdd.length}</div>
+          {toAdd.map((l) => (
+            <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+              <span style={{ flex: "1 1 200px" }}><b>{l.owner_name || "Owner"}</b> · {l.phone} · {l.project_name || "—"}{isManager ? ` · ${nm(l.assigned_to)}` : ""}</span>
+              {l.assigned_to === profile.id && <button onClick={() => onAddUnit(l)} style={{ ...btnPrimary, padding: "6px 12px" }}>Add unit</button>}
+            </div>
+          ))}
+        </div>
+      )}
+      <FilterBar id="cold" values={fv} set={setF} reset={resetF} setAll={setAllF} count={list.length} noun="sheets" searchPlaceholder="Search sheet name…"
+        defs={[
+          { id: "state", label: "Status", type: "select", primary: true, all: "All sheets", options: [{ id: "late", label: "Not finished (late)" }, { id: "today", label: "Today" }, { id: "upcoming", label: "Upcoming" }, { id: "done", label: "Done" }] },
+          { id: "salesId", label: "Sales", type: "select", primary: true, all: "Everyone", options: isManager ? opt(sales, "id", "name") : [] },
+          { id: "due", label: "Due day", type: "date", primary: true },
+        ]} />
+      {list.length === 0 ? (
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{cold.sheets.length ? "No sheets match these filters." : isManager ? "No sheets yet — upload one for your team." : "No sheets yet. Your team leader will upload your numbers here."}</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12 }}>
+          {list.map(({ s, st }) => (
+            <button key={s.id} onClick={() => setOpenSheet(s.id)} className="card lift" style={{ textAlign: "left", cursor: "pointer", background: "#fff", border: `1px solid ${st.state === "late" ? COLORS.danger : COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "flex-start" }}>
+                <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 14 }}>{s.name}</div>
+                <span className="pill" style={{ fontSize: 11, fontWeight: 800, padding: "3px 9px", borderRadius: 999, background: STATE_BADGE[st.state].bg, color: STATE_BADGE[st.state].color, whiteSpace: "nowrap" }}>{STATE_BADGE[st.state].text}</span>
+              </div>
+              <div style={{ fontSize: 12, color: st.state === "late" ? COLORS.danger : COLORS.textMuted, fontWeight: st.state === "late" ? 700 : 500 }}>{isManager ? `${nm(s.assigned_to)} · ` : ""}due {formatDate(`${s.due_date}T12:00:00`)}{st.state === "late" ? ` · ${lateText(st)}` : ""}</div>
+              <div style={{ height: 8, borderRadius: 8, background: COLORS.cream, overflow: "hidden" }}><div className="grow-bar" style={{ width: `${st.total ? (st.tried / st.total) * 100 : 0}%`, height: "100%", background: st.done ? COLORS.success : COLORS.gold }} /></div>
+              <div style={{ fontSize: 12, color: COLORS.navy }}>{st.tried} / {st.total} called{st.selling ? ` · ${st.selling} selling 🎯` : ""}</div>
+            </button>
+          ))}
+        </div>
+      )}
+      {outcomeModal}
+    </div>
+  );
+}
+
+// ---------- Voice notes on a client (private storage) ----------
+function VoiceNoteRecorder({ client, getToken, onSaved }) {
+  const [state, setState] = useState("idle"); // idle | rec | saving
+  const [secs, setSecs] = useState(0);
+  const [err, setErr] = useState("");
+  const recRef = useRef(null), chunks = useRef([]), timer = useRef(null), secsRef = useRef(0);
+  if (typeof window === "undefined" || !window.MediaRecorder || !navigator.mediaDevices) return null;
+  const start = async () => {
+    setErr("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const type = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+      const r = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+      chunks.current = [];
+      r.ondataavailable = (e) => e.data && e.data.size && chunks.current.push(e.data);
+      r.onstop = async () => {
+        stream.getTracks().forEach((tr) => tr.stop());
+        clearInterval(timer.current);
+        const blob = new Blob(chunks.current, { type: r.mimeType || "audio/webm" });
+        if (blob.size < 1500) { setState("idle"); return; }
+        setState("saving");
+        try {
+          const ext = /mp4/.test(blob.type) ? "m4a" : "webm";
+          const path = `${client.id}/${Date.now()}.${ext}`;
+          const t = await getToken();
+          const res = await fetch(`${SUPABASE_URL}/storage/v1/object/voice-notes/${path}`, { method: "POST", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${t}`, "Content-Type": blob.type }, body: blob });
+          if (!res.ok) throw new Error((await res.text()) || "Upload failed");
+          await onSaved(path, secsRef.current);
+        } catch (e) { setErr(e.message || "Could not save the voice note"); }
+        setState("idle"); setSecs(0);
+      };
+      recRef.current = r; r.start(); setState("rec"); setSecs(0); secsRef.current = 0;
+      timer.current = setInterval(() => { secsRef.current += 1; setSecs(secsRef.current); if (secsRef.current >= 180) { try { r.stop(); } catch (e) {} } }, 1000);
+    } catch (e) { setErr("Allow the microphone to record a voice note."); }
+  };
+  const stop = () => { try { recRef.current && recRef.current.stop(); } catch (e) {} };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      {state === "rec" ? (
+        <button onClick={stop} className="chip" style={{ border: "none", background: COLORS.danger, color: "#fff", borderRadius: 999, padding: "7px 14px", fontWeight: 800, cursor: "pointer", fontSize: 12.5 }}>■ Stop · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}</button>
+      ) : (
+        <button disabled={state === "saving"} onClick={start} className="chip" style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.navy, borderRadius: 999, padding: "7px 14px", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>{state === "saving" ? "Saving…" : "🎙 Voice note"}</button>
+      )}
+      {err && <span style={{ fontSize: 12, color: COLORS.danger }}>{err}</span>}
+    </div>
+  );
+}
+function VoiceNotePlayer({ path, getToken }) {
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState(false);
+  const load = async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/voice-notes/${path}`, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await getToken()}` } });
+      if (!res.ok) throw new Error();
+      setUrl(URL.createObjectURL(await res.blob()));
+    } catch (e) { setErr(true); }
+  };
+  if (err) return <span>🎙 Voice note (couldn't load)</span>;
+  if (!url) return <button onClick={load} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 12.5 }}>🎙 Play voice note</button>;
+  return <audio src={url} controls autoPlay style={{ height: 34, maxWidth: 260 }} />;
+}
+
 const TODAY_GROUPS = [
   { key: "overdue", title: "Overdue", hint: "Promised follow-ups that slipped", color: COLORS.danger },
   { key: "today", title: "Today", hint: "Calls and meetings planned for today", color: COLORS.gold },
@@ -2389,8 +3074,9 @@ function MatchCard({ title, subtitle, badge, linked, onOpen, onSend, sendLabel =
   );
 }
 
-function ClientMatches({ client, units, projectInfoFn, prefProjectIds, linkedUnitIds, sentUnitIds, canSend, onSend, onOpenUnit }) {
+function ClientMatches({ client, units, projectInfoFn, prefProjectIds, linkedUnitIds, sentUnitIds, canSend, onSend, onOpenUnit, onSendList }) {
   const [showAll, setShowAll] = useState(false);
+  const [picked, setPicked] = useState([]);
   const list = units.map((u) => ({ u, s: matchScore(client, u, prefProjectIds) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
   const shown = showAll ? list.slice(0, 30) : list.slice(0, 4);
   return (
@@ -2404,7 +3090,10 @@ function ClientMatches({ client, units, projectInfoFn, prefProjectIds, linkedUni
         const info = projectInfoFn(u);
         const sent = sentUnitIds.includes(u.id);
         return (
-          <MatchCard key={u.id}
+          <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {onSendList && canSend && client.phone && <input type="checkbox" aria-label="Add to shortlist" checked={picked.includes(u.id)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, u.id] : p.filter((x) => x !== u.id)))} style={{ width: 18, height: 18, flexShrink: 0 }} />}
+          <div style={{ flex: 1, minWidth: 0 }}>
+          <MatchCard
             title={`${u.type} · ${info.name}`}
             subtitle={`${client.interest === "rent" ? rentMoney(u.rentPrice) : money(u.totalPrice)} · ${info.destination}${u.bua ? ` · ${u.bua} m²` : ""}`}
             badge={sent ? { text: "Sent", bg: "#E6F4EA", color: COLORS.success } : linkedUnitIds.includes(u.id) ? { text: "Linked", bg: COLORS.creamDark, color: COLORS.navy } : prefProjectIds.includes(u.projectId) ? { text: "Wanted project", bg: "#FBF1E6", color: COLORS.gold } : null}
@@ -2412,8 +3101,16 @@ function ClientMatches({ client, units, projectInfoFn, prefProjectIds, linkedUni
             onOpen={() => onOpenUnit(u)}
             onSend={canSend && client.phone ? () => onSend(client, u) : null}
           />
+          </div>
+          </div>
         );
       })}
+      {picked.length > 0 && (
+        <button onClick={() => { onSendList(client, units.filter((u) => picked.includes(u.id))); setPicked([]); }} className="btn-primary" style={{ alignSelf: "flex-start", border: "none", background: "#25D366", color: "#fff", borderRadius: 999, padding: "9px 16px", fontWeight: 800, cursor: "pointer", fontSize: 13 }}>
+          Send shortlist ({picked.length}) on WhatsApp
+        </button>
+      )}
+      {onSendList && canSend && list.length > 1 && picked.length === 0 && <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Tick a few units to send them together as one shortlist link — you'll be told when the client opens it or taps ❤️.</div>}
       {list.length > 4 && <button onClick={() => setShowAll((v) => !v)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
     </div>
   );
@@ -2441,6 +3138,50 @@ function UnitMatches({ unit, clients, users, clientProjectLinks, sentClientIds, 
         />
       ))}
       {list.length > 5 && <button onClick={() => setShowAll((v) => !v)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
+    </div>
+  );
+}
+
+// ---------- New version check: phones and laptops update by themselves ----------
+const BUILD_ID = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "dev";
+function useNewVersion() {
+  const [fresh, setFresh] = useState(null);
+  useEffect(() => {
+    if (BUILD_ID === "dev") return;
+    let stop = false;
+    const check = async () => {
+      try {
+        const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
+        const j = await r.json();
+        if (!stop && j.v && j.v !== BUILD_ID) setFresh(j.v);
+      } catch (e) {}
+    };
+    check();
+    const iv = setInterval(check, 3 * 60 * 1000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+  return fresh;
+}
+function goToVersion(v) {
+  const u = new URL(window.location.href);
+  u.searchParams.set("v", v); // a new address skips the old cached page
+  window.location.replace(u.toString());
+}
+function UpdateBanner() {
+  const fresh = useNewVersion();
+  useEffect(() => { // coming back to the app with a new version waiting → just update
+    if (!fresh) return;
+    const onVis = () => { if (document.visibilityState === "visible") goToVersion(fresh); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [fresh]);
+  if (!fresh) return null;
+  return (
+    <div className="glass pop-in" style={{ position: "fixed", top: 72, left: "50%", transform: "translateX(-50%)", zIndex: 200, borderRadius: 999, padding: "8px 8px 8px 16px", display: "flex", gap: 10, alignItems: "center", border: `1px solid ${COLORS.border}`, boxShadow: "0 10px 30px rgba(14,24,48,.2)", fontSize: 13, fontWeight: 600, color: COLORS.navy }}>
+      ✨ A new version is ready
+      <button onClick={() => goToVersion(fresh)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "7px 14px", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>Update</button>
     </div>
   );
 }
@@ -2498,9 +3239,45 @@ function NotificationsCard({ profile, compact, getToken }) {
 
 const CELEB_SVGS = {"H1": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cfall 1.6s linear infinite\"><rect x=\"15\" y=\"0\" width=\"5\" height=\"9\" fill=\"#EF9F27\"/><rect x=\"95\" y=\"5\" width=\"5\" height=\"9\" fill=\"#1D9E75\"/></g><g class=\"ca\" style=\"animation:cfall 1.9s .5s linear infinite\"><rect x=\"40\" y=\"0\" width=\"5\" height=\"9\" fill=\"#D4537E\"/><rect x=\"75\" y=\"0\" width=\"5\" height=\"9\" fill=\"#378ADD\"/></g><g class=\"ca\" style=\"animation:cdance .7s ease-in-out infinite;transform-origin:60px 90px\"><ellipse cx=\"60\" cy=\"62\" rx=\"24\" ry=\"27\" fill=\"#B8965A\"/><circle cx=\"52\" cy=\"56\" r=\"3\" fill=\"#17264A\"/><circle cx=\"68\" cy=\"56\" r=\"3\" fill=\"#17264A\"/><path d=\"M50 68 Q60 78 70 68\" stroke=\"#17264A\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><g class=\"ca\" style=\"animation:carm .35s ease-in-out infinite;transform-origin:38px 60px\"><path d=\"M38 60 L24 44\" stroke=\"#B8965A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:carm .35s .17s ease-in-out infinite;transform-origin:82px 60px\"><path d=\"M82 60 L96 44\" stroke=\"#B8965A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g></g></svg>", "H2": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cray 1s ease-in-out infinite\"><path d=\"M60 8 V18 M30 20 L37 27 M90 20 L83 27 M20 48 H30 M100 48 H90\" stroke=\"#EF9F27\" stroke-width=\"3\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:cpop 1s ease-in-out infinite\"><path d=\"M42 30 H78 V46 Q78 66 60 68 Q42 66 42 46 Z\" fill=\"#EF9F27\"/><path d=\"M42 36 Q30 36 32 48 Q34 56 44 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><path d=\"M78 36 Q90 36 88 48 Q86 56 76 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><rect x=\"55\" y=\"68\" width=\"10\" height=\"10\" fill=\"#BA7517\"/><rect x=\"45\" y=\"78\" width=\"30\" height=\"8\" rx=\"2\" fill=\"#17264A\"/><circle cx=\"54\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><circle cx=\"66\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><path d=\"M53 54 Q60 60 67 54\" stroke=\"#633806\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g></svg>", "H3": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cup 2s ease-in-out infinite\"><g class=\"ca\" style=\"animation:cflame .2s ease-in-out infinite;transform-origin:60px 70px\"><path d=\"M53 70 Q60 92 67 70 Z\" fill=\"#EF9F27\"/></g><path d=\"M60 12 Q76 28 74 58 H46 Q44 28 60 12 Z\" fill=\"#17264A\"/><circle cx=\"60\" cy=\"36\" r=\"7\" fill=\"#85B7EB\"/><path d=\"M46 50 L36 66 H46 Z M74 50 L84 66 H74 Z\" fill=\"#D85A30\"/></g><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"#B8965A\"/><circle cx=\"100\" cy=\"40\" r=\"2\" fill=\"#B8965A\"/><circle cx=\"96\" cy=\"14\" r=\"1.5\" fill=\"#B8965A\"/></svg>", "H4": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cpop .9s ease-in-out infinite\"><path d=\"M30 50 L60 24 L90 50 V86 H30 Z\" fill=\"#1D9E75\"/><path d=\"M24 52 L60 20 L96 52\" stroke=\"#17264A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"52\" y=\"62\" width=\"16\" height=\"24\" fill=\"#17264A\"/><circle cx=\"48\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"72\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/></g><g class=\"ca\" style=\"animation:cswing .6s ease-in-out infinite;transform-origin:96px 14px\"><line x1=\"96\" y1=\"14\" x2=\"96\" y2=\"32\" stroke=\"#888780\" stroke-width=\"1.5\"/><circle cx=\"96\" cy=\"37\" r=\"5\" fill=\"none\" stroke=\"#EF9F27\" stroke-width=\"3\"/><path d=\"M96 42 V54 M96 48 H100 M96 52 H100\" stroke=\"#EF9F27\" stroke-width=\"3\"/></g></svg>", "H5": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cfall 1.3s linear infinite\"><circle cx=\"20\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"85\" cy=\"6\" r=\"6\" fill=\"#EF9F27\"/></g><g style=\"animation:cfall 1.5s .4s linear infinite\"><circle cx=\"50\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/><circle cx=\"105\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g style=\"animation:cfall 1.7s .8s linear infinite\"><circle cx=\"35\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"70\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g class=\"ca\" style=\"animation:cshrug .5s ease-in-out infinite\"><circle cx=\"60\" cy=\"66\" r=\"20\" fill=\"#17264A\"/><circle cx=\"53\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"67\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><path d=\"M52 71 Q60 79 68 71\" stroke=\"#fff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M42 58 L30 46 M78 58 L90 46\" stroke=\"#17264A\" stroke-width=\"5\" stroke-linecap=\"round\"/></g></svg>", "S1": "<svg viewBox=\"0 0 120 100\"><ellipse cx=\"60\" cy=\"30\" rx=\"30\" ry=\"14\" fill=\"#888780\"/><circle cx=\"44\" cy=\"26\" r=\"12\" fill=\"#888780\"/><circle cx=\"72\" cy=\"22\" r=\"14\" fill=\"#888780\"/><g style=\"animation:cdrop .8s linear infinite\"><path d=\"M45 46 v6 M60 46 v6 M75 46 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop .8s .4s linear infinite\"><path d=\"M52 44 v6 M68 44 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><path d=\"M44 72 L60 60 L76 72 V92 H44 Z\" fill=\"#B4B2A9\"/><rect x=\"56\" y=\"80\" width=\"8\" height=\"12\" fill=\"#5F5E5A\"/></svg>", "S2": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:csag 2s ease-in-out infinite;transform-origin:60px 92px\"><ellipse cx=\"60\" cy=\"66\" rx=\"26\" ry=\"24\" fill=\"#85B7EB\"/><path d=\"M48 58 Q52 55 56 58 M64 58 Q68 55 72 58\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51 76 Q60 69 69 76\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop 1.4s ease-in infinite\"><path d=\"M50 62 Q47 68 50 71 Q53 68 50 62 Z\" fill=\"#378ADD\"/></g></svg>", "S3": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cdeflate 2.4s ease-in-out infinite;transform-origin:60px 70px\"><ellipse cx=\"60\" cy=\"40\" rx=\"20\" ry=\"24\" fill=\"#E24B4A\"/><path d=\"M57 64 L60 70 L63 64 Z\" fill=\"#A32D2D\"/><circle cx=\"53\" cy=\"38\" r=\"2\" fill=\"#501313\"/><circle cx=\"67\" cy=\"38\" r=\"2\" fill=\"#501313\"/><path d=\"M53 48 Q60 43 67 48\" stroke=\"#501313\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"/></g><path d=\"M60 70 Q55 80 60 88 Q65 94 60 98\" stroke=\"#888780\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "S4": "<svg viewBox=\"0 0 120 100\"><path d=\"M40 78 H80 L76 96 H44 Z\" fill=\"#D85A30\"/><g class=\"ca\" style=\"animation:cwilt 2.4s ease-in-out infinite;transform-origin:60px 78px\"><path d=\"M60 78 Q58 54 62 34\" stroke=\"#639922\" stroke-width=\"3\" fill=\"none\"/><path d=\"M60 62 Q48 56 44 62 Q50 68 60 62 Z\" fill=\"#97C459\"/><circle cx=\"62\" cy=\"30\" r=\"9\" fill=\"#ED93B1\"/><circle cx=\"62\" cy=\"30\" r=\"4\" fill=\"#EF9F27\"/></g></svg>", "S5": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cshrug 1.2s ease-in-out infinite\"><circle cx=\"60\" cy=\"58\" r=\"22\" fill=\"#B8965A\"/><circle cx=\"52\" cy=\"54\" r=\"2.5\" fill=\"#17264A\"/><circle cx=\"68\" cy=\"54\" r=\"2.5\" fill=\"#17264A\"/><path d=\"M52 66 H68\" stroke=\"#17264A\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><path d=\"M38 60 L26 50 L22 56 M82 60 L94 50 L98 56\" stroke=\"#B8965A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg>"};
 // ---------- Celebrations: happy when a deal goes in, a kind word when one is lost ----------
-const HAPPY_LINES = ["{first}, you're on fire! 🔥", "Big one, {first}! Keep them coming 🚀", "{first} closes again! 🏆", "That's how it's done, {first} 💪", "Money talks, {first} 💸"];
-const SAD_LINES = ["Hard luck, {first} — the next one is yours 💪", "Shake it off, {first}. Every no gets you closer to a yes 🌱", "Not this time, {first}. Your next deal is around the corner 🚀", "Chin up, {first} — champions lose some too 🏆", "On to the next one, {first} 💫"];
+Object.assign(CELEB_SVGS, {
+  M1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop 1s ease-in-out infinite"><rect x="30" y="22" width="60" height="62" rx="8" fill="#fff" stroke="#17264A" stroke-width="4"/><rect x="30" y="22" width="60" height="16" rx="6" fill="#17264A"/><path d="M42 16 V28 M78 16 V28" stroke="#B8965A" stroke-width="5" stroke-linecap="round"/><path d="M45 60 L56 71 L77 48" stroke="#1D9E75" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><g style="animation:cray 1s ease-in-out infinite"><path d="M14 40 H22 M98 40 H106 M20 18 L26 24 M100 18 L94 24" stroke="#EF9F27" stroke-width="3" stroke-linecap="round"/></g></svg>',
+  M2: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cdance .8s ease-in-out infinite;transform-origin:60px 88px"><circle cx="45" cy="56" r="14" fill="#B8965A"/><circle cx="75" cy="56" r="14" fill="#17264A"/><path d="M40 54 h1 M50 54 h1" stroke="#17264A" stroke-width="3" stroke-linecap="round"/><path d="M70 54 h1 M80 54 h1" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M50 72 Q60 64 70 72" stroke="#EF9F27" stroke-width="7" fill="none" stroke-linecap="round"/></g><g style="animation:cfall 1.8s linear infinite"><rect x="20" y="0" width="5" height="9" fill="#D4537E"/><rect x="95" y="4" width="5" height="9" fill="#1D9E75"/></g></svg>',
+  U1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing 1s ease-in-out infinite;transform-origin:60px 20px"><circle cx="60" cy="34" r="14" fill="none" stroke="#EF9F27" stroke-width="7"/><path d="M60 48 V86 M60 66 H72 M60 78 H70" stroke="#EF9F27" stroke-width="7" stroke-linecap="round"/></g><g style="animation:cray .9s ease-in-out infinite"><path d="M22 30 l4 4 M22 34 l4 -4 M94 60 l5 5 M94 65 l5 -5 M30 74 l4 4 M30 78 l4 -4" stroke="#B8965A" stroke-width="2.5" stroke-linecap="round"/></g></svg>',
+  C1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing .25s ease-in-out infinite;transform-origin:60px 60px"><rect x="44" y="24" width="32" height="58" rx="7" fill="#17264A"/><rect x="48" y="31" width="24" height="38" rx="3" fill="#85B7EB"/><circle cx="60" cy="75" r="3" fill="#fff"/></g><g style="animation:cray .6s ease-in-out infinite"><path d="M86 38 Q94 50 86 62 M94 30 Q106 50 94 70 M34 38 Q26 50 34 62 M26 30 Q14 50 26 70" stroke="#1D9E75" stroke-width="3.5" fill="none" stroke-linecap="round"/></g></svg>',
+  L1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop .8s ease-in-out infinite"><path d="M60 10 L71 36 L99 38 L78 56 L85 84 L60 69 L35 84 L42 56 L21 38 L49 36 Z" fill="#EF9F27"/><text x="60" y="62" text-anchor="middle" font-size="30" font-weight="800" fill="#17264A" font-family="Arial">3</text></g><g style="animation:cfall 1.4s linear infinite"><circle cx="15" cy="0" r="4" fill="#D4537E"/><circle cx="105" cy="6" r="4" fill="#378ADD"/></g></svg>',
+});
+const CELEB_KINDS = [
+  { id: "deal", label: "🎉 Deal sent or approved", big: true, builtins: ["H1", "H2", "H5"] },
+  { id: "meeting", label: "📅 Meeting booked", big: true, builtins: ["M1", "M2"] },
+  { id: "unit", label: "🏠 New unit added", big: false, builtins: ["H4", "U1"] },
+  { id: "client", label: "👤 New client added", big: false, builtins: ["C1", "H3"] },
+  { id: "milestone", label: "🌟 Daily milestone (3 in a day)", big: true, builtins: ["L1", "H2", "H3"] },
+  { id: "sad", label: "😢 Sad (sold without us, hold, not interested)", big: true, builtins: ["S1", "S2", "S3", "S4", "S5"] },
+];
+const CELEB_LINES = {
+  deal: ["{first}, you're on fire! 🔥", "Big one, {first}! Keep them coming 🚀", "{first} closes again! 🏆", "That's how it's done, {first} 💪", "Money talks, {first} 💸"],
+  meeting: ["Meeting booked, {first}! Go close it 💼", "{first} gets the meeting 📅 Now win it!", "Face to face, {first} — that's where deals happen 🤝"],
+  unit: ["Nice find, {first} — new unit in 🏠", "{first} brings another unit 🔑", "Fresh listing, {first}! 🏡"],
+  client: ["New client, {first} — call them now 📞", "{first}, one more in the pipeline 👤", "Welcome aboard! Over to you, {first} 📲"],
+  milestone: ["{first}, that's 3 today! 🌟", "Hat-trick, {first}! 🎩", "{first} is unstoppable today ⚡"],
+  sad: ["Hard luck, {first} — the next one is yours 💪", "Shake it off, {first}. Every no gets you closer to a yes 🌱", "Not this time, {first}. Your next deal is around the corner 🚀", "Chin up, {first} — champions lose some too 🏆", "On to the next one, {first} 💫"],
+};
+const SMALL_KINDS = ["unit", "client"];
 function celebrate(mood, title) { try { window.dispatchEvent(new CustomEvent("origin-celebrate", { detail: { mood, title } })); } catch (e) {} }
+// Counts today's new units / clients / updates per person; the 3rd of each kind earns a milestone (once a day)
+function bumpDaily(userId, kind) {
+  try {
+    const day = dateKey(new Date().toISOString());
+    const key = `origin_daily:${userId}:${day}`;
+    const d = JSON.parse(localStorage.getItem(key) || "{}");
+    d[kind] = (d[kind] || 0) + 1;
+    localStorage.setItem(key, JSON.stringify(d));
+    if (d[kind] === 3) {
+      const what = { unit: "3 new units today", client: "3 new clients today", update: "3 updates today" }[kind];
+      setTimeout(() => celebrate("milestone", what), kind === "update" ? 300 : 3300);
+    }
+  } catch (e) {}
+}
 function mediaUrl(raw) {
   const u = String(raw || "").trim();
   const g = u.match(/giphy\.com\/(?:gifs|stickers)\/(?:[^/?#]*-)?([A-Za-z0-9]+)(?:[/?#]|$)/);
@@ -2508,35 +3285,49 @@ function mediaUrl(raw) {
   return u;
 }
 const isVideo = (u) => /\.(mp4|webm|mov)(\?|$)/i.test(u);
+const moodOf = (m) => (m.mood === "happy" ? "deal" : m.mood);
 function CelebrationOverlay({ profile, settings }) {
   const [show, setShow] = useState(null);
   useEffect(() => {
     const on = (e) => {
-      const mood = e.detail?.mood === "sad" ? "sad" : "happy";
-      const media = (Array.isArray(settings?.celebration_media) ? settings.celebration_media : []).filter((m) => m.mood === mood);
+      let mood = e.detail?.mood || "deal";
+      if (mood === "happy") mood = "deal";
+      const kind = CELEB_KINDS.find((k) => k.id === mood) || CELEB_KINDS[0];
+      const media = (Array.isArray(settings?.celebration_media) ? settings.celebration_media : []).filter((m) => moodOf(m) === kind.id);
       const uploads = media.filter((m) => m.url);
-      const builtins = media.filter((m) => m.builtin).map((m) => m.builtin);
-      const pool = uploads.length ? uploads.map((m) => ({ url: mediaUrl(m.url) })) : (builtins.length ? builtins : mood === "happy" ? ["H1", "H2", "H3", "H4", "H5"] : ["S1", "S2", "S3", "S4", "S5"]).map((b) => ({ svg: CELEB_SVGS[b] })).filter((x) => x.svg);
+      const chosen = media.filter((m) => m.builtin).map((m) => m.builtin);
+      const pool = uploads.length ? uploads.map((m) => ({ url: mediaUrl(m.url) })) : (chosen.length ? chosen : kind.builtins).map((b) => ({ svg: CELEB_SVGS[b] })).filter((x) => x.svg);
       const pick = pool[Math.floor(Math.random() * pool.length)] || {};
-      const lines = mood === "happy" ? HAPPY_LINES : SAD_LINES;
+      const lines = CELEB_LINES[kind.id] || CELEB_LINES.deal;
       const first = String(profile?.name || "").trim().split(/\s+/)[0] || "champ";
-      setShow({ mood, title: e.detail?.title || "", line: lines[Math.floor(Math.random() * lines.length)].replace(/\{first\}/g, first), ...pick, n: Date.now() });
+      setShow({ mood: kind.id, small: !kind.big, title: e.detail?.title || "", line: lines[Math.floor(Math.random() * lines.length)].replace(/\{first\}/g, first), ...pick, n: Date.now() });
     };
     window.addEventListener("origin-celebrate", on);
     return () => window.removeEventListener("origin-celebrate", on);
   }, [settings, profile]);
-  useEffect(() => { if (!show) return; const t = setTimeout(() => setShow(null), show.mood === "happy" ? 4200 : 3600); return () => clearTimeout(t); }, [show]);
+  useEffect(() => { if (!show) return; const t = setTimeout(() => setShow(null), show.small ? 3200 : show.mood === "sad" ? 3600 : 4200); return () => clearTimeout(t); }, [show]);
   if (!show) return null;
-  const happy = show.mood === "happy";
+  const media = (h) => (show.url ? (isVideo(show.url) ? <video src={show.url} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <img src={show.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />)
+    : <div style={{ width: h ? "86%" : "100%", height: "100%" }} dangerouslySetInnerHTML={{ __html: show.svg || "" }} />);
+  if (show.small) {
+    // A small card in the corner: never blocks taps or typing
+    return (
+      <div className="celebrate-toast" aria-live="polite" key={show.n}>
+        <div style={{ width: 64, height: 54, borderRadius: 12, overflow: "hidden", background: "#FBF6EC", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{media(false)}</div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, color: COLORS.navy }}>{show.line}</div>
+          {show.title && <div style={{ fontSize: 12, color: COLORS.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{show.title}</div>}
+        </div>
+      </div>
+    );
+  }
+  const happy = show.mood !== "sad";
   return (
     <div className="celebrate" onClick={() => setShow(null)} role="dialog" aria-label={show.line}
       style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", background: happy ? "rgba(14,24,48,.35)" : "rgba(14,24,48,.45)", padding: 20, cursor: "pointer" }}>
       {happy && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }).map((_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 9) * 0.12}s`, background: ["#B8965A", "#1D9E75", "#378ADD", "#D4537E", "#EF9F27"][i % 5] }} />)}</div>}
       <div className="glass pop-in" style={{ borderRadius: 26, padding: 18, width: "100%", maxWidth: 360, textAlign: "center", border: "1px solid rgba(255,255,255,.6)", boxShadow: "0 30px 80px rgba(0,0,0,.35)" }}>
-        <div style={{ borderRadius: 18, overflow: "hidden", background: happy ? "#FBF6EC" : "#EEF3FA", height: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {show.url ? (isVideo(show.url) ? <video src={show.url} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <img src={show.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />)
-            : <div style={{ width: "86%", height: "100%" }} dangerouslySetInnerHTML={{ __html: show.svg || "" }} />}
-        </div>
+        <div style={{ borderRadius: 18, overflow: "hidden", background: happy ? "#FBF6EC" : "#EEF3FA", height: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>{media(true)}</div>
         <div style={{ fontWeight: 800, fontSize: 19, color: COLORS.navy, marginTop: 12 }}>{show.line}</div>
         {show.title && <div style={{ fontSize: 13, color: COLORS.textMuted, marginTop: 4 }}>{show.title}</div>}
         <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 8 }}>Tap anywhere to close</div>
@@ -2544,24 +3335,32 @@ function CelebrationOverlay({ profile, settings }) {
     </div>
   );
 }
-// Admin: choose the GIFs (upload or paste a link) and which built-in animations to use
+// Admin: GIFs per event (upload or paste a link) and which built-in animations to use
 function CelebrationSettings({ ctx, uploadMedia }) {
   const { fin, act } = ctx;
-  const [list, setList] = useState(() => (Array.isArray(fin.settings?.celebration_media) ? fin.settings.celebration_media : []));
-  const [link, setLink] = useState({ happy: "", sad: "" });
+  const [list, setList] = useState(() => (Array.isArray(fin.settings?.celebration_media) ? fin.settings.celebration_media.map((m) => ({ ...m, mood: moodOf(m) })) : []));
+  const [link, setLink] = useState({});
   const [busyMood, setBusyMood] = useState("");
   const [msg, setMsg] = useState("");
   const { error, run } = useAction();
   const save = (next) => run(async () => { setList(next); await act((t) => db.update("finance_settings", 1, { celebration_media: next, updated_at: new Date().toISOString() }, t)); setMsg("Saved ✓"); });
-  const toggleBuiltin = (mood, id) => {
-    const has = list.some((m) => m.builtin === id);
-    save(has ? list.filter((m) => m.builtin !== id) : [...list, { mood, builtin: id }]);
+  const toggleBuiltin = (kind, id) => {
+    const mine = list.filter((m) => m.mood === kind.id && m.builtin);
+    const current = mine.length ? mine.map((m) => m.builtin) : kind.builtins;
+    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+    save([...list.filter((m) => !(m.mood === kind.id && m.builtin)), ...(next.length ? next : [id]).map((b) => ({ mood: kind.id, builtin: b }))]);
   };
-  const Section = ({ mood, title, ids }) => {
-    const uploads = list.filter((m) => m.mood === mood && m.url);
+  const allIds = Object.keys(CELEB_SVGS);
+  const section = (kind) => {
+    const uploads = list.filter((m) => m.mood === kind.id && m.url);
+    const chosen = list.filter((m) => m.mood === kind.id && m.builtin).map((m) => m.builtin);
+    const active = chosen.length ? chosen : kind.builtins;
     return (
-      <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5 }}>{title}</div>
+      <div key={kind.id} style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+          <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5 }}>{kind.label}</div>
+          <span style={{ fontSize: 11, color: COLORS.textMuted }}>{kind.big ? "Full screen" : "Small, in the corner"}</span>
+        </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {uploads.map((m, i) => (
             <div key={i} style={{ position: "relative", width: 92, height: 72, borderRadius: 10, overflow: "hidden", background: COLORS.cream }}>
@@ -2572,41 +3371,38 @@ function CelebrationSettings({ ctx, uploadMedia }) {
           {uploads.length === 0 && <div style={{ fontSize: 12, color: COLORS.textMuted }}>No GIFs yet — the animations below are used.</div>}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <input style={{ ...inputStyle, flex: "1 1 180px", padding: "6px 8px", fontSize: 12.5 }} value={link[mood]} onChange={(e) => setLink((l) => ({ ...l, [mood]: e.target.value }))} placeholder="Paste a GIF link (Giphy, Tenor…)" />
-          <button style={btnGhost} onClick={() => { if (link[mood].trim()) { save([...list, { mood, url: link[mood].trim() }]); setLink((l) => ({ ...l, [mood]: "" })); } }}>Add link</button>
+          <input style={{ ...inputStyle, flex: "1 1 160px", padding: "6px 8px", fontSize: 12.5 }} value={link[kind.id] || ""} onChange={(e) => setLink((l) => ({ ...l, [kind.id]: e.target.value }))} placeholder="Paste a GIF link (Giphy, Tenor…)" />
+          <button style={btnGhost} onClick={() => { const v = (link[kind.id] || "").trim(); if (v) { save([...list, { mood: kind.id, url: v }]); setLink((l) => ({ ...l, [kind.id]: "" })); } }}>Add link</button>
           <label style={{ ...btnGhost, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
-            {busyMood === mood ? "Uploading…" : "Upload GIF"}
+            {busyMood === kind.id ? "Uploading…" : "Upload GIF"}
             <input type="file" accept="image/gif,image/webp,video/mp4,video/webm" style={{ display: "none" }} onChange={async (e) => {
               const f = e.target.files && e.target.files[0]; if (!f) return;
               if (f.size > 8 * 1024 * 1024) { setMsg("That file is over 8 MB — pick a shorter GIF."); return; }
-              setBusyMood(mood);
-              try { const url = await uploadMedia(f); await save([...list, { mood, url }]); } catch (err) { setMsg(err.message || "Upload failed"); } finally { setBusyMood(""); e.target.value = ""; }
+              setBusyMood(kind.id);
+              try { const url = await uploadMedia(f); await save([...list, { mood: kind.id, url }]); } catch (err) { setMsg(err.message || "Upload failed"); } finally { setBusyMood(""); e.target.value = ""; }
             }} />
           </label>
         </div>
-        <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Built-in animations (used when there are no GIFs):</div>
+        <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Built-in animations (used when there are no GIFs) — tap to turn on or off:</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {ids.map((id) => {
-            const on = list.some((m) => m.builtin === id) || !list.some((m) => m.mood === mood && m.builtin);
+          {(kind.id === "sad" ? allIds.filter((x) => x.startsWith("S")) : allIds.filter((x) => !x.startsWith("S"))).map((id) => {
+            const on = active.includes(id);
             return (
-              <button key={id} onClick={() => toggleBuiltin(mood, id)} title={id} style={{ width: 62, height: 52, borderRadius: 10, padding: 2, cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, opacity: on ? 1 : 0.5 }}>
+              <button key={id} onClick={() => toggleBuiltin(kind, id)} title={id} style={{ width: 54, height: 46, borderRadius: 10, padding: 2, cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, opacity: on ? 1 : 0.4 }}>
                 <div style={{ width: "100%", height: "100%" }} dangerouslySetInnerHTML={{ __html: CELEB_SVGS[id] }} />
               </button>
             );
           })}
         </div>
-        <button style={{ ...btnGhost, alignSelf: "flex-start" }} onClick={() => celebrate(mood, "Preview")}>Preview</button>
+        <button style={{ ...btnGhost, alignSelf: "flex-start" }} onClick={() => celebrate(kind.id, "Preview")}>Preview</button>
       </div>
     );
   };
   return (
     <div style={{ ...finCard, gridColumn: "1 / -1" }}>
       <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Celebrations</div>
-      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12 }}>Happy: when a deal is sent or approved. Sad: unit sold without us, unit put on hold, or a client not interested — always with an encouraging message using the sales person's name. One is picked at random each time.</div>
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-        {Section({ mood: "happy", title: "🎉 Happy", ids: ["H1", "H2", "H3", "H4", "H5"] })}
-        {Section({ mood: "sad", title: "😢 Sad", ids: ["S1", "S2", "S3", "S4", "S5"] })}
-      </div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12 }}>Each moment has its own GIFs, always with a message using the sales person's name. One is picked at random each time.</div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>{CELEB_KINDS.map(section)}</div>
       {msg && <div style={{ fontSize: 12.5, color: /fail|over/i.test(msg) ? COLORS.danger : COLORS.success, marginTop: 8 }}>{msg}</div>}
       <FinError text={error} />
     </div>
@@ -2739,7 +3535,7 @@ function findByPhone(clients, phone) {
 
 function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignableUsers, clients, users, visibleSalesIds, onOpenExisting }) {
   const selfAssignable = assignableUsers.some((u) => u.id === currentUser.id);
-  const blank = { name: "", phone: "", email: "", source: "", referralName: "", budget: "", interest: "buy", notes: "", assignedTo: selfAssignable ? currentUser.id : "", stage: "new_lead", feedback: "" };
+  const blank = { name: "", phone: "", email: "", source: "", referralName: "", campaign: "", budget: "", interest: "buy", notes: "", assignedTo: selfAssignable ? currentUser.id : "", stage: "new_lead", feedback: "" };
   const [form, setForm] = useState(blank);
   const [more, setMore] = useState(false);
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
@@ -2830,6 +3626,9 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
       </div>
       {form.source === "colleague_referral" && (
         <Field label="Colleague's name" required><input style={inputStyle} value={form.referralName} onChange={(e) => set("referralName")(e.target.value)} /></Field>
+      )}
+      {/campaign/.test(form.source || "") && (
+        <Field label="Campaign (optional)"><input style={inputStyle} value={form.campaign} placeholder="e.g. NewGiza owners" onChange={(e) => set("campaign")(e.target.value)} /></Field>
       )}
       {assignableUsers.length > 1 && (
         <Field label="Assign to">
@@ -2947,6 +3746,7 @@ function LeadImport({ clients, users, onImport, onDone, checkPhones }) {
   const [fileName, setFileName] = useState("");
   const [assignees, setAssignees] = useState(() => users.filter((u) => u.role === "sales_agent" || u.role === "team_leader").map((u) => u.id));
   const [source, setSource] = useState("facebook_campaign");
+  const [campaignName, setCampaignName] = useState("");
   const [interest, setInterest] = useState("buy");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
@@ -3013,6 +3813,7 @@ function LeadImport({ clients, users, onImport, onDone, checkPhones }) {
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <Field label="Source"><LabeledSelect value={source} onChange={setSource} options={SOURCES} placeholder="Source" /></Field>
+            <Field label="Campaign name (if the file has none)"><input style={inputStyle} value={campaignName} placeholder="e.g. OWEST November" onChange={(e) => setCampaignName(e.target.value)} /></Field>
             <Field label="Looking to">
               <select value={interest} onChange={(e) => setInterest(e.target.value)} style={{ ...inputStyle, appearance: "none" }}><option value="buy">Buy</option><option value="rent">Rent</option></select>
             </Field>
@@ -3035,7 +3836,7 @@ function LeadImport({ clients, users, onImport, onDone, checkPhones }) {
             <button disabled={busy || (fresh.length + dups.length === 0) || assignees.length === 0} onClick={async () => {
               setBusy(true); setError("");
               try {
-                const n = await onImport({ fresh, dups, assignees, source, interest });
+                const n = await onImport({ fresh: fresh.map((r) => ({ ...r, campaign: r.campaign || campaignName.trim() })), dups: dups.map((r) => ({ ...r, campaign: r.campaign || campaignName.trim() })), assignees, source, interest });
                 setResult(`Imported ${n.created} new lead${n.created === 1 ? "" : "s"}${n.dups ? ` · ${n.dups} sent to Duplicates` : ""}`);
                 setRows(null); setFileName("");
                 setTimeout(onDone, 1500);
@@ -3051,7 +3852,7 @@ function LeadImport({ clients, users, onImport, onDone, checkPhones }) {
 // =====================================================================
 // ---------- Team activity: what each sales person actually did ----------
 // =====================================================================
-function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient }) {
+function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient, coldActivity = [] }) {
   const [fv, setF, resetF, setAllF] = useFilters("team", { when: { p: "today" }, person: "", role: "" });
   const [drill, setDrill] = useState(null);
   const now = new Date();
@@ -3075,9 +3876,13 @@ function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient 
       return first ? (new Date(first.changedAt) - new Date(c.createdAt)) / 3600000 : null;
     }).filter((x) => x !== null && x >= 0).sort((a, b) => a - b);
     const median = responses.length ? responses[Math.floor(responses.length / 2)] : null;
+    const coldMine = coldActivity.filter((a) => a.user_id === u.id && inPeriod(a.created_at));
+    const clientCalls = mine.filter((a) => a.action === "call").length, clientWa = mine.filter((a) => a.action === "whatsapp" || a.action === "unit_sent").length;
+    const coldCalls = coldMine.filter((a) => a.action === "call").length, coldWa = coldMine.filter((a) => a.action === "whatsapp").length;
     return {
-      u,
-      contacts: mine.filter((a) => contactKinds.includes(a.action)).length,
+      u, clientCalls, clientWa, coldCalls, coldWa, calls: clientCalls + coldCalls, wa: clientWa + coldWa,
+      coldSelling: coldMine.filter((a) => a.action === "outcome" && a.value === "selling").length,
+      contacts: mine.filter((a) => contactKinds.includes(a.action)).length + coldCalls + coldWa,
       updates: mine.filter((a) => updateKinds.includes(a.action)).length,
       added: mine.filter((a) => a.action === "created").length,
       meetings: mine.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").length,
@@ -3101,6 +3906,9 @@ function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient 
         ]} />
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <FinStat label="Calls & chats" value={sum("contacts")} />
+        <FinStat label="Calls" value={sum("calls")} sub={`${sum("coldCalls")} cold · ${sum("clientCalls")} clients`} />
+        <FinStat label="WhatsApp" value={sum("wa")} sub={`${sum("coldWa")} cold · ${sum("clientWa")} clients`} />
+        <FinStat label="Owners selling (cold)" value={sum("coldSelling")} tone="success" />
         <FinStat label="Client updates" value={sum("updates")} />
         <FinStat label="Meetings booked" value={sum("meetings")} tone="success" />
         <FinStat label="Overdue right now" value={sum("overdue")} tone={sum("overdue") ? "danger" : undefined} />
@@ -3109,14 +3917,16 @@ function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient 
       <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%" }}>
           <thead><tr>
-            <th style={thStyle}>Sales</th><th style={thNum}>Calls & chats</th><th style={thNum}>Updates</th><th style={thNum}>Added</th>
+            <th style={thStyle}>Sales</th><th style={thNum}>Calls (cold / clients)</th><th style={thNum}>WhatsApp (cold / clients)</th><th style={thNum}>Owners selling</th><th style={thNum}>Updates</th><th style={thNum}>Added</th>
             <th style={thNum}>Meetings</th><th style={thNum}>Reserved / done</th><th style={thNum}>First reply</th><th style={thNum}>Overdue</th><th style={thNum}>Not contacted</th><th style={thNum}>Active clients</th>
           </tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.u.id}>
                 <td style={{ ...tdStyle, fontWeight: 700 }}>{r.u.name}</td>
-                <td style={tdNum}>{r.contacts}</td><td style={tdNum}>{r.updates}</td><td style={tdNum}>{r.added}</td>
+                <td style={tdNum}><b>{r.calls}</b> <span style={{ color: COLORS.textMuted }}>({r.coldCalls} / {r.clientCalls})</span></td>
+                <td style={tdNum}><b>{r.wa}</b> <span style={{ color: COLORS.textMuted }}>({r.coldWa} / {r.clientWa})</span></td>
+                <td style={tdNum}>{r.coldSelling}</td><td style={tdNum}>{r.updates}</td><td style={tdNum}>{r.added}</td>
                 <td style={tdNum}>{r.meetings}</td><td style={tdNum}>{r.reserved}</td>
                 <td style={{ ...tdNum, color: r.median !== null && r.median > 24 ? COLORS.danger : COLORS.text }} title="Median time from a lead being added to the first call / update">{fmtHours(r.median)}</td>
                 <td style={tdNum}>{r.overdue.length ? <button onClick={() => setDrill({ title: `${r.u.name} · overdue`, list: r.overdue })} style={{ border: "none", background: "none", color: COLORS.danger, fontWeight: 800, cursor: "pointer", fontSize: 12.5 }}>{r.overdue.length}</button> : 0}</td>
@@ -3367,6 +4177,107 @@ function WhatsAppTemplates({ client, templates, salesName, onSent }) {
     </div>
   );
 }
+function LateLeadSettings({ ctx }) {
+  const { fin, act } = ctx;
+  const [hours, setHours] = useState(String(fin.settings?.late_lead_hours ?? 2));
+  const [auto, setAuto] = useState(!!fin.settings?.auto_reassign);
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  return (
+    <div style={finCard}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Late leads</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>A new lead nobody contacted after this many hours → a phone alert to the sales person and their manager (9 AM – 10 PM).</div>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <Field label="Hours"><input inputMode="numeric" style={{ ...inputStyle, width: 90 }} value={hours} onChange={(e) => { setHours(e.target.value.replace(/\D/g, "")); setSaved(false); }} /></Field>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, paddingBottom: 10 }}><input type="checkbox" checked={auto} onChange={(e) => { setAuto(e.target.checked); setSaved(false); }} /> Move it automatically to the least-busy sales person in the same team</label>
+      </div>
+      <button style={btnPrimary} disabled={busy} onClick={() => run(async () => { await act((t) => db.update("finance_settings", 1, { late_lead_hours: Math.max(1, Number(hours) || 2), auto_reassign: auto, updated_at: new Date().toISOString() }, t)); setSaved(true); })}>Save</button>
+      {saved && <span style={{ marginLeft: 8, fontSize: 12.5, color: COLORS.success }}>Saved ✓</span>}
+      {error && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 6 }}>{error}</div>}
+    </div>
+  );
+}
+const BACKUP_TABLES = ["profiles", "developers", "projects", "units", "unit_sales", "clients", "client_activity", "client_units", "client_projects", "lead_duplicates", "deals", "deal_agents", "deal_rates",
+  "finance_transactions", "finance_accounts", "expense_categories", "recurring_expenses", "staff_targets", "staff_salaries", "commission_rates", "finance_settings",
+  "attendance", "cold_sheets", "cold_leads", "cold_activity", "campaign_spend", "share_links", "finance_audit"];
+function saveBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function BackupSettings({ ctx }) {
+  const { act } = ctx;
+  const [busy, setBusy] = useState(""), [msg, setMsg] = useState(""), [files, setFiles] = useState(null);
+  const storage = (path, init, t) => fetch(`${SUPABASE_URL}/storage/v1/${path}`, { ...init, headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${t}`, "Content-Type": "application/json" } });
+  const downloadNow = async () => {
+    setBusy("now"); setMsg("");
+    try {
+      await act(async (t) => {
+        const tables = {};
+        for (const name of BACKUP_TABLES) { try { tables[name] = await db.selectAll(name, "", t); } catch (e) { tables[name] = []; } }
+        const n = Object.values(tables).reduce((s, l) => s + (l || []).length, 0);
+        saveBlob(new Blob([JSON.stringify({ made_at: new Date().toISOString(), tables }, null, 1)], { type: "application/json" }), `origin-crm-backup-${todayInput()}.json`);
+        setMsg(`Downloaded ✓ · ${n.toLocaleString()} rows`);
+      });
+    } catch (e) { setMsg(e.message || "Could not make the backup"); }
+    setBusy("");
+  };
+  const loadList = async () => {
+    setBusy("list");
+    try { await act(async (t) => { const r = await storage("object/list/backups", { method: "POST", body: JSON.stringify({ prefix: "", limit: 50, sortBy: { column: "name", order: "desc" } }) }, t); setFiles(r.ok ? (await r.json()).filter((f) => /^backup-/.test(f.name)) : []); }); }
+    catch (e) { setFiles([]); }
+    setBusy("");
+  };
+  const getFile = async (name) => {
+    setBusy(name);
+    try { await act(async (t) => { const r = await storage(`object/authenticated/backups/${name}`, { method: "GET" }, t); if (!r.ok) throw new Error("Could not download"); saveBlob(await r.blob(), name); }); }
+    catch (e) { setMsg(e.message); }
+    setBusy("");
+  };
+  return (
+    <div style={finCard}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Backup</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>A full copy of the data is saved automatically every Sunday at 3 AM (the last 8 weeks are kept). You can also download one now.</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button style={btnPrimary} disabled={!!busy} onClick={downloadNow}>{busy === "now" ? "Preparing…" : "⬇ Download backup now"}</button>
+        <button style={{ ...btnPrimary, background: "#fff", color: COLORS.navy, border: `1px solid ${COLORS.border}` }} disabled={!!busy} onClick={loadList}>{busy === "list" ? "Loading…" : "Weekly backups"}</button>
+      </div>
+      {msg && <div style={{ fontSize: 12.5, marginTop: 6, color: /✓/.test(msg) ? COLORS.success : COLORS.danger }}>{msg}</div>}
+      {files && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+          {files.length === 0 ? <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>No weekly backups yet — the first one runs on Sunday.</div> : files.map((f) => (
+            <button key={f.name} disabled={!!busy} onClick={() => getFile(f.name)} style={{ textAlign: "left", border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 10, padding: "6px 10px", fontSize: 12.5, cursor: "pointer" }}>
+              {busy === f.name ? "Downloading…" : `⬇ ${f.name}`}{f.metadata?.size ? ` · ${(f.metadata.size / 1048576).toFixed(1)} MB` : ""}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ColdTemplateSettings({ ctx }) {
+  const { fin, act } = ctx;
+  const [text, setText] = useState(fin.settings?.wa_cold_template || DEFAULT_COLD_WA);
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  return (
+    <div style={{ ...finCard, gridColumn: "1 / -1" }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Cold call WhatsApp message</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>{"{greeting}"} becomes صباح الخير before 12 and مساء الخير after · {"{sales}"} the sales person · {"{in_project}"} " في" + the project (empty if no project) · {"{project}"} · {"{owner}"} · {"{unit}"}</div>
+      <textarea dir="auto" rows={3} style={{ ...inputStyle, resize: "vertical" }} value={text} onChange={(e) => setText(e.target.value)} />
+      <div style={{ fontSize: 12, color: COLORS.textMuted, margin: "6px 0" }}>Preview: <span dir="auto">{coldWaText(text, { project_name: "Westown", owner_name: "Ahmed", unit_number: "B-12" }, ctx.profile?.name || "Omar")}</span></div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => { setSaved(false); await act((tk) => db.update("finance_settings", 1, { wa_cold_template: text.trim() || null, updated_at: new Date().toISOString() }, tk)); setSaved(true); })}>Save message</button>
+        <button style={btnGhost} onClick={() => setText(DEFAULT_COLD_WA)}>Reset</button>
+        {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
+      </div>
+      <FinError text={error} />
+    </div>
+  );
+}
+
 function WaTemplatesSettings({ ctx }) {
   const { fin, act } = ctx;
   const [list, setList] = useState(() => (Array.isArray(fin.settings?.wa_templates) && fin.settings.wa_templates.length ? fin.settings.wa_templates : DEFAULT_WA_TEMPLATES));
@@ -3399,7 +4310,7 @@ function WaTemplatesSettings({ ctx }) {
   );
 }
 
-function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest, onQuickReply, onContact, matchSlot, waTemplates, salesName }) {
+function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest, onQuickReply, onContact, matchSlot, waTemplates, salesName, getToken, onVoiceSaved }) {
   const [unitPickerOpen, setUnitPickerOpen] = useState(false);
   const timeline = activity.filter((a) => a.clientId === client.id).sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
 
@@ -3459,6 +4370,7 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
             <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 8 }}>Quick update</div>
             <QuickReplyBar client={client} activity={activity} onQuickReply={onQuickReply} onCloseLead={() => onCloseLead()} />
             <div style={{ marginTop: 10 }}><WhatsAppTemplates client={client} templates={waTemplates} salesName={salesName} onSent={() => onContact && onContact(client, "whatsapp")} /></div>
+            {getToken && onVoiceSaved && <div style={{ marginTop: 10 }}><VoiceNoteRecorder client={client} getToken={getToken} onSaved={(path, secs) => onVoiceSaved(client, path, secs)} /></div>}
           </div>
         )}
 
@@ -3529,6 +4441,9 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
                     {a.action === "call" && <span>Called</span>}
                     {a.action === "whatsapp" && <span>WhatsApp chat</span>}
                     {a.action === "unit_sent" && <span>Sent unit on WhatsApp: {a.newValue}</span>}
+                    {a.action === "link_opened" && <span>👀 Opened the link you sent</span>}
+                    {a.action === "liked_unit" && <span>❤️ Interested</span>}
+                    {a.action === "voice" && <VoiceNotePlayer path={a.newValue} getToken={getToken} />}
                     {a.note && <div style={{ marginTop: 2, color: COLORS.text }}>{a.note}</div>}
                   </div>
                 </div>
@@ -4322,6 +5237,8 @@ function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenCl
     return (
       <div>
         <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Reports</div>
+        <FunnelReport clients={clients} activity={activity} users={users} visibleSalesIds={visibleSalesIds} />
+        <div style={{ fontWeight: 600, fontSize: 13.5, color: COLORS.navy, margin: "4px 0 10px" }}>One person's report</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {reportable.map((u) => (
             <button key={u.id} onClick={() => setPersonId(u.id)} style={{ textAlign: "left", cursor: "pointer", border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 14, padding: "12px 14px", minWidth: 180, display: "flex", alignItems: "center", gap: 10 }}>
@@ -5666,7 +6583,7 @@ function ApprovalCard({ deal, ctx }) {
             p_as_done: asDone, p_amount_buyer: asDone ? collectedNow.buyer : null, p_amount_seller: asDone ? collectedNow.seller : null,
             p_transfer_date: asDone ? collectedAt : null,
           }, t), { full: true });
-          celebrate("happy", `Deal approved · ${ctx.dealTitle ? ctx.dealTitle(deal) : ""}`);
+          celebrate("deal", `Deal approved · ${ctx.dealTitle ? ctx.dealTitle(deal) : ""}`);
         })}>{busy ? "Working…" : asDone ? "Approve as Done" : "Approve as Reserved"}</button>
       </div>
     </div>
@@ -6052,7 +6969,7 @@ function MarkDoneModal({ deal, ctx, onClose }) {
               p_deal: deal.id, p_account: accountId || null, p_amount_buyer: v.buyer, p_amount_seller: v.seller, p_collected_at: dateInputToIso(date), p_transfer_date: date,
             }, t), { full: true });
             onClose();
-            celebrate("happy", "Deal done 🏁");
+            celebrate("deal", "Deal done 🏁");
           })}>{busy ? "Saving…" : "Mark as done"}</button>
         </div>
       </div>
@@ -6155,6 +7072,185 @@ function DealRatesModal({ deal, rows, ctx, onClose }) {
 // =====================================================================
 // ---------- FINANCE: overview (Admin / CEO) ----------
 // =====================================================================
+// ---------- Funnel, campaigns ROI and commission forecast ----------
+const FUNNEL_STEPS = [
+  { id: "lead", label: "Leads", idx: 0 },
+  { id: "interested", label: "Interested", idx: 1 },
+  { id: "meeting", label: "Meeting", idx: 2 },
+  { id: "negotiation", label: "Negotiation", idx: 3 },
+  { id: "deal", label: "Reserved / Done", idx: 4 },
+];
+const STAGE_IDX = Object.fromEntries(PIPELINE_STAGES.map((s, i) => [s.id, i]));
+// How far a client ever got (the stage now, or the furthest stage it moved through)
+function reachedIdx(client, actByClient) {
+  let best = STAGE_IDX[client.stage] ?? 0;
+  if (client.stage === "closed" || client.stage === "not_responding" || client.stage === "long_term") best = STAGE_IDX[client.previousStage] ?? 0;
+  if (client.meetingAt) best = Math.max(best, 2);
+  (actByClient[client.id] || []).forEach((a) => { if (a.action === "stage_change" && STAGE_IDX[a.newValue] != null) best = Math.max(best, STAGE_IDX[a.newValue]); if (a.action === "stage_change" && STAGE_IDX[a.oldValue] != null) best = Math.max(best, STAGE_IDX[a.oldValue]); });
+  return Math.min(best, 4);
+}
+function funnelCounts(list, actByClient) {
+  const out = [0, 0, 0, 0, 0];
+  list.forEach((c) => { const r = reachedIdx(c, actByClient); for (let i = 0; i <= r; i++) out[i]++; });
+  return out;
+}
+function groupActivity(activity) {
+  const m = {};
+  (activity || []).forEach((a) => { (m[a.clientId] = m[a.clientId] || []).push(a); });
+  return m;
+}
+function FunnelBars({ counts }) {
+  const top = counts[0] || 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {FUNNEL_STEPS.map((s, i) => (
+        <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>
+          <div style={{ width: 110, color: COLORS.textMuted }}>{s.label}</div>
+          <div style={{ flex: 1, background: COLORS.creamDark, borderRadius: 8, height: 22, position: "relative", overflow: "hidden" }}>
+            <div style={{ width: `${Math.max(2, (counts[i] / top) * 100)}%`, height: "100%", background: i === 4 ? COLORS.gold : COLORS.navy, opacity: 1 - i * 0.12, borderRadius: 8, transition: "width .4s" }} />
+          </div>
+          <div style={{ width: 92, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, color: COLORS.navy }}>
+            {counts[i]}{i > 0 && counts[i - 1] ? <span style={{ fontWeight: 500, color: COLORS.textMuted }}> · {Math.round((counts[i] / counts[i - 1]) * 100)}%</span> : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+function FunnelReport({ clients, activity, users, visibleSalesIds }) {
+  const [fv, setF, resetF, setAllF] = useFilters("funnel2", { added: { p: "month" }, by: "", person: "" });
+  const actBy = useMemo(() => groupActivity(activity), [activity]);
+  const list = clients.filter((c) => visibleSalesIds.includes(c.assignedTo) && inDate(c.createdAt, fv.added) && (!fv.person || c.assignedTo === fv.person));
+  const total = funnelCounts(list, actBy);
+  const keyOf = (c) => (fv.by === "sales" ? c.assignedTo : fv.by === "campaign" ? c.campaign || "" : c.source || "");
+  const labelOf = (k) => (fv.by === "sales" ? (users.find((u) => u.id === k)?.name || "—") : fv.by === "campaign" ? k || "No campaign" : SOURCE_LABEL[k] || "No source");
+  const groups = {};
+  list.forEach((c) => { (groups[keyOf(c)] = groups[keyOf(c)] || []).push(c); });
+  const rows = Object.entries(groups).map(([k, l]) => ({ k, label: labelOf(k), counts: funnelCounts(l, actBy) })).sort((a, b) => b.counts[0] - a.counts[0]);
+  const sales = users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending");
+  return (
+    <div className="card" style={{ ...finCard, marginBottom: 16 }}>
+      <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy, marginBottom: 10 }}>Funnel</div>
+      <FilterBar id="funnel" values={fv} set={setF} reset={resetF} setAll={setAllF} count={list.length} noun="leads"
+        defs={[
+          { id: "added", label: "Lead added", type: "date", primary: true },
+          { id: "by", label: "Split by", type: "select", primary: true, all: "Split by source", options: [{ id: "sales", label: "Split by sales person" }, { id: "campaign", label: "Split by campaign" }] },
+          { id: "person", label: "Sales", type: "select", all: "Everyone", options: sales.map((u) => ({ id: u.id, label: u.name })) },
+        ]} />
+      <FunnelBars counts={total} />
+      {rows.length > 1 && (
+        <div style={{ overflowX: "auto", marginTop: 14 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><th style={thStyle}>{fv.by === "sales" ? "Sales" : fv.by === "campaign" ? "Campaign" : "Source"}</th>{FUNNEL_STEPS.map((s) => <th key={s.id} style={{ ...thStyle, textAlign: "right" }}>{s.label}</th>)}<th style={{ ...thStyle, textAlign: "right" }}>Lead → deal</th></tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.k}><td style={tdStyle}>{r.label}</td>{r.counts.map((n, i) => <td key={i} style={tdNum}>{n}</td>)}<td style={tdNum}>{r.counts[0] ? `${((r.counts[4] / r.counts[0]) * 100).toFixed(1)}%` : "—"}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+function CampaignReport({ ctx }) {
+  const { fin, act } = ctx;
+  const clients = ctx.clients || [], activity = ctx.clientActivity || [];
+  const [fv, setF, resetF, setAllF] = useFilters("campaigns", { added: { p: "month" } });
+  const [form, setForm] = useState({ campaign: "", month: currentMonthKey(), amount: "" });
+  const [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const actBy = useMemo(() => groupActivity(activity), [activity]);
+  const spend = fin.campaignSpend || [];
+  const range = dateRangeOf(fv.added);
+  const spendIn = (camp) => round2(spend.filter((s) => s.campaign === camp && (!range || (new Date(`${s.month}T12:00:00`) >= new Date(range[0].getFullYear(), range[0].getMonth(), 1) && new Date(`${s.month}T12:00:00`) < range[1]))).reduce((a, s) => a + num(s.amount), 0));
+  const leads = clients.filter((c) => c.campaign && inDate(c.createdAt, fv.added));
+  const names = Array.from(new Set([...leads.map((c) => c.campaign), ...spend.map((s) => s.campaign)])).filter(Boolean);
+  const okDeals = fin.deals.filter((d) => ["approved", "reserved"].includes(d.status));
+  const rows = names.map((name) => {
+    const l = leads.filter((c) => c.campaign === name);
+    const counts = funnelCounts(l, actBy);
+    const ids = new Set(l.map((c) => c.id));
+    const deals = okDeals.filter((d) => d.client_id && ids.has(d.client_id));
+    const commission = round2(deals.reduce((s, d) => s + num(d.commission_total), 0));
+    const cost = spendIn(name);
+    return { name, leads: l.length, meetings: counts[2], deals: Math.max(deals.length, counts[4]), commission, cost, cpl: l.length ? cost / l.length : 0, cpd: deals.length ? cost / deals.length : 0, roi: cost ? ((commission - cost) / cost) * 100 : null };
+  }).sort((a, b) => b.leads - a.leads);
+  const save = async () => {
+    setErr("");
+    if (!form.campaign.trim() || !num(form.amount)) { setErr("Write the campaign name and the amount."); return; }
+    setBusy(true);
+    try { await act((t) => db.upsert("campaign_spend", [{ campaign: form.campaign.trim(), month: `${form.month}-01`, amount: num(form.amount) }], "campaign,month", t)); setForm({ ...form, amount: "" }); }
+    catch (e) { setErr(e.message || "Could not save"); }
+    setBusy(false);
+  };
+  return (
+    <div>
+      <FinTitle>Campaigns · return on ad spend</FinTitle>
+      <FilterBar id="campaigns" values={fv} set={setF} reset={resetF} setAll={setAllF} count={rows.length} noun="campaigns"
+        defs={[{ id: "added", label: "Period", type: "date", primary: true }]} />
+      {rows.length === 0 ? (
+        <div style={{ ...finCard, color: COLORS.textMuted, fontSize: 13.5 }}>No campaign leads in this period. Leads get a campaign from the "Campaign" column when you import them, or from the Campaign field on a new client.</div>
+      ) : (
+        <div style={{ ...finCard, padding: 0, overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>{["Campaign", "Leads", "Meetings", "Deals", "Spend", "Cost / lead", "Cost / deal", "Commission", "ROI"].map((h, i) => <th key={h} style={{ ...thStyle, textAlign: i ? "right" : "left" }}>{h}</th>)}</tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.name}>
+                <td style={tdStyle}>{r.name}</td><td style={tdNum}>{r.leads}</td><td style={tdNum}>{r.meetings}</td><td style={tdNum}>{r.deals}</td>
+                <td style={tdNum}>{egp(r.cost)}</td><td style={tdNum}>{r.cpl ? egp(r.cpl) : "—"}</td><td style={tdNum}>{r.cpd ? egp(r.cpd) : "—"}</td>
+                <td style={tdNum}>{egp(r.commission)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: r.roi == null ? COLORS.textMuted : r.roi >= 0 ? COLORS.success : COLORS.danger }}>{r.roi == null ? "—" : `${Math.round(r.roi)}%`}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ ...finCard, marginTop: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 13.5, color: COLORS.navy, marginBottom: 8 }}>Spend per campaign per month <span style={{ fontWeight: 400, fontSize: 12, color: COLORS.textMuted }}>· saving the same month again replaces the amount</span></div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <Field label="Campaign"><input list="camp-names" style={inputStyle} value={form.campaign} onChange={(e) => setForm({ ...form, campaign: e.target.value })} placeholder="e.g. NewGiza owners" /><datalist id="camp-names">{names.map((n) => <option key={n} value={n} />)}</datalist></Field>
+          <Field label="Month"><input type="month" style={inputStyle} value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })} /></Field>
+          <Field label="Amount (EGP)"><input inputMode="decimal" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
+          <button style={btnPrimary} disabled={busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+        </div>
+        {err && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 6 }}>{err}</div>}
+        {spend.length > 0 && (
+          <div style={{ marginTop: 10, fontSize: 12.5, color: COLORS.textMuted, display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {spend.slice().sort((a, b) => String(b.month).localeCompare(String(a.month))).slice(0, 24).map((s) => (
+              <span key={s.id} className="chip" style={{ border: `1px solid ${COLORS.border}`, borderRadius: 999, padding: "3px 10px", background: "#fff" }}>{s.campaign} · {monthLabel(String(s.month).slice(0, 7))} · {egp(s.amount)}
+                <button title="Remove" onClick={() => act((t) => db.remove("campaign_spend", s.id, t))} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.danger, marginLeft: 4 }}>×</button></span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ marginTop: 16 }}><FunnelReport clients={clients} activity={activity} users={ctx.users} visibleSalesIds={ctx.users.map((u) => u.id)} /></div>
+    </div>
+  );
+}
+function CommissionForecast({ ctx }) {
+  const { fin, calc } = ctx;
+  const clients = ctx.clients || [];
+  const months = [0, 1, 2].map((i) => shiftMonth(currentMonthKey(), i));
+  const reserved = fin.deals.filter((d) => d.status === "reserved");
+  const byMonth = Object.fromEntries(months.map((m) => [m, 0]));
+  let later = 0;
+  reserved.forEach((d) => { const m = monthKeyOf(d.deal_date || d.created_at); const k = m < months[0] ? months[0] : m; if (k in byMonth) byMonth[k] += num(d.commission_total); else later += num(d.commission_total); });
+  const toCollect = round2(fin.deals.filter((d) => d.status === "approved").reduce((s, d) => s + Math.max(0, num(d.commission_total) - num(calc.collectedByDeal[d.id])), 0));
+  const done = fin.deals.filter((d) => d.status === "approved" && num(d.commission_total) > 0).slice(0, 20);
+  const avg = done.length ? done.reduce((s, d) => s + num(d.commission_total), 0) / done.length : 0;
+  const negotiating = clients.filter((c) => c.stage === "negotiation").length;
+  const possible = round2(negotiating * avg * 0.3);
+  return (
+    <div className="card" style={{ ...finCard, marginTop: 16 }}>
+      <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy, marginBottom: 10 }}>Commission forecast</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <FinStat label="Still to collect on done deals" value={egp(toCollect)} />
+        {months.map((m) => <FinStat key={m} label={`Reserved · ${monthLabel(m)}`} value={egp(byMonth[m])} />)}
+        {later > 0 && <FinStat label="Reserved · later" value={egp(later)} />}
+        <FinStat label="Possible from negotiations" value={egp(possible)} sub={negotiating ? `${negotiating} clients in negotiation × average deal × 30%` : "No clients in negotiation"} />
+      </div>
+    </div>
+  );
+}
+
 function FinOverview({ ctx, goTab }) {
   const { fin, calc, balances, users } = ctx;
   const month = currentMonthKey();
@@ -6198,6 +7294,7 @@ function FinOverview({ ctx, goTab }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {fin.accounts.filter((a) => !a.archived).map((a) => <FinStat key={a.id} label={a.name} value={egp(balances[a.id] || 0)} />)}
       </div>
+      <CommissionForecast ctx={ctx} />
     </>
   );
 }
@@ -7038,6 +8135,10 @@ function FinSettings({ ctx }) {
 
         <WaTemplatesSettings ctx={ctx} />
 
+        <ColdTemplateSettings ctx={ctx} />
+        <LateLeadSettings ctx={ctx} />
+        <BackupSettings ctx={ctx} />
+
         <CelebrationSettings ctx={ctx} uploadMedia={ctx.uploadMedia} />
 
         <NamedListEditor title="Accounts (treasuries)" items={fin.accounts}
@@ -7193,7 +8294,7 @@ function MyEarnings({ ctx }) {
 // =====================================================================
 // ---------- FINANCE: the section itself ----------
 // =====================================================================
-function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal, deepLink, uploadMedia }) {
+function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal, deepLink, uploadMedia, clients, clientActivity }) {
   const isAdmin = isFinanceAdmin(profile);
   const [tab, setTab] = useState(deepLink?.tab || (deepLink?.dealId ? "deals" : isAdmin ? "overview" : "earnings"));
   useEffect(() => { if (deepLink) setTab(deepLink.tab || "deals"); }, [deepLink]);
@@ -7223,7 +8324,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
   };
   const people = users.filter((u) => u.role !== "pending").sort((a, b) => a.name.localeCompare(b.name));
   const charityPct = num(fin.settings?.charity_pct);
-  const ctx = { uploadMedia, deepDealId: deepLink?.dealId, deepNonce: deepLink?.n, fin, users, profile, isAdmin, calc, thresholds, charityPct, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
+  const ctx = { clients, clientActivity, uploadMedia, deepDealId: deepLink?.dealId, deepNonce: deepLink?.n, fin, users, profile, isAdmin, calc, thresholds, charityPct, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
 
   if (fin.error) {
     return (
@@ -7250,6 +8351,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
         { id: "expenses", label: "Expenses" },
         { id: "treasury", label: "Treasury & reports" },
         { id: "team", label: "Team plans" },
+        { id: "marketing", label: "Campaigns" },
         { id: "settings", label: "Settings" },
       ]
     : [
@@ -7274,6 +8376,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
       {tab === "expenses" && isAdmin && <FinExpenses ctx={ctx} />}
       {tab === "treasury" && isAdmin && <FinTreasury ctx={ctx} />}
       {tab === "team" && isAdmin && <FinTeam ctx={ctx} people={people} />}
+      {tab === "marketing" && isAdmin && <CampaignReport ctx={ctx} />}
       {tab === "settings" && isAdmin && <FinSettings ctx={ctx} />}
       {tab === "earnings" && !isAdmin && <MyEarnings ctx={ctx} />}
     </div>
@@ -7319,7 +8422,8 @@ export default function App() {
     try {
       const u = new URL(window.location.href);
       const o = u.searchParams.get("open");
-      if (o) { openLink(o); u.searchParams.delete("open"); window.history.replaceState(null, "", u.pathname + (u.search || "") + u.hash); }
+      if (o) openLink(o);
+      if (o || u.searchParams.has("v")) { u.searchParams.delete("open"); u.searchParams.delete("v"); window.history.replaceState(null, "", u.pathname + (u.search || "") + u.hash); }
     } catch (e) {}
     if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker.register("sw.js").catch(() => {});
@@ -7403,6 +8507,7 @@ export default function App() {
     loadFinance(t);
     loadDuplicates(t);
     loadLeaderboard(t);
+    refreshCold(t);
   };
 
   // Finance loads separately so a problem there never blocks the rest of the CRM
@@ -7421,10 +8526,11 @@ export default function App() {
         db.select("commission_rates", "", t),
         db.select("finance_settings", "", t),
       ]);
+      const campaignSpend = await db.select("campaign_spend", "&order=month.desc", t).catch(() => []);
       setFin({
         loaded: true, error: "", deals, dealAgents, dealRates, txns,
         accounts: accounts || [], categories: categories || [], recurring: recurring || [],
-        targets: targets || [], salaries: salaries || [], rates: rates || [], settings: (settingsRows || [])[0] || null,
+        targets: targets || [], salaries: salaries || [], rates: rates || [], settings: (settingsRows || [])[0] || null, campaignSpend: campaignSpend || [],
       });
     } catch (err) {
       setFin((f) => ({ ...f, error: err.message || "Could not load finance data" }));
@@ -7462,7 +8568,7 @@ export default function App() {
     setDealModal(null);
     await loadFinance(t);
     if (approveNow) { await refreshUnits(); await refreshClients(); }
-    celebrate("happy", isFinanceAdmin(profile) ? (approveNow ? "Deal saved and approved" : "Deal saved") : "Deal sent for approval ✓");
+    celebrate("deal", isFinanceAdmin(profile) ? (approveNow ? "Deal saved and approved" : "Deal saved") : "Deal sent for approval ✓");
   };
 
   const fetchAll = async (currentSession) => {
@@ -7555,6 +8661,7 @@ export default function App() {
     setClientUnitLinks(cUnitRows || []);
     loadDuplicates(t);
     loadLeaderboard(t);
+    refreshCold(t);
   };
 
   // ---- my deal got approved while I was away → celebrate once ----
@@ -7564,9 +8671,63 @@ export default function App() {
     const mine = fin.deals.filter((d) => ["reserved", "approved"].includes(d.status) && (d.created_by === profile.id || fin.dealAgents.some((a) => a.deal_id === d.id && a.agent_id === profile.id)));
     let seen = null; try { seen = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
     const ids = mine.map((d) => `${d.id}:${d.status}`);
-    if (seen) { const fresh = mine.filter((d) => !seen.includes(`${d.id}:${d.status}`)); if (fresh.length) celebrate("happy", fresh.length === 1 ? `Your deal was ${fresh[0].status === "approved" ? "closed as done" : "approved"}: ${fresh[0].unit_label || fresh[0].client_label || ""}` : `${fresh.length} of your deals were approved`); }
+    if (seen) { const fresh = mine.filter((d) => !seen.includes(`${d.id}:${d.status}`)); if (fresh.length) celebrate("deal", fresh.length === 1 ? `Your deal was ${fresh[0].status === "approved" ? "closed as done" : "approved"}: ${fresh[0].unit_label || fresh[0].client_label || ""}` : `${fresh.length} of your deals were approved`); }
     try { localStorage.setItem(key, JSON.stringify(ids)); } catch (e) {}
   }, [fin.loaded, fin.deals]); // eslint-disable-line
+
+  // ---- cold calls ----
+  const [cold, setCold] = useState({ sheets: [], leads: [], activity: [] });
+  const refreshCold = async (tk) => {
+    try {
+      const t = tk || await getValidToken();
+      const since = new Date(Date.now() - 120 * MS_DAY).toISOString();
+      const [sheets, leads, activity] = await Promise.all([
+        db.selectAll("cold_sheets", "&order=due_date.desc", t),
+        db.selectAll("cold_leads", "&order=position", t),
+        db.selectAll("cold_activity", `&created_at=gte.${since}&order=created_at.desc`, t),
+      ]);
+      setCold({ sheets: sheets || [], leads: leads || [], activity: activity || [] });
+    } catch (e) { /* table not there yet */ }
+  };
+  const lastColdRef = useRef(null);
+  const [coldPrompt, setColdPrompt] = useState(null);
+  const [unitPrefill, setUnitPrefill] = useState(null);
+  useEffect(() => {
+    const back = () => {
+      const c = lastColdRef.current;
+      if (!c || document.visibilityState === "hidden") return;
+      const gone = Date.now() - c.at;
+      if (gone > 4000 && gone < 3 * 3600 * 1000) { setColdPrompt(c.leadId); lastColdRef.current = null; }
+    };
+    document.addEventListener("visibilitychange", back);
+    window.addEventListener("focus", back);
+    return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
+  }, []);
+  const logCold = async (lead, kind) => {
+    if (kind === "call") lastColdRef.current = { leadId: lead.id, at: Date.now() };
+    try {
+      const t = await getValidToken();
+      await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: kind }, t);
+      await db.update("cold_leads", lead.id, { last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString() }, t);
+      await refreshCold(t);
+    } catch (e) {}
+  };
+  const startUnitFromCold = (lead) => {
+    const pr = lead.project_id ? projects.find((p) => p.id === lead.project_id) : projects.find((p) => p.name.toLowerCase() === String(lead.project_name || "").trim().toLowerCase());
+    setUnitPrefill({ ownerName: lead.owner_name || "", ownerNumber: lead.phone, projectId: pr?.id || "", developerId: pr?.developerId || "", unitNumber: lead.unit_number || "", coldLeadId: lead.id, n: Date.now() });
+    setEditingUnit(null); setSection("units"); setTab("add");
+  };
+  const saveColdOutcome = async (lead, status, extra = {}) => {
+    const t = await getValidToken();
+    const patch = { status, attempts: (lead.attempts || 0) + 1, last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      callback_at: status === "call_later" ? extra.callback_at || null : null, unit_pending: status === "selling" ? !!extra.unit_pending || !!extra.addNow : false };
+    await db.update("cold_leads", lead.id, patch, t);
+    await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: "outcome", value: status }, t);
+    await refreshCold(t);
+    bumpDaily(profile.id, "update");
+    if (status === "selling") celebrate("deal", `${lead.owner_name || lead.phone} wants to sell${lead.project_name ? ` · ${lead.project_name}` : ""}`);
+    if (extra.addNow) startUnitFromCold(lead);
+  };
 
   // ---- leaderboard (this month) + my quarter target ----
   const [leaderboard, setLeaderboard] = useState([]);
@@ -7614,7 +8775,7 @@ export default function App() {
     let created = 0;
     for (let i = 0; i < fresh.length; i += 100) {
       const chunk = fresh.slice(i, i + 100).map((r, j) => ({
-        name: r.name || r.phone, phone: r.phone, email: r.email || null, source, interest,
+        name: r.name || r.phone, phone: r.phone, email: r.email || null, source, interest, campaign: r.campaign || null,
         notes: [r.campaign ? `Campaign: ${r.campaign}` : "", r.notes].filter(Boolean).join(" · ") || null,
         stage: "new_lead", assigned_to: assignees[(i + j) % assignees.length], created_by: profile.id, ...autoFollowUp("new_lead"),
       }));
@@ -7666,9 +8827,40 @@ export default function App() {
   };
 
   // Opens WhatsApp with the unit ready to send, then logs it and links the unit to the client
+  // Unit links: the client gets a nice page; we get told when they open it or tap ❤️
+  const newShareToken = () => Array.from(crypto.getRandomValues(new Uint8Array(7)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const shareUrl = (tk) => new URL(`share.html?t=${tk}`, window.location.href.split("?")[0]).toString();
+  const createShare = (tk, unitIds, clientId, kind) => (async () => {
+    try { await db.insert("share_links", { token: tk, kind, unit_ids: unitIds, client_id: clientId || null, created_by: profile.id }, await getValidToken()); } catch (e) { console.warn(e); }
+  })();
+  const shareUnitLink = (unit) => {
+    const tk = newShareToken(), info = getProjectInfo(unit), url = shareUrl(tk);
+    const text = `${unit.type} — ${info.name}, ${info.destination}\n${url}`;
+    try { navigator.clipboard && navigator.clipboard.writeText(url); } catch (e) {}
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+    createShare(tk, [unit.id], null, "unit");
+  };
+  const sendShortlist = (client, list) => {
+    const tk = newShareToken(), url = shareUrl(tk);
+    const first = client.name && !/^[0-9+ ]+$/.test(client.name) ? client.name.split(" ")[0] : "";
+    window.open(`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(`${first ? `Hi ${first}, ` : ""}I picked ${list.length} units for you — tap ❤️ on the ones you like:\n${url}`)}`, "_blank");
+    (async () => {
+      await createShare(tk, list.map((u) => u.id), client.id, "list");
+      try {
+        const t = await getValidToken();
+        await db.insert("client_activity", { client_id: client.id, action: "unit_sent", field_name: list[0].id, new_value: `Shortlist of ${list.length} units`, changed_by: profile.id }, t);
+        for (const u of list) if (!clientUnitLinks.some((l) => l.client_id === client.id && l.unit_id === u.id)) await db.insert("client_units", { client_id: client.id, unit_id: u.id }, t);
+        await refreshClients();
+      } catch (e) {}
+    })();
+  };
   const sendUnitToClient = (client, unit) => {
     const info = getProjectInfo(unit);
-    window.open(`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(unitPitch(unit, info, client))}`, "_blank");
+    const tk = newShareToken();
+    const first = client.name && !/^[0-9+ ]+$/.test(client.name) ? client.name.split(" ")[0] : "";
+    const msg = `${first ? `Hi ${first}, ` : ""}this unit matches what you're looking for:\n${unit.type} — ${info.name}, ${info.destination}\n${isForRent(unit) && client.interest === "rent" ? rentMoney(unit.rentPrice) : money(unit.totalPrice)}\n\nPhotos and details: ${shareUrl(tk)}`;
+    window.open(`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(msg)}`, "_blank");
+    createShare(tk, [unit.id], client.id, "unit");
     (async () => {
       try {
         const t = await getValidToken();
@@ -7697,6 +8889,7 @@ export default function App() {
     const [created] = await db.insert("clients", { ...clientToDbRow(form, profile.id), ...autoFollowUp(form.stage || "new_lead") }, t);
     await db.insert("client_activity", { client_id: created.id, action: "created", new_value: form.stage, note: form.feedback || "Client added", changed_by: profile.id }, t);
     await refreshClients();
+    celebrate("client", created.name); bumpDaily(profile.id, "client");
     return created;
   };
 
@@ -7714,6 +8907,8 @@ export default function App() {
       ? { client_id: client.id, action: "stage_change", field_name: "stage", old_value: client.stage, new_value: plan.stage, note: plan.note, changed_by: profile.id }
       : { client_id: client.id, action: "quick_reply", field_name: plan.replyId, note: plan.note, changed_by: profile.id }, t);
     await refreshClients();
+    if (plan.stage === "meeting_generated") celebrate("meeting", `${client.name}${plan.meetingAt ? ` · ${formatDateTime(plan.meetingAt)}` : ""}`);
+    bumpDaily(profile.id, "update");
   };
 
   // Tapping Call / WhatsApp is logged automatically (once per 10 minutes per client)
@@ -7757,6 +8952,8 @@ export default function App() {
     }, t);
     setStageChangeTarget(null);
     await refreshClients();
+    if (newStage === "meeting_generated") celebrate("meeting", `${client.name}${meetingAt ? ` · ${formatDateTime(meetingAt)}` : ""}`);
+    bumpDaily(profile.id, "update");
   };
 
   const addClientFeedback = async (client, note) => {
@@ -7764,6 +8961,7 @@ export default function App() {
     await db.insert("client_activity", { client_id: client.id, action: "note", note, changed_by: profile.id }, t);
     setFeedbackTarget(null);
     await refreshClients();
+    bumpDaily(profile.id, "update");
   };
 
   const closeClient = async (client, { reason, note }) => {
@@ -7914,6 +9112,9 @@ export default function App() {
     const newUnit = Array.isArray(inserted) ? inserted[0] : inserted;
     await db.insert("unit_sales", { unit_id: newUnit.id, sales_id: profile.id }, await getValidToken());
     await refreshUnits();
+    celebrate("unit", `${unitForm.type || "Unit"} ${unitForm.unitNumber || ""}`.trim()); bumpDaily(profile.id, "unit");
+    if (unitForm.coldLeadId) { try { await db.update("cold_leads", unitForm.coldLeadId, { unit_id: newUnit.id, unit_pending: false, status: "selling" }, await getValidToken()); await refreshCold(); } catch (e) {} setUnitPrefill(null); }
+    return newUnit;
   };
 
   const updateUnit = async (unit, formData, newPhotoFiles) => {
@@ -7927,6 +9128,7 @@ export default function App() {
     const finalPhotos = [...formData.existingPhotos, ...uploadedUrls];
     await db.update("units", unit.id, unitEditToDbRow({ ...formData, photos: finalPhotos }), await getValidToken());
     await refreshUnits();
+    bumpDaily(profile.id, "update");
   };
 
   const confirmHold = async (reason) => {
@@ -8064,9 +9266,11 @@ export default function App() {
   if (!profile || profile.role === "pending") return <PendingScreen onSignOut={signOut} />;
 
   const finPending = isFinanceAdmin(profile) ? fin.deals.filter((d) => d.status === "pending").length : 0;
+  const coldBadge = cold.sheets.filter((sh) => sh.assigned_to === profile.id && ["late", "today"].includes(sheetState(sh, cold.leads).state)).length;
   const SECTIONS = [
     { id: "clients", label: "Clients", icon: MessageSquare },
     { id: "units", label: "Units", icon: Building2 },
+    { id: "cold", label: "Cold calls", short: "Cold", icon: Phone, badge: coldBadge || 0 },
     { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", short: "Finance", badge: finPending || 0, icon: Wallet },
     { id: "profile", label: "My Profile", short: "Profile", icon: UserRound },
   ];
@@ -8100,6 +9304,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="orbs" aria-hidden="true"><i /><i /><i /></div>
+      <UpdateBanner />
       <CelebrationOverlay profile={profile} settings={fin.settings} />
       {/* Top bar */}
       <div className="topbar">
@@ -8265,6 +9470,8 @@ export default function App() {
               onDoneEditing={() => setEditingUnit(null)}
               units={units}
               onOpenUnit={setOpenUnit}
+              prefill={unitPrefill}
+              key={unitPrefill ? `pf${unitPrefill.n}` : editingUnit ? `e${editingUnit.id}` : "new"}
             />
           </>
         )}
@@ -8290,6 +9497,8 @@ export default function App() {
                 const linkedUnitIds = clientUnitLinks.filter((l) => l.client_id === client.id).map((l) => l.unit_id);
                 return (
                   <ClientProfile
+                    getToken={getValidToken}
+                    onVoiceSaved={async (cl, path, secs) => { const t = await getValidToken(); await db.insert("client_activity", { client_id: cl.id, action: "voice", new_value: path, note: secs ? `Voice note · ${secs}s` : "Voice note", changed_by: profile.id }, t); await refreshClients(); bumpDaily(profile.id, "update"); }}
                     waTemplates={fin.settings?.wa_templates}
                     salesName={(users.find((u) => u.id === client.assignedTo) || profile).name}
                     client={client}
@@ -8321,6 +9530,7 @@ export default function App() {
                         sentUnitIds={clientActivity.filter((a) => a.clientId === client.id && a.action === "unit_sent").map((a) => a.fieldName)}
                         canSend={visibleSalesIds.includes(client.assignedTo)}
                         onSend={sendUnitToClient}
+                        onSendList={sendShortlist}
                         onOpenUnit={(u) => setOpenUnit(u)}
                       />
                     )}
@@ -8338,7 +9548,7 @@ export default function App() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
                   <div className="seg" style={{ display: "flex", gap: 4, background: COLORS.creamDark, padding: 4, borderRadius: 999 }}>
-                    {[["today", "Today"], ["all", "All clients"], ...(profile.role !== "sales_agent" ? [["team", "Team activity"], ["import", "Import leads"]] : []), ...(isFinanceAdmin(profile) ? [["dups", `Duplicates${duplicates.filter((d) => d.status === "pending").length ? ` (${duplicates.filter((d) => d.status === "pending").length})` : ""}`]] : [])].map(([id, label]) => (
+                    {[["today", "Today"], ["all", "All clients"], ["calendar", "Calendar"], ["ranking", "Ranking"], ...(profile.role !== "sales_agent" ? [["team", "Team activity"], ["import", "Import leads"]] : []), ...(isFinanceAdmin(profile) ? [["dups", `Duplicates${duplicates.filter((d) => d.status === "pending").length ? ` (${duplicates.filter((d) => d.status === "pending").length})` : ""}`]] : [])].map(([id, label]) => (
                       <button key={id} onClick={() => setClientsTab(id)} style={{ border: "none", borderRadius: 999, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: clientsTab === id ? "#fff" : "transparent", color: clientsTab === id ? COLORS.navy : COLORS.textMuted, boxShadow: clientsTab === id ? "0 1px 3px rgba(16,26,48,0.12)" : "none" }}>{label}</button>
                     ))}
                   </div>
@@ -8364,16 +9574,25 @@ export default function App() {
                       {isFinanceAdmin(profile) && <MorningBrief clients={clients} activity={clientActivity} fin={fin} attendance={attendance} users={users} visibleSalesIds={visibleSalesIds} settings={fin.settings} onOpen={openLink} />}
                     </>}
                     bottomSlot={<>
+                      <OwnerFollowUp units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo}
+                        onStill={async (u) => { await db.update("units", u.id, { updated_at: new Date().toISOString() }, await getValidToken()); await refreshUnits(); bumpDaily(profile.id, "update"); }}
+                        onPriceChanged={(u) => { setEditingUnit(u); setSection("units"); setTab("add"); }}
+                        onSold={(u) => setSoldEdit({ unit: u, mode: "outside" })} />
                       <PastBuyers units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} onContact={() => {}} />
-                      <Leaderboard rows={leaderboard} profileId={profile.id} />
+                      <MyRankCard profile={profile} getToken={getValidToken} onOpen={() => setClientsTab("ranking")} />
+                      {profile.role === "sales_agent" && <MonthlyAwards profile={profile} getToken={getValidToken} />}
                     </>}
                   />
                 )}
                 {clientsTab === "team" && profile.role !== "sales_agent" && (
-                  <TeamActivity clients={clients} activity={clientActivity} users={users} visibleSalesIds={visibleSalesIds} onOpenClient={(c) => setOpenClientId(c.id)} />
+                  <TeamActivity clients={clients} activity={clientActivity} coldActivity={cold.activity} users={users} visibleSalesIds={visibleSalesIds} onOpenClient={(c) => setOpenClientId(c.id)} />
                 )}
                 {clientsTab === "import" && profile.role !== "sales_agent" && (
                   <LeadImport clients={clients} users={users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending")} onImport={importLeads} checkPhones={checkPhones} onDone={() => setClientsTab("all")} />
+                )}
+                {clientsTab === "ranking" && <RankingPage profile={profile} getToken={getValidToken} />}
+                {clientsTab === "calendar" && (
+                  <MeetingsCalendar clients={clients.filter((c) => visibleSalesIds.includes(c.assignedTo))} users={users} profile={profile} onOpenClient={(c) => setOpenClientId(c.id)} />
                 )}
                 {clientsTab === "dups" && isFinanceAdmin(profile) && (
                   <DuplicateRequests requests={duplicates} clients={clients} users={users} onDecide={decideDuplicate} onOpenClient={(c) => setOpenClientId(c.id)} />
@@ -8463,8 +9682,19 @@ export default function App() {
           </>
         )}
 
+        {section === "cold" && (
+          <ColdCallsSection profile={profile} users={users} visibleSalesIds={visibleSalesIds} projects={projects} cold={cold} getToken={getValidToken} settings={fin.settings}
+            onRefresh={() => refreshCold()} onAddUnit={startUnitFromCold} onLog={logCold} onOutcome={saveColdOutcome} />
+        )}
+        {coldPrompt && (() => {
+          const l = cold.leads.find((x) => x.id === coldPrompt);
+          return l ? <ColdOutcomeModal lead={l} onClose={() => setColdPrompt(null)} onSave={saveColdOutcome} /> : null;
+        })()}
+
         {section === "finance" && (
           <FinanceSection
+            clients={clients}
+            clientActivity={clientActivity}
             profile={profile}
             users={users}
             units={units}
@@ -8513,6 +9743,7 @@ export default function App() {
         {section === "profile" && tab === "profile" && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>My profile</div>
+            <div style={{ marginBottom: 14 }}><NotificationsCard profile={profile} getToken={getValidToken} /></div>
             <EditProfile profile={profile} currentEmail={session.user.email} onSave={updateMyProfile} onUploadAvatar={uploadAvatar} onUpdateEmail={updateMyEmail} />
           </>
         )}
@@ -8605,6 +9836,7 @@ export default function App() {
             onReassign={reassignUnit}
             canEdit={profile.role === "admin" || openUnit.salesIds.includes(profile.id)}
             onSoldOutside={canEditUnit(openUnit) ? (u) => { setOpenUnit(null); setSoldEdit({ unit: u, mode: "outside" }); } : undefined}
+            onShareLink={shareUnitLink}
             onEditRequest={(u) => { setOpenUnit(null); setEditingUnit(u); setTab("add"); }}
             onMarkSold={(u, dealType) => { setOpenUnit(null); setDealModal({ initial: { unitId: u.id, dealType, sides: "seller" } }); }}
             onRequestDelete={
