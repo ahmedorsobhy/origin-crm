@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Home, User, LayoutGrid, PlusCircle, PauseCircle, LogOut, Users,
   Search, Building2, MapPin, Ruler, Layers, Wallet, Calendar,
@@ -98,17 +98,84 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAFNCAYAAAD2
 
 // ---------- Design tokens ----------
 const COLORS = {
-  navy: "#1B2A4A",
-  navyDark: "#101A30",
-  cream: "#F5F1E8",
-  creamDark: "#E8E1D0",
+  navy: "#17264A",
+  navyDark: "#0E1830",
+  cream: "#F7F4EE",
+  creamDark: "#EDE7DA",
   gold: "#B8965A",
-  text: "#1B2A4A",
-  textMuted: "#6B7280",
-  border: "#E3DFD3",
-  danger: "#B3452E",
-  success: "#3E6B4F",
+  text: "#17264A",
+  textMuted: "#69707D",
+  border: "#E7E2D7",
+  danger: "#C0462F",
+  success: "#2F7A55",
 };
+
+// ---------- Look & feel (one place for the whole app) ----------
+const GLOBAL_CSS = `
+:root { --navy:#17264A; --navy2:#22386A; --gold:#B8965A; --gold2:#D9BC84; --cream:#F7F4EE; --ink:#17264A; --muted:#69707D; --line:#E7E2D7; }
+html, body { background: radial-gradient(1200px 600px at 10% -10%, #EADFC9 0%, rgba(234,223,201,0) 60%), radial-gradient(900px 500px at 100% 0%, #DCE3F2 0%, rgba(220,227,242,0) 55%), #F4F1EA !important; background-attachment: fixed !important; }
+body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+#root { max-width: 1180px !important; margin: 0 auto !important; }
+.app-shell, .app-shell input, .app-shell select, .app-shell textarea, .app-shell button { font-family: inherit !important; }
+.app-shell { min-height: 100vh; }
+.app-shell button { transition: transform .12s ease, box-shadow .2s ease, background-color .2s ease, color .2s ease, opacity .2s; -webkit-tap-highlight-color: transparent; }
+.app-shell button:not(:disabled):active { transform: scale(.97); }
+.app-shell button:disabled { opacity: .55; cursor: default !important; }
+.app-shell input:focus, .app-shell select:focus, .app-shell textarea:focus { outline: none; border-color: var(--gold) !important; box-shadow: 0 0 0 3px rgba(184,150,90,.22); }
+.app-shell input, .app-shell select, .app-shell textarea { border-radius: 10px !important; transition: border-color .15s, box-shadow .15s; }
+
+.topbar { position: sticky; top: 0; z-index: 50; border-radius: 0 0 20px 20px; background: linear-gradient(120deg, #0E1830 0%, #17264A 55%, #24396B 100%); color: #fff; box-shadow: 0 6px 24px rgba(14,24,48,.18); }
+.topnav { display: flex; gap: 4px; background: rgba(255,255,255,.08); padding: 4px; border-radius: 999px; }
+.topnav button { display: flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 999px; border: none; cursor: pointer; font-size: 13.5px; font-weight: 700; background: transparent; color: rgba(255,255,255,.78); }
+.topnav button:hover { color: #fff; background: rgba(255,255,255,.08); }
+.topnav button.on { background: #fff; color: var(--navy); box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+.subnav { display: flex; gap: 6px; padding: 12px 20px 0; overflow-x: auto; scrollbar-width: none; }
+.subnav::-webkit-scrollbar { display: none; }
+.subnav button { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; font-size: 12.5px; font-weight: 700; background: rgba(255,255,255,.7); color: var(--muted); white-space: nowrap; backdrop-filter: blur(6px); }
+.subnav button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+.bottom-nav { display: none; }
+.page { padding: 20px; animation: fadeUp .35s ease both; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--gold), var(--gold2)); color: var(--navy); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; }
+
+.card { box-shadow: 0 1px 2px rgba(23,38,74,.04), 0 6px 20px rgba(23,38,74,.05); border-radius: 16px; }
+.lift { transition: transform .18s ease, box-shadow .2s ease; }
+.lift:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(23,38,74,.10); }
+.glass { background: rgba(255,255,255,.72) !important; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.hero { background: linear-gradient(125deg, #0E1830, #1E3263 45%, #3A4F82 75%, #B8965A 130%); background-size: 200% 200%; animation: heroShift 14s ease infinite; color: #fff; border-radius: 22px; box-shadow: 0 14px 40px rgba(14,24,48,.25); }
+.pill, .chip { transition: background-color .15s, color .15s, border-color .15s, transform .12s; }
+.round-btn { box-shadow: 0 4px 12px rgba(0,0,0,.12); }
+.round-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(0,0,0,.16); }
+.btn-primary { box-shadow: 0 6px 16px rgba(23,38,74,.22); }
+.btn-primary:hover { box-shadow: 0 10px 22px rgba(23,38,74,.28); transform: translateY(-1px); }
+.seg { box-shadow: inset 0 1px 2px rgba(0,0,0,.05); overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.seg::-webkit-scrollbar { display: none; }
+.seg button { white-space: nowrap; transition: all .2s ease; }
+.drop:hover { border-color: var(--gold) !important; background: #FBF6EC !important; }
+.fade-in { animation: fadeUp .3s ease both; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes heroShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+
+@media (max-width: 760px) {
+  .topbar { border-radius: 0 0 18px 18px; }
+  .topnav, .hide-sm { display: none !important; }
+  .page { padding: 14px 12px 96px; }
+  .subnav { padding: 10px 12px 0; }
+  .add-btn { position: fixed; right: 16px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 80; width: 56px; height: 56px; padding: 0 !important; font-size: 28px !important; font-weight: 500 !important; line-height: 1; background: linear-gradient(135deg, #B8965A, #D9BC84) !important; color: #17264A !important; box-shadow: 0 10px 26px rgba(14,24,48,.35) !important; }
+  .bottom-nav { display: flex; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 90; justify-content: space-around; padding: 6px; border-radius: 22px; background: rgba(14,24,48,.92); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 12px 30px rgba(14,24,48,.35); }
+  .bottom-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: none; background: transparent; color: rgba(255,255,255,.6); font-size: 10.5px; font-weight: 700; padding: 7px 2px; border-radius: 16px; cursor: pointer; position: relative; }
+  .bottom-nav button.on { color: var(--navy); background: #fff; }
+  .bottom-nav .dot { position: absolute; top: 3px; right: calc(50% - 18px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--gold); color: #fff; font-size: 10px; line-height: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+`;
+if (typeof document !== "undefined" && !document.getElementById("origin-ui")) {
+  const el = document.createElement("style"); el.id = "origin-ui"; el.textContent = GLOBAL_CSS; document.head.appendChild(el);
+  if (!document.getElementById("origin-font")) {
+    const l = document.createElement("link"); l.id = "origin-font"; l.rel = "stylesheet";
+    l.href = "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap";
+    document.head.appendChild(l);
+  }
+}
 
 // ---------- Dropdown option sets (from client reference sheet) ----------
 
@@ -254,15 +321,15 @@ function formatDate(iso) {
 }
 
 // One-tap Call + WhatsApp buttons next to any phone number
-function ContactButtons({ phone, size = 12 }) {
+function ContactButtons({ phone, size = 12, onContact }) {
   if (!phone) return null;
   const digits = phone.replace(/[^0-9+]/g, "");
   return (
     <span style={{ display: "inline-flex", gap: 6, marginLeft: 4 }} onClick={(e) => e.stopPropagation()}>
-      <a href={`tel:${digits}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: COLORS.navy, color: "#fff", textDecoration: "none" }} title="Call">
+      <a href={`tel:${digits}`} onClick={() => onContact && onContact("call")} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: COLORS.navy, color: "#fff", textDecoration: "none" }} title="Call">
         <Phone size={size - 1} />
       </a>
-      <a href={`https://wa.me/${digits.replace(/^\+/, "")}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: "#25D366", color: "#fff", textDecoration: "none" }} title="WhatsApp">
+      <a href={`https://wa.me/${waNumber(phone)}`} target="_blank" rel="noreferrer" onClick={() => onContact && onContact("whatsapp")} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: "#25D366", color: "#fff", textDecoration: "none" }} title="WhatsApp">
         <MessageSquare size={size - 1} />
       </a>
     </span>
@@ -276,7 +343,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
     <div
       onClick={() => onOpen(unit)}
       style={{
-        border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden",
+        border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden",
         background: "#fff", cursor: "pointer", display: "flex", flexDirection: "column",
       }}
     >
@@ -337,7 +404,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
 
 // ---------- Unit detail modal ----------
 
-function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold }) {
+function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot }) {
   const [reassignId, setReassignId] = useState("");
   if (!unit) return null;
 
@@ -374,7 +441,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
   ];
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(16,26,48,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }} onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 12, maxWidth: 640, width: "100%", maxHeight: "85vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 16, maxWidth: 640, width: "100%", maxHeight: "85vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", overflowX: "auto", gap: 4 }}>
           {unit.photos.map((p, i) => (
             <img key={i} src={p} alt="" style={{ width: 220, height: 160, objectFit: "cover", flexShrink: 0 }} />
@@ -392,7 +459,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
           </div>
 
           {unit.status === "hold" && (
-            <div style={{ marginTop: 12, background: "#F3E3DC", borderRadius: 8, padding: 10, fontSize: 13, color: COLORS.danger }}>
+            <div style={{ marginTop: 12, background: "#F3E3DC", borderRadius: 10, padding: 10, fontSize: 13, color: COLORS.danger }}>
               On hold — {unit.holdReason}
             </div>
           )}
@@ -442,7 +509,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
                 <button
                   disabled={!reassignId}
                   onClick={() => { onReassign(unit, reassignId); setReassignId(""); }}
-                  style={{ border: "none", background: reassignId ? COLORS.navy : COLORS.border, color: "#fff", padding: "9px 14px", borderRadius: 8, cursor: reassignId ? "pointer" : "default", fontSize: 12 }}
+                  style={{ border: "none", background: reassignId ? COLORS.navy : COLORS.border, color: "#fff", padding: "9px 14px", borderRadius: 10, cursor: reassignId ? "pointer" : "default", fontSize: 12 }}
                 >
                   Reassign
                 </button>
@@ -474,7 +541,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
                     <div
                       key={c.id}
                       onClick={() => onOpenClient && onOpenClient(c)}
-                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: onOpenClient ? "pointer" : "default" }}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 10, cursor: onOpenClient ? "pointer" : "default" }}
                     >
                       <div style={{ fontWeight: 600, fontSize: 12.5, color: COLORS.text }}>{c.name}</div>
                       <ClientStageBadge stage={c.stage} />
@@ -485,6 +552,8 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
             </div>
           )}
 
+          {matchSlot && <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${COLORS.border}` }}>{matchSlot}</div>}
+
           {unit.status === "sold" && (
             <div style={{ marginTop: 14 }}><Badge tone="active">Sold</Badge></div>
           )}
@@ -494,30 +563,30 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
           {unit.status !== "pending_delete" && (
             <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: 8 }}>
               {onMarkSold && unit.status === "active" && isForSale(unit) && (
-                <button onClick={() => onMarkSold(unit, "sale")} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                <button onClick={() => onMarkSold(unit, "sale")} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                   Mark as sold
                 </button>
               )}
               {onMarkSold && unit.status === "active" && isForRent(unit) && (
-                <button onClick={() => onMarkSold(unit, "rent")} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                <button onClick={() => onMarkSold(unit, "rent")} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                   Mark as rented
                 </button>
               )}
               {canEdit && (
-                <button onClick={() => onEditRequest(unit)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.navy, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+                <button onClick={() => onEditRequest(unit)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.navy, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                   Edit unit
                 </button>
               )}
-              <button onClick={shareOnWhatsApp} style={{ border: "none", background: "#25D366", color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+              <button onClick={shareOnWhatsApp} style={{ border: "none", background: "#25D366", color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                 Share on WhatsApp
               </button>
               {canDeleteDirectly && (
-                <button onClick={() => onDeleteDirectly(unit)} style={{ border: "none", background: COLORS.danger, color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+                <button onClick={() => onDeleteDirectly(unit)} style={{ border: "none", background: COLORS.danger, color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                   Delete unit
                 </button>
               )}
               {!canDeleteDirectly && onRequestDelete && (
-                <button onClick={() => onRequestDelete(unit)} style={{ border: `1px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+                <button onClick={() => onRequestDelete(unit)} style={{ border: `1px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                   Request deletion
                 </button>
               )}
@@ -525,7 +594,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
           )}
           {unit.status === "pending_delete" && (
             <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={shareOnWhatsApp} style={{ border: "none", background: "#25D366", color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+              <button onClick={shareOnWhatsApp} style={{ border: "none", background: "#25D366", color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                 Share on WhatsApp
               </button>
             </div>
@@ -542,6 +611,23 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
 }
 
 // ---------- Add Unit form ----------
+
+// Ready-to-send description built from the unit's details
+function autoUnitDescription(form, project, developer) {
+  const n = (v) => Number(String(v || "").replace(/,/g, "")) || 0;
+  const forSale = form.listingType !== "rent", forRent = form.listingType !== "sale";
+  const where = [project?.name, form.phase ? `Phase ${String(form.phase).replace(/^phase\s*/i, "")}` : "", project?.destination].filter(Boolean).join(", ");
+  const lines = [
+    `${form.type || "Unit"} for ${forSale && forRent ? "sale or rent" : forRent ? "rent" : "sale"}${where ? ` in ${where}` : ""}${developer?.name ? ` by ${developer.name}` : ""}.`,
+    [n(form.bua) ? `${n(form.bua)} m² BUA` : "", n(form.landArea) ? `${n(form.landArea)} m² land` : "", n(form.extraArea) ? `${n(form.extraArea)} m² extra (garden/roof)` : "",
+      form.floor !== "" && form.floor != null ? `${floorLabel(form.floor)} floor` : ""].filter(Boolean).join(" · "),
+    [form.finishing, form.furnished && forRent ? form.furnished : "", form.deliveryDate ? `Delivery: ${form.deliveryDate}` : ""].filter(Boolean).join(" · "),
+    forSale && n(form.totalPrice) ? `Price: ${money(n(form.totalPrice))}${n(form.downpayment) ? ` · Down payment ${money(n(form.downpayment))}` : ""}${n(form.remaining) ? ` · Remaining ${money(n(form.remaining))}` : ""}` : "",
+    forRent && n(form.rentPrice) ? `Rent: ${rentMoney(n(form.rentPrice))}` : "",
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+const LAST_UNIT_KEY = "origin_last_unit_place";
 
 function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing }) {
   const empty = {
@@ -581,13 +667,30 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
   };
 
   const isEditing = !!editingUnit;
-  const [form, setForm] = useState(() => (isEditing ? buildFromUnit(editingUnit) : empty));
+  // New units start in the same developer / project / phase as the last one added
+  const remembered = () => {
+    try {
+      const r = JSON.parse(localStorage.getItem(LAST_UNIT_KEY) || "null");
+      if (r && projects.some((p) => p.id === r.projectId)) return { developerId: r.developerId || "", projectId: r.projectId, phase: r.phase || "", listingType: r.listingType || "sale" };
+    } catch (e) {}
+    return {};
+  };
+  const [form, setForm] = useState(() => (isEditing ? buildFromUnit(editingUnit) : { ...empty, ...remembered() }));
+  const [descAuto, setDescAuto] = useState(!isEditing);
   const [existingPhotos, setExistingPhotos] = useState(isEditing ? editingUnit.photos : []);
   const [photoFiles, setPhotoFiles] = useState([]); // { file, previewUrl }
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v, ...(k === "developerId" ? { projectId: "" } : {}) }));
+  const projOf = (f) => projects.find((p) => p.id === f.projectId);
+  const devOf = (f) => developers.find((d) => d.id === (f.developerId || projOf(f)?.developerId));
+  // Keep the description written for them until they type their own
+  useEffect(() => {
+    if (!descAuto) return;
+    const d = form.type || form.projectId ? autoUnitDescription(form, projOf(form), devOf(form)) : "";
+    if (d !== form.description) setForm((f) => ({ ...f, description: d }));
+  }, [descAuto, form.type, form.projectId, form.phase, form.bua, form.landArea, form.extraArea, form.floor, form.finishing, form.furnished, form.deliveryDate, form.totalPrice, form.downpayment, form.remaining, form.rentPrice, form.listingType]);
 
   const totalPhotoCount = existingPhotos.length + photoFiles.length;
 
@@ -634,7 +737,9 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
           },
           photoFiles.map((p) => p.file)
         );
-        setForm(empty);
+        try { localStorage.setItem(LAST_UNIT_KEY, JSON.stringify({ developerId: form.developerId, projectId: form.projectId, phase: form.phase, listingType: form.listingType })); } catch (e) {}
+        setForm({ ...empty, developerId: form.developerId, projectId: form.projectId, phase: form.phase, listingType: form.listingType });
+        setDescAuto(true);
         setPhotoFiles([]);
       }
     } catch (err) {
@@ -651,7 +756,7 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
         <div style={{ display: "flex", gap: 8 }}>
           {[["sale", "Sale"], ["rent", "Rent"], ["both", "Sale & rent"]].map(([id, label]) => (
             <button key={id} type="button" onClick={() => set("listingType")(id)} style={{
-              flex: 1, padding: "9px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+              flex: 1, padding: "9px 10px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600,
               border: `1px solid ${form.listingType === id ? COLORS.navy : COLORS.border}`,
               background: form.listingType === id ? COLORS.navy : "#fff", color: form.listingType === id ? "#fff" : COLORS.text,
             }}>{label}</button>
@@ -710,8 +815,12 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
 
       <div style={{ marginTop: 18 }}>
         <Field label="Description" required>
-          <textarea rows={4} style={{ ...inputStyle, resize: "vertical" }} value={form.description} onChange={(e) => set("description")(e.target.value)} placeholder="Ready-to-use description for this unit…" />
+          <textarea rows={5} style={{ ...inputStyle, resize: "vertical" }} value={form.description} onChange={(e) => { setDescAuto(false); set("description")(e.target.value); }} placeholder="Written for you as you fill the details — edit it if you like" />
         </Field>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5, color: COLORS.textMuted, marginTop: 4 }}>
+          <span>{descAuto ? "Written automatically from the details above." : "Your own text."}</span>
+          {!descAuto && <button type="button" onClick={() => setDescAuto(true)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 11.5, padding: 0 }}>Write it for me again</button>}
+        </div>
       </div>
 
       <div style={{ marginTop: 18 }}>
@@ -745,11 +854,11 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
       {error && <div style={{ color: COLORS.danger, fontSize: 13, marginTop: 12 }}>{error}</div>}
 
       <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-        <button disabled={submitting} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "11px 22px", borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.7 : 1 }}>
+        <button disabled={submitting} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "11px 22px", borderRadius: 10, fontSize: 14, fontWeight: 500, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.7 : 1 }}>
           {submitting ? "Saving…" : isEditing ? "Save changes" : "Add unit"}
         </button>
         {isEditing && (
-          <button disabled={submitting} onClick={onDoneEditing} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "11px 22px", borderRadius: 8, fontSize: 14, cursor: "pointer" }}>
+          <button disabled={submitting} onClick={onDoneEditing} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "11px 22px", borderRadius: 10, fontSize: 14, cursor: "pointer" }}>
             Cancel
           </button>
         )}
@@ -766,7 +875,7 @@ function HoldModal({ unit, projectInfo, onConfirm, onCancel }) {
   if (!unit) return null;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(16,26,48,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 20, maxWidth: 420, width: "100%" }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 20, maxWidth: 420, width: "100%" }}>
         <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 4 }}>Put unit on hold</div>
         <div style={{ fontSize: 13, color: COLORS.textMuted, marginBottom: 12 }}>{unit.unitNumber} · {projectInfo.name}</div>
         <Field label="Reason for hold" required>
@@ -774,10 +883,10 @@ function HoldModal({ unit, projectInfo, onConfirm, onCancel }) {
         </Field>
         {error && <div style={{ color: COLORS.danger, fontSize: 12, marginTop: 6 }}>{error}</div>}
         <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>Cancel</button>
           <button
             onClick={() => (reason.trim() ? onConfirm(reason.trim()) : setError("A hold reason is required."))}
-            style={{ border: "none", background: COLORS.danger, color: "#fff", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}
+            style={{ border: "none", background: COLORS.danger, color: "#fff", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}
           >
             Confirm hold
           </button>
@@ -840,7 +949,7 @@ function ManageCatalog({ developers, projects, onAddDeveloper, onRemoveDeveloper
 
   return (
     <div>
-      <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+      <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
         <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy, marginBottom: 10 }}>Bulk import from a spreadsheet</div>
         <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>
           Paste one row per line, as: Developer, Project, Location
@@ -852,24 +961,24 @@ function ManageCatalog({ developers, projects, onAddDeveloper, onRemoveDeveloper
           onChange={(e) => setBulkText(e.target.value)}
           placeholder={"Palm Hills, Palm Hills October, October\nSODIC, SODIC East, New Cairo"}
         />
-        <button onClick={runBulkImport} style={{ marginTop: 10, background: COLORS.navy, color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+        <button onClick={runBulkImport} style={{ marginTop: 10, background: COLORS.navy, color: "#fff", border: "none", padding: "9px 18px", borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
           Import rows
         </button>
         {bulkMsg && <div style={{ color: COLORS.success, fontSize: 12, marginTop: 8 }}>{bulkMsg}</div>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 20 }}>
-        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 16 }}>
+        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16 }}>
           <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy, marginBottom: 12 }}>Add a developer</div>
           <Field label="Developer name" required>
             <input style={inputStyle} value={devName} onChange={(e) => setDevName(e.target.value)} placeholder="e.g. Palm Hills" />
           </Field>
-          <button onClick={addDeveloper} style={{ marginTop: 12, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+          <button onClick={addDeveloper} style={{ marginTop: 12, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
             Add developer
           </button>
         </div>
 
-        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 16 }}>
+        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16 }}>
           <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy, marginBottom: 12 }}>Add a project</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <Field label="Project name" required>
@@ -883,7 +992,7 @@ function ManageCatalog({ developers, projects, onAddDeveloper, onRemoveDeveloper
             </Field>
             <Field label="Location" required><Select value={projDest} onChange={setProjDest} options={DESTINATIONS} /></Field>
           </div>
-          <button onClick={addProject} style={{ marginTop: 12, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+          <button onClick={addProject} style={{ marginTop: 12, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
             Add project
           </button>
         </div>
@@ -893,7 +1002,7 @@ function ManageCatalog({ developers, projects, onAddDeveloper, onRemoveDeveloper
       <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy, marginBottom: 10 }}>Developers</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
         {developers.map((d) => (
-          <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 14px" }}>
+          <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px" }}>
             <span style={{ fontSize: 13, fontWeight: 500 }}>{d.name}</span>
             <button onClick={() => onRemoveDeveloper(d.id)} style={{ border: "none", background: "none", color: COLORS.danger, cursor: "pointer" }} aria-label="Remove developer">
               <Trash2 size={15} />
@@ -905,7 +1014,7 @@ function ManageCatalog({ developers, projects, onAddDeveloper, onRemoveDeveloper
       <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy, marginBottom: 10 }}>Projects</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {projects.map((p) => (
-          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 14px" }}>
+          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px" }}>
             <div>
               <span style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</span>
               <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 8 }}>{devName_(p.developerId)} · {p.destination}</span>
@@ -990,8 +1099,8 @@ function AuthScreen({ onAuthed }) {
 
   if (mode === "complete-profile") {
     return (
-      <div style={{ minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.cream }}>
-        <div style={{ background: "#fff", borderRadius: 14, padding: 32, width: 380, border: `1px solid ${COLORS.border}` }}>
+      <div className="app-shell" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div className="card fade-in glass" style={{ borderRadius: 24, padding: 32, width: "100%", maxWidth: 400, border: `1px solid ${COLORS.border}` }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <img src={LOGO_SRC} alt="Origin Real Estate" style={{ width: 120, margin: "0 auto 8px", display: "block" }} />
           </div>
@@ -1005,7 +1114,7 @@ function AuthScreen({ onAuthed }) {
           <button
             disabled={loading}
             onClick={completeProfile}
-            style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: COLORS.navy, color: "#fff", fontSize: 14, fontWeight: 500, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1 }}
+            style={{ width: "100%", padding: "11px", borderRadius: 10, border: "none", background: COLORS.navy, color: "#fff", fontSize: 14, fontWeight: 500, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1 }}
           >
             {loading ? "Please wait…" : "Continue"}
           </button>
@@ -1015,13 +1124,13 @@ function AuthScreen({ onAuthed }) {
   }
 
   return (
-    <div style={{ minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.cream }}>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 32, width: 380, border: `1px solid ${COLORS.border}` }}>
+    <div className="app-shell" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div className="card fade-in glass" style={{ borderRadius: 24, padding: 32, width: "100%", maxWidth: 400, border: `1px solid ${COLORS.border}` }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <img src={LOGO_SRC} alt="Origin Real Estate" style={{ width: 120, margin: "0 auto 8px", display: "block" }} />
         </div>
 
-        <div style={{ display: "flex", marginBottom: 18, borderRadius: 8, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
+        <div style={{ display: "flex", marginBottom: 18, borderRadius: 10, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
           <button
             onClick={() => { setMode("signin"); setError(""); setInfo(""); }}
             style={{ flex: 1, padding: "9px", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, background: mode === "signin" ? COLORS.navy : "#fff", color: mode === "signin" ? "#fff" : COLORS.text }}
@@ -1053,7 +1162,7 @@ function AuthScreen({ onAuthed }) {
         <button
           disabled={loading}
           onClick={mode === "signin" ? signIn : signUp}
-          style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: COLORS.navy, color: "#fff", fontSize: 14, fontWeight: 500, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1 }}
+          style={{ width: "100%", padding: "11px", borderRadius: 10, border: "none", background: COLORS.navy, color: "#fff", fontSize: 14, fontWeight: 500, cursor: loading ? "default" : "pointer", opacity: loading ? 0.7 : 1 }}
         >
           {loading ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
         </button>
@@ -1071,14 +1180,14 @@ function AuthScreen({ onAuthed }) {
 // ---------- Pending approval screen ----------
 function PendingScreen({ onSignOut }) {
   return (
-    <div style={{ minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.cream, textAlign: "center" }}>
-      <div style={{ background: "#fff", borderRadius: 14, padding: 32, width: 380, border: `1px solid ${COLORS.border}` }}>
+    <div className="app-shell" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 16 }}>
+      <div className="card fade-in glass" style={{ borderRadius: 24, padding: 32, width: "100%", maxWidth: 400, border: `1px solid ${COLORS.border}` }}>
         <Clock size={32} color={COLORS.gold} style={{ marginBottom: 12 }} />
         <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 8 }}>Waiting for approval</div>
         <div style={{ fontSize: 13, color: COLORS.textMuted, marginBottom: 20 }}>
           Your account was created. An admin needs to set your role before you can access the CRM.
         </div>
-        <button onClick={onSignOut} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>
+        <button onClick={onSignOut} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>
           Sign out
         </button>
       </div>
@@ -1092,10 +1201,10 @@ function PendingScreen({ onSignOut }) {
 function SalesProfile({ person, units, canSeeOwnerFn, projectInfoFn, onOpen, onBack }) {
   return (
     <div>
-      <button onClick={onBack} style={{ marginBottom: 16, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, color: COLORS.text }}>
+      <button onClick={onBack} style={{ marginBottom: 16, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, color: COLORS.text }}>
         ← Back
       </button>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20, marginBottom: 20 }}>
         <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", background: COLORS.creamDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {person.avatarUrl ? (
             <img src={person.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -1168,7 +1277,7 @@ function EditProfile({ profile, currentEmail, onSave, onUploadAvatar, onUpdateEm
   };
 
   return (
-    <div style={{ maxWidth: 380, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 20 }}>
+    <div style={{ maxWidth: 380, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
         <div style={{ width: 64, height: 64, borderRadius: "50%", overflow: "hidden", background: COLORS.creamDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {avatarPreview ? (
@@ -1177,7 +1286,7 @@ function EditProfile({ profile, currentEmail, onSave, onUploadAvatar, onUpdateEm
             <UserRound size={28} color={COLORS.textMuted} />
           )}
         </div>
-        <label style={{ fontSize: 12, color: COLORS.navy, cursor: "pointer", border: `1px solid ${COLORS.border}`, padding: "7px 12px", borderRadius: 8 }}>
+        <label style={{ fontSize: 12, color: COLORS.navy, cursor: "pointer", border: `1px solid ${COLORS.border}`, padding: "7px 12px", borderRadius: 10 }}>
           Change photo
           <input type="file" accept="image/*" hidden onChange={pickAvatar} />
         </label>
@@ -1198,7 +1307,7 @@ function EditProfile({ profile, currentEmail, onSave, onUploadAvatar, onUpdateEm
       <button
         disabled={saving}
         onClick={save}
-        style={{ marginTop: 16, background: COLORS.navy, color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1 }}
+        style={{ marginTop: 16, background: COLORS.navy, color: "#fff", border: "none", padding: "9px 18px", borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1 }}
       >
         {saving ? "Saving…" : "Save changes"}
       </button>
@@ -1250,10 +1359,10 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
           ))}
         </select>
       </Field>
-      <button onClick={() => save(u, isApproval)} style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "9px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+      <button onClick={() => save(u, isApproval)} style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "9px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
         {isApproval ? "Approve" : "Save"}
       </button>
-      <button onClick={() => setEditingId(null)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+      <button onClick={() => setEditingId(null)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
         Cancel
       </button>
     </div>
@@ -1266,7 +1375,7 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
           <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy, marginBottom: 10 }}>Pending approval ({pending.length})</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {pending.map((u) => (
-              <div key={u.id} style={{ background: "#fff", border: `1px solid ${COLORS.gold}`, borderRadius: 8, padding: "10px 14px" }}>
+              <div key={u.id} style={{ background: "#fff", border: `1px solid ${COLORS.gold}`, borderRadius: 10, padding: "10px 14px" }}>
                 {editingId === u.id ? (
                   <EditRow u={u} isApproval={true} />
                 ) : (
@@ -1275,7 +1384,7 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
                       <span style={{ fontWeight: 500, fontSize: 13, color: COLORS.text }}>{u.name}</span>
                       <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 8 }}>{u.phone}</span>
                     </div>
-                    <button onClick={() => startEdit(u)} style={{ border: "none", background: COLORS.gold, color: "#fff", padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 500 }}>
+                    <button onClick={() => startEdit(u)} style={{ border: "none", background: COLORS.gold, color: "#fff", padding: "6px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 500 }}>
                       Set role
                     </button>
                   </div>
@@ -1291,7 +1400,7 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
       <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy, marginBottom: 10 }}>Company directory</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {active.map((u) => (
-          <div key={u.id} style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 14px" }}>
+          <div key={u.id} style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px" }}>
             {editingId === u.id ? (
               <EditRow u={u} isApproval={false} />
             ) : (
@@ -1420,43 +1529,39 @@ function unitEditToDbRow(form) {
 
 // ================= Clients module =================
 
-// Main pipeline (order is a suggestion only — sales can jump to any stage, one at a time or skipping ahead)
+// Pipeline — kept short on purpose. "Reserved" and "Done" are set automatically
+// by deals (promise of sale / reservation, then done), so sales rarely touch them.
 const PIPELINE_STAGES = [
-  { id: "new_lead", label: "New Lead" },
-  { id: "options_sent", label: "Options Sent" },
-  { id: "meeting_generated", label: "Meeting Generated" },
-  { id: "meeting_done", label: "Meeting Done" },
-  { id: "follow_up_after_meeting", label: "Follow-up After Meeting" },
-  { id: "second_meeting", label: "Second Meeting" },
+  { id: "new_lead", label: "New" },
+  { id: "options_sent", label: "Interested" },
+  { id: "meeting_generated", label: "Meeting" },
   { id: "negotiation", label: "Negotiation" },
-  { id: "to_be_contracted", label: "To Be Contracted" },
-  { id: "contracted", label: "Contracted" },
-  { id: "deal_done", label: "Deal Is Done" },
+  { id: "contracted", label: "Reserved" },
+  { id: "deal_done", label: "Done" },
 ];
-// "Exception" stages: can be applied from ANY active stage, take the place of the stage itself,
-// and remember where the client was (previousStage) so they can resume from the same point.
+// Side states: can be applied from any active stage and remember where the client
+// was (previousStage) so they can resume from the same point.
 const EXCEPTION_STAGES = [
-  { id: "not_qualified", label: "Not Qualified" },
-  { id: "not_responding", label: "Not Responding" },
-  { id: "long_term", label: "Long Term" },
+  { id: "not_responding", label: "No answer" },
+  { id: "long_term", label: "Later" },
 ];
 const LONG_TERM_STAGE = "long_term";
 const STAGES = [...PIPELINE_STAGES, ...EXCEPTION_STAGES];
 const STAGE_LABEL = Object.fromEntries(STAGES.map((s) => [s.id, s.label]));
 STAGE_LABEL.closed = "Closed";
+// old stage ids (before the pipeline was simplified) still read nicely in timelines
+Object.assign(STAGE_LABEL, {
+  meeting_done: "Meeting done", follow_up_after_meeting: "Follow-up after meeting", second_meeting: "Second meeting",
+  to_be_contracted: "To be contracted", not_qualified: "Not qualified",
+});
 const EXCEPTION_STAGE_IDS = EXCEPTION_STAGES.map((s) => s.id);
 const NEXT_STAGES = {
-  new_lead: ["options_sent"],
+  new_lead: ["options_sent", "meeting_generated"],
   options_sent: ["meeting_generated"],
-  meeting_generated: ["meeting_done"],
-  meeting_done: ["follow_up_after_meeting"],
-  follow_up_after_meeting: ["second_meeting", "negotiation"],
-  second_meeting: ["negotiation"],
-  negotiation: ["to_be_contracted"],
-  to_be_contracted: ["contracted"],
+  meeting_generated: ["negotiation"],
+  negotiation: ["contracted"],
   contracted: ["deal_done"],
   deal_done: [],
-  not_qualified: ["new_lead"],
   not_responding: ["new_lead"],
   long_term: ["new_lead"],
 };
@@ -1583,7 +1688,7 @@ function initials(name) {
 
 function ClientStageBadge({ stage }) {
   const tone =
-    stage === "not_qualified" || stage === "not_responding" ? { bg: "#F3E3DC", color: COLORS.danger } :
+    stage === "not_responding" || stage === "closed" ? { bg: "#F3E3DC", color: COLORS.danger } :
     stage === "deal_done" || stage === "contracted" ? { bg: "#E1EAE4", color: COLORS.success } :
     { bg: COLORS.creamDark, color: COLORS.text };
   return (
@@ -1621,6 +1726,403 @@ function clientNotifications(client, activity) {
     notifs.push({ type: "stale", label: `No update in over a week (last: ${formatDate(lastAt)})` });
   }
   return notifs;
+}
+
+// =====================================================================
+// ---------- Sales speed: phone helpers, follow-up rules, quick replies ----------
+// =====================================================================
+// Egyptian numbers: 01xxxxxxxxx -> 201xxxxxxxxx for WhatsApp links
+function waNumber(phone) {
+  let d = String(phone || "").replace(/[^0-9]/g, "");
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.length === 11 && d.startsWith("01")) d = "2" + d;
+  if (d.length === 10 && d.startsWith("1")) d = "20" + d;
+  return d;
+}
+// Same person even if written as 0100…, +20100… or 0020100…
+const phoneKey = (phone) => String(phone || "").replace(/[^0-9]/g, "").slice(-10);
+
+function atHour(daysFromNow, hour = 11) {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromNow);
+  d.setHours(hour, 0, 0, 0);
+  return d.toISOString();
+}
+// What the system schedules automatically after a client lands in a stage
+const FOLLOW_UP_RULES = {
+  new_lead: { label: "First call", at: () => new Date().toISOString() },
+  options_sent: { label: "Follow up on the options", at: () => atHour(2) },
+  negotiation: { label: "Follow up on the offer", at: () => atHour(2) },
+  contracted: { label: "Check on the transfer", at: () => atHour(7) },
+  not_responding: { label: "Try calling again", at: () => atHour(3) },
+  long_term: { label: "Check in again", at: () => atHour(30) },
+};
+function autoFollowUp(stage) {
+  const r = FOLLOW_UP_RULES[stage];
+  return r ? { next_action: r.label, next_action_at: r.at(), next_action_done: false } : { next_action: null, next_action_at: null, next_action_done: true };
+}
+
+const CALL_LATER_OPTIONS = [
+  { id: "tonight", label: "This evening", at: () => atHour(0, 18) },
+  { id: "tomorrow", label: "Tomorrow", at: () => atHour(1) },
+  { id: "3days", label: "In 3 days", at: () => atHour(3) },
+  { id: "week", label: "Next week", at: () => atHour(7) },
+];
+
+// One tap = feedback saved + stage moved (when it makes sense) + next follow-up scheduled
+const QUICK_REPLIES = [
+  { id: "no_answer", label: "No answer", tone: "muted" },
+  { id: "call_later", label: "Call back later", tone: "muted", needs: "when" },
+  { id: "interested", label: "Interested", tone: "good" },
+  { id: "sent_options", label: "Sent options", tone: "good" },
+  { id: "meeting_set", label: "Meeting booked", tone: "good", needs: "datetime" },
+  { id: "meeting_done", label: "Meeting done", tone: "good", onlyStages: ["meeting_generated"] },
+  { id: "later", label: "Later", tone: "muted" },
+  { id: "not_interested", label: "Not interested", tone: "bad", opensClose: true },
+];
+const EARLY_STAGES = ["new_lead", "not_responding", "long_term"];
+
+function consecutiveNoAnswers(client, activity) {
+  const rows = activity.filter((a) => a.clientId === client.id && a.action !== "call" && a.action !== "whatsapp")
+    .sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
+  let n = 0;
+  for (const r of rows) { if (r.action === "quick_reply" && r.fieldName === "no_answer") n++; else break; }
+  return n;
+}
+
+// Turns a tapped reply into the change to save
+function planQuickReply(reply, client, activity, extra = {}) {
+  const plan = { replyId: reply.id, note: reply.label, stage: null, meetingAt: undefined, follow: null };
+  const stage = client.stage;
+  switch (reply.id) {
+    case "no_answer":
+      if (consecutiveNoAnswers(client, activity) >= 2 && stage !== "not_responding") {
+        plan.stage = "not_responding";
+        plan.note = "No answer (3 times in a row)";
+        plan.follow = { next_action: "Try calling again", next_action_at: atHour(3), next_action_done: false };
+      } else plan.follow = { next_action: "Call again", next_action_at: atHour(1), next_action_done: false };
+      break;
+    case "call_later": {
+      const opt = CALL_LATER_OPTIONS.find((o) => o.id === extra.when) || CALL_LATER_OPTIONS[1];
+      plan.note = `Call back later (${opt.label.toLowerCase()})`;
+      plan.follow = { next_action: "Call back", next_action_at: opt.at(), next_action_done: false };
+      break;
+    }
+    case "interested":
+    case "sent_options":
+      if (EARLY_STAGES.includes(stage)) plan.stage = "options_sent";
+      plan.follow = { next_action: reply.id === "sent_options" ? "Follow up on the options" : "Follow up", next_action_at: atHour(2), next_action_done: false };
+      break;
+    case "meeting_set":
+      plan.stage = "meeting_generated";
+      plan.meetingAt = extra.meetingAt ? new Date(extra.meetingAt).toISOString() : atHour(1, 13);
+      plan.note = `Meeting booked for ${formatDateTime(plan.meetingAt)}`;
+      plan.follow = { next_action: null, next_action_at: null, next_action_done: true };
+      break;
+    case "meeting_done":
+      plan.stage = "negotiation";
+      plan.follow = { next_action: "Follow up after the meeting", next_action_at: atHour(1), next_action_done: false };
+      break;
+    case "later":
+      plan.stage = "long_term";
+      plan.follow = autoFollowUp("long_term");
+      break;
+    default:
+      break;
+  }
+  if (plan.stage === stage) plan.stage = null;
+  if (extra.note && extra.note.trim()) plan.note = `${plan.note} — ${extra.note.trim()}`;
+  return plan;
+}
+
+function QuickReplyBar({ client, activity, onQuickReply, onCloseLead, compact }) {
+  const [pending, setPending] = useState(null); // reply waiting for a time
+  const [when, setWhen] = useState("tomorrow");
+  const [meetingAt, setMeetingAt] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState("");
+  const replies = QUICK_REPLIES.filter((r) => !r.onlyStages || r.onlyStages.includes(client.stage));
+  const send = async (reply, extra = {}) => {
+    if (reply.opensClose) { onCloseLead && onCloseLead(client); return; }
+    setBusy(true);
+    try {
+      const plan = planQuickReply(reply, client, activity, { ...extra, note });
+      await onQuickReply(client, plan);
+      setDone(plan.follow && plan.follow.next_action_at ? `Saved · next: ${plan.follow.next_action} ${timeUntil(plan.follow.next_action_at)}` : "Saved");
+      setPending(null); setNote(""); setMeetingAt("");
+      setTimeout(() => setDone(""), 3500);
+    } catch (e) {
+      setDone(e.message || "Could not save");
+    } finally { setBusy(false); }
+  };
+  const chipColor = (tone) => (tone === "good" ? { bg: "#E6F0EA", color: COLORS.success } : tone === "bad" ? { bg: "#F6E6E1", color: COLORS.danger } : { bg: COLORS.creamDark, color: COLORS.text });
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {replies.map((r) => {
+          const c = chipColor(r.tone);
+          const active = pending && pending.id === r.id;
+          return (
+            <button key={r.id} disabled={busy} onClick={() => (r.needs ? setPending(active ? null : r) : send(r))}
+              className="chip"
+              style={{ border: active ? `1.5px solid ${COLORS.navy}` : "1.5px solid transparent", background: c.bg, color: c.color,
+                padding: compact ? "6px 10px" : "8px 12px", borderRadius: 999, fontSize: compact ? 12 : 12.5, fontWeight: 600, cursor: "pointer" }}>
+              {r.label}
+            </button>
+          );
+        })}
+      </div>
+      {pending && pending.needs === "when" && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          {CALL_LATER_OPTIONS.map((o) => (
+            <button key={o.id} onClick={() => setWhen(o.id)} className="chip" style={{ border: `1.5px solid ${when === o.id ? COLORS.navy : COLORS.border}`, background: "#fff", padding: "6px 10px", borderRadius: 999, fontSize: 12, cursor: "pointer" }}>{o.label}</button>
+          ))}
+          <button disabled={busy} onClick={() => send(pending, { when })} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
+        </div>
+      )}
+      {pending && pending.needs === "datetime" && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          <input type="datetime-local" value={meetingAt} onChange={(e) => setMeetingAt(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "6px 10px", fontSize: 13 }} />
+          <button disabled={busy || !meetingAt} onClick={() => send(pending, { meetingAt })} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: meetingAt ? 1 : 0.5 }}>Save meeting</button>
+        </div>
+      )}
+      {!compact && (
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note (optional) — then tap a reply"
+          style={{ ...inputStyle, padding: "8px 12px", fontSize: 13 }} />
+      )}
+      {done && <div style={{ fontSize: 12, color: COLORS.success, fontWeight: 600 }}>{done}</div>}
+    </div>
+  );
+}
+
+function timeUntil(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const diff = d.getTime() - Date.now();
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  if (diff < 0) return `(was due ${timeAgo(iso)})`;
+  if (isToday(iso)) return `today ${time}`;
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+  if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${time}`;
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
+// ---------- The "Today" board: what each sales person should do now ----------
+function todayBucket(client, activity) {
+  if (["deal_done", "closed", "not_qualified"].includes(client.stage)) return null;
+  const now = Date.now();
+  const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+  if (client.meetingAt && client.stage === "meeting_generated") {
+    const m = new Date(client.meetingAt).getTime();
+    if (m <= now) return { key: "overdue", reason: `Meeting was ${formatDateTime(client.meetingAt)} — how did it go?`, at: client.meetingAt };
+    if (m <= endOfDay.getTime()) return { key: "today", reason: `Meeting today ${new Date(client.meetingAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`, at: client.meetingAt };
+  }
+  if (client.nextAction && !client.nextActionDone && client.nextActionAt) {
+    const t = new Date(client.nextActionAt).getTime();
+    if (t < now - 60 * 60 * 1000) return { key: "overdue", reason: `${client.nextAction} — was due ${timeAgo(client.nextActionAt)}`, at: client.nextActionAt };
+    if (t <= endOfDay.getTime()) return { key: "today", reason: `${client.nextAction} · ${timeUntil(client.nextActionAt)}`, at: client.nextActionAt };
+    return null; // scheduled later — nothing to do today
+  }
+  const touched = activity.some((a) => a.clientId === client.id && ["call", "whatsapp", "unit_sent", "quick_reply", "note", "stage_change"].includes(a.action));
+  if (client.stage === "new_lead" && !touched) return { key: "new", reason: `New lead · added ${timeAgo(client.createdAt)}`, at: client.createdAt };
+  if (isClientDelayed(client, activity)) return { key: "cold", reason: `No update since ${formatDate(clientLastActivityAt(client, activity))}`, at: clientLastActivityAt(client, activity) };
+  return null;
+}
+
+const TODAY_GROUPS = [
+  { key: "overdue", title: "Overdue", hint: "Promised follow-ups that slipped", color: COLORS.danger },
+  { key: "today", title: "Today", hint: "Calls and meetings planned for today", color: COLORS.gold },
+  { key: "new", title: "New leads waiting", hint: "Nobody has contacted them yet", color: COLORS.navy },
+  { key: "cold", title: "Going cold", hint: "No update in over a week", color: COLORS.textMuted },
+];
+
+function TodayBoard({ profile, clients, activity, users, visibleSalesIds, isManager, onOpenClient, onQuickReply, onContact, onCloseLead }) {
+  // Managers land on their team; a manager with their own leads can switch to "My clients"
+  const [scope, setScope] = useState(() => (isManager && !clients.some((c) => c.assignedTo === profile.id && !["closed", "deal_done"].includes(c.stage)) ? "team" : "mine"));
+  const [openId, setOpenId] = useState(null);
+  const pool = clients.filter((c) => (scope === "mine" || !isManager ? c.assignedTo === profile.id : visibleSalesIds.includes(c.assignedTo)));
+  const items = pool.map((c) => ({ c, b: todayBucket(c, activity) })).filter((x) => x.b);
+  const grouped = Object.fromEntries(TODAY_GROUPS.map((g) => [g.key, items.filter((x) => x.b.key === g.key).sort((a, b) => new Date(a.b.at) - new Date(b.b.at))]));
+  const doneToday = activity.filter((a) => a.changedBy === profile.id && isToday(a.changedAt) && a.action !== "created").length;
+  const callsToday = activity.filter((a) => a.changedBy === profile.id && isToday(a.changedAt) && (a.action === "call" || a.action === "whatsapp" || a.action === "unit_sent")).length;
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const total = items.length;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="hero" style={{ borderRadius: 18, padding: "18px 20px", color: "#fff", background: `linear-gradient(135deg, ${COLORS.navy} 0%, #2C4270 60%, ${COLORS.gold} 140%)`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, opacity: 0.85 }}>{hello}, {(profile.name || "").split(" ")[0]}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>{total === 0 ? "All caught up" : `${total} client${total === 1 ? "" : "s"} need you today`}</div>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div className="glass" style={{ background: "rgba(255,255,255,0.14)", borderRadius: 16, padding: "8px 14px", textAlign: "center" }}>
+            <div style={{ fontSize: 20, fontWeight: 800 }}>{doneToday}</div><div style={{ fontSize: 11, opacity: 0.85 }}>updates today</div>
+          </div>
+          <div className="glass" style={{ background: "rgba(255,255,255,0.14)", borderRadius: 16, padding: "8px 14px", textAlign: "center" }}>
+            <div style={{ fontSize: 20, fontWeight: 800 }}>{callsToday}</div><div style={{ fontSize: 11, opacity: 0.85 }}>calls & chats</div>
+          </div>
+        </div>
+      </div>
+
+      {isManager && (
+        <div style={{ display: "flex", gap: 6 }}>
+          {[["mine", "My clients"], ["team", "My team"]].map(([id, label]) => (
+            <button key={id} onClick={() => setScope(id)} className="pill" style={{ border: "none", borderRadius: 999, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: scope === id ? COLORS.navy : COLORS.creamDark, color: scope === id ? "#fff" : COLORS.text }}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      {total === 0 && (
+        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 28, textAlign: "center", color: COLORS.textMuted, fontSize: 14 }}>
+          Nothing waiting. New leads and follow-ups will show up here automatically.
+        </div>
+      )}
+
+      {TODAY_GROUPS.map((g) => grouped[g.key].length > 0 && (
+        <div key={g.key}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 4, background: g.color, display: "inline-block" }} />
+            <span style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>{g.title}</span>
+            <span style={{ fontSize: 12, color: COLORS.textMuted }}>{grouped[g.key].length} · {g.hint}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
+            {grouped[g.key].map(({ c, b }) => {
+              const owner = users.find((u) => u.id === c.assignedTo);
+              const expanded = openId === c.id;
+              return (
+                <div key={c.id} className="card lift" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${g.color}`, borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div onClick={() => onOpenClient(c)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+                      <div style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.navy, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                      <div style={{ fontSize: 12, color: g.key === "overdue" ? COLORS.danger : COLORS.textMuted, marginTop: 2 }}>{b.reason}</div>
+                    </div>
+                    <a href={`tel:${String(c.phone).replace(/[^0-9+]/g, "")}`} onClick={() => onContact(c, "call")} className="round-btn" style={{ width: 40, height: 40, borderRadius: 20, background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="Call"><Phone size={17} /></a>
+                    <a href={`https://wa.me/${waNumber(c.phone)}`} target="_blank" rel="noreferrer" onClick={() => onContact(c, "whatsapp")} className="round-btn" style={{ width: 40, height: 40, borderRadius: 20, background: "#25D366", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="WhatsApp"><MessageSquare size={17} /></a>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <ClientStageBadge stage={c.stage} />
+                    {c.interest === "rent" && <Badge tone="neutral">Rent</Badge>}
+                    {scope === "team" && owner && <span style={{ fontSize: 11.5, color: COLORS.textMuted }}>· {owner.name}</span>}
+                    <button onClick={() => setOpenId(expanded ? null : c.id)} style={{ marginLeft: "auto", border: "none", background: "none", color: COLORS.navy, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{expanded ? "Close" : "Update"}</button>
+                  </div>
+                  {expanded && <QuickReplyBar client={c} activity={activity} onQuickReply={async (cl, plan) => { await onQuickReply(cl, plan); }} onCloseLead={onCloseLead} compact />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Matching units ↔ clients ----------
+const ACTIVE_CLIENT_STAGES = ["new_lead", "options_sent", "meeting_generated", "negotiation", "not_responding", "long_term"];
+function unitPrice(unit, interest) { return interest === "rent" ? Number(unit.rentPrice) || 0 : Number(unit.totalPrice) || 0; }
+// 0 = no match. Higher = better.
+function matchScore(client, unit, prefProjectIds) {
+  if (unit.status !== "active") return 0;
+  if (client.interest === "rent" ? !isForRent(unit) : !isForSale(unit)) return 0;
+  let score = 1;
+  const budget = Number(client.budget) || 0;
+  const price = unitPrice(unit, client.interest);
+  if (budget > 0 && price > 0) {
+    const r = price / budget;
+    if (r > 1.15 || r < 0.5) return 0;
+    score += r <= 1 ? 3 - (1 - r) * 3 : 2 - (r - 1) * 6; // closest to the budget wins
+  }
+  if (prefProjectIds.length) { if (prefProjectIds.includes(unit.projectId)) score += 4; else score -= 0.5; }
+  return Math.max(score, 0.1);
+}
+function unitPitch(unit, info, client) {
+  const first = client && client.name && !/^[0-9+ ]+$/.test(client.name) ? client.name.split(" ")[0] : "";
+  return [
+    first ? `Hi ${first}, this unit matches what you're looking for:` : "This unit matches what you're looking for:",
+    "",
+    `${unit.type}${unit.bua ? ` · ${unit.bua} m²` : ""} — ${info.name}, ${info.destination}`,
+    ...(isForSale(unit) && (!client || client.interest !== "rent") ? [`Price: ${money(unit.totalPrice)}`] : []),
+    ...(isForRent(unit) && (!client || client.interest === "rent") ? [`Rent: ${rentMoney(unit.rentPrice)}${unit.furnished ? ` (${unit.furnished})` : ""}`] : []),
+    unit.finishing ? `Finishing: ${unit.finishing}` : "",
+    unit.deliveryDate ? `Delivery: ${unit.deliveryDate}` : "",
+    unit.description ? `\n${unit.description}` : "",
+    unit.photos && unit.photos.length ? `\nPhotos:\n${unit.photos.slice(0, 4).join("\n")}` : "",
+  ].filter((l) => l !== "").join("\n");
+}
+
+function MatchCard({ title, subtitle, badge, linked, onOpen, onSend, sendLabel = "Send" }) {
+  return (
+    <div className="card lift" style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: "10px 12px" }}>
+      <button onClick={onOpen} style={{ flex: 1, minWidth: 0, textAlign: "left", border: "none", background: "none", cursor: "pointer", padding: 0 }}>
+        <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>
+      </button>
+      {badge && <span className="pill" style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: badge.bg, color: badge.color, whiteSpace: "nowrap" }}>{badge.text}</span>}
+      {onSend && (
+        <button onClick={onSend} className="round-btn" style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "#25D366", color: "#fff", padding: "8px 12px", borderRadius: 999, cursor: "pointer", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+          <MessageSquare size={14} /> {linked ? "Send again" : sendLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ClientMatches({ client, units, projectInfoFn, prefProjectIds, linkedUnitIds, sentUnitIds, canSend, onSend, onOpenUnit }) {
+  const [showAll, setShowAll] = useState(false);
+  const list = units.map((u) => ({ u, s: matchScore(client, u, prefProjectIds) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+  const shown = showAll ? list.slice(0, 30) : list.slice(0, 4);
+  return (
+    <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 14 }}>Matching units <span style={{ color: COLORS.textMuted, fontWeight: 500, fontSize: 12 }}>· {list.length}</span></div>
+        <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{client.interest === "rent" ? "For rent" : "For sale"}{Number(client.budget) ? ` · around ${client.interest === "rent" ? rentMoney(client.budget) : money(client.budget)}` : " · add a budget for better matches"}</div>
+      </div>
+      {list.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>No active units match yet. They'll show here as soon as one is added.</div>}
+      {shown.map(({ u }) => {
+        const info = projectInfoFn(u);
+        const sent = sentUnitIds.includes(u.id);
+        return (
+          <MatchCard key={u.id}
+            title={`${u.type} · ${info.name}`}
+            subtitle={`${client.interest === "rent" ? rentMoney(u.rentPrice) : money(u.totalPrice)} · ${info.destination}${u.bua ? ` · ${u.bua} m²` : ""}`}
+            badge={sent ? { text: "Sent", bg: "#E6F4EA", color: COLORS.success } : linkedUnitIds.includes(u.id) ? { text: "Linked", bg: COLORS.creamDark, color: COLORS.navy } : prefProjectIds.includes(u.projectId) ? { text: "Wanted project", bg: "#FBF1E6", color: COLORS.gold } : null}
+            linked={sent}
+            onOpen={() => onOpenUnit(u)}
+            onSend={canSend && client.phone ? () => onSend(client, u) : null}
+          />
+        );
+      })}
+      {list.length > 4 && <button onClick={() => setShowAll((v) => !v)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
+    </div>
+  );
+}
+
+function UnitMatches({ unit, clients, users, clientProjectLinks, sentClientIds, onSend, onOpenClient }) {
+  const [showAll, setShowAll] = useState(false);
+  const list = clients.filter((c) => ACTIVE_CLIENT_STAGES.includes(c.stage))
+    .map((c) => ({ c, s: matchScore(c, unit, clientProjectLinks.filter((l) => l.client_id === c.id).map((l) => l.project_id)) }))
+    .filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+  const shown = showAll ? list.slice(0, 40) : list.slice(0, 5);
+  if (unit.status !== "active") return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
+      <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5 }}>Clients who may want it <span style={{ color: COLORS.textMuted, fontWeight: 500, fontSize: 12 }}>· {list.length}</span></div>
+      {list.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>No matching clients in your list.</div>}
+      {shown.map(({ c }) => (
+        <MatchCard key={c.id}
+          title={c.name}
+          subtitle={`${STAGE_LABEL[c.stage] || c.stage}${Number(c.budget) ? ` · budget ${c.interest === "rent" ? rentMoney(c.budget) : money(c.budget)}` : ""} · ${users.find((u) => u.id === c.assignedTo)?.name || ""}`}
+          badge={sentClientIds.includes(c.id) ? { text: "Sent", bg: "#E6F4EA", color: COLORS.success } : null}
+          linked={sentClientIds.includes(c.id)}
+          onOpen={() => onOpenClient(c)}
+          onSend={c.phone ? () => onSend(c, unit) : null}
+        />
+      ))}
+      {list.length > 5 && <button onClick={() => setShowAll((v) => !v)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
+    </div>
+  );
 }
 
 function CheckInWidget({ checkedInToday, onCheckIn }) {
@@ -1668,7 +2170,7 @@ function CheckInWidget({ checkedInToday, onCheckIn }) {
       <button
         onClick={doCheckIn}
         disabled={status === "working"}
-        style={{ background: COLORS.gold, color: COLORS.navy, border: "none", padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}
+        style={{ background: COLORS.gold, color: COLORS.navy, border: "none", padding: "7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}
       >
         {status === "working" ? "Checking location…" : "Check in"}
       </button>
@@ -1698,7 +2200,7 @@ function NotificationsBell({ clients, activity, visibleSalesIds, onOpenClient })
         )}
       </button>
       {open && (
-        <div style={{ position: "absolute", right: 0, top: 28, width: 300, maxHeight: 360, overflowY: "auto", background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 80 }}>
+        <div style={{ position: "absolute", right: 0, top: 28, width: 300, maxHeight: 360, overflowY: "auto", background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 80 }}>
           {items.length === 0 ? (
             <div style={{ padding: 16, fontSize: 13, color: COLORS.textMuted, textAlign: "center" }}>No notifications</div>
           ) : (
@@ -1730,71 +2232,414 @@ function LabeledSelect({ value, onChange, options, placeholder }) {
   );
 }
 
-function AddClientForm({ onAdd, currentUser, assignableUsers }) {
-  const blank = { name: "", phone: "", email: "", source: "", referralName: "", budget: "", interest: "buy", notes: "", assignedTo: "", stage: "new_lead", feedback: "" };
+// =====================================================================
+// ---------- Quick add client (phone first) + duplicate requests ----------
+// =====================================================================
+// Egyptian numbers saved one way: 01xxxxxxxxx
+function cleanPhone(raw) {
+  const d = String(raw || "").replace(/[^0-9]/g, "");
+  if (d.length === 12 && d.startsWith("20")) return "0" + d.slice(2);
+  if (d.length === 14 && d.startsWith("0020")) return "0" + d.slice(4);
+  if (d.length === 10 && d.startsWith("1")) return "0" + d;
+  return String(raw || "").trim();
+}
+function findByPhone(clients, phone) {
+  const k = phoneKey(phone);
+  if (k.length < 9) return null;
+  return clients.find((c) => phoneKey(c.phone) === k && c.stage !== "closed") || clients.find((c) => phoneKey(c.phone) === k) || null;
+}
+
+function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignableUsers, clients, users, visibleSalesIds, onOpenExisting }) {
+  const selfAssignable = assignableUsers.some((u) => u.id === currentUser.id);
+  const blank = { name: "", phone: "", email: "", source: "", referralName: "", budget: "", interest: "buy", notes: "", assignedTo: selfAssignable ? currentUser.id : "", stage: "new_lead", feedback: "" };
   const [form, setForm] = useState(blank);
+  const [more, setMore] = useState(false);
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [remote, setRemote] = useState(null);
+  const phoneK = phoneKey(form.phone);
+  useEffect(() => {
+    setRemote(null);
+    if (phoneK.length < 10 || !checkPhones) return;
+    let live = true;
+    const tm = setTimeout(async () => { const r = await checkPhones([form.phone]); if (live) setRemote(r[phoneK] || null); }, 350);
+    return () => { live = false; clearTimeout(tm); };
+  }, [phoneK]);
+  const existing = findByPhone(clients, form.phone) || remote;
+  const existingOwner = existing ? users.find((u) => u.id === existing.assignedTo) : null;
+  const canOpenExisting = existing && visibleSalesIds.includes(existing.assignedTo);
+
+  const validate = () => {
+    if (String(form.phone).replace(/[^0-9]/g, "").length < 10) return "Enter a valid phone number.";
+    if (form.source === "colleague_referral" && !form.referralName) return "Write the colleague's name.";
+    if (!form.assignedTo) return "Choose the sales person.";
+    return "";
+  };
+  const payload = () => ({ ...form, phone: cleanPhone(form.phone), name: form.name.trim() || cleanPhone(form.phone), feedback: form.feedback.trim() || "New lead" });
 
   const submit = async () => {
-    if (!form.name || !form.phone) { setError("Name and phone are required."); return; }
-    if (form.source === "colleague_referral" && !form.referralName) { setError("Please write the colleague's name."); return; }
-    if (!form.assignedTo) { setError("Please choose which sales person this client is assigned to."); return; }
-    if (!form.stage) { setError("Please choose a starting stage."); return; }
-    if (!form.feedback.trim()) { setError("Please write a feedback note about this client."); return; }
+    const v = validate(); if (v) { setError(v); return; }
+    if (existing) { setError("This number is already in the CRM — send it to your manager to decide."); return; }
     setError(""); setSaving(true);
-    try {
-      await onAdd(form);
-      setForm(blank);
-    } catch (e) {
-      setError(e.message || "Could not save client.");
-    } finally {
-      setSaving(false);
-    }
+    try { await onAdd(payload()); setForm(blank); } catch (e) { setError(e.message || "Could not save client."); } finally { setSaving(false); }
   };
+  const sendDuplicate = async () => {
+    const v = validate(); if (v) { setError(v); return; }
+    setSaving(true);
+    try { await onDuplicate(existing, payload()); setSent(true); } catch (e) { setError(e.message || "Could not send."); } finally { setSaving(false); }
+  };
+
+  if (sent) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.navy }}>Sent to your manager ✓</div>
+        <div style={{ fontSize: 13, color: COLORS.textMuted }}>They'll decide whether the client stays with {existingOwner?.name || "the current sales"}, moves to you, or you both work it. You'll see it in your list if it's given to you.</div>
+        <button onClick={() => { setSent(false); setForm(blank); }} className="btn-primary" style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "10px 18px", borderRadius: 999, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Add another</button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 480 }}>
-      <Field label="Client name" required><input style={inputStyle} value={form.name} onChange={(e) => set("name")(e.target.value)} /></Field>
-      <Field label="Phone" required><input style={inputStyle} value={form.phone} onChange={(e) => set("phone")(e.target.value)} /></Field>
-      <Field label="Email"><input style={inputStyle} value={form.email} onChange={(e) => set("email")(e.target.value)} /></Field>
+      <Field label="Phone" required>
+        <input autoFocus inputMode="tel" style={{ ...inputStyle, fontSize: 17, padding: "12px 14px", letterSpacing: 0.5 }} value={form.phone} onChange={(e) => set("phone")(e.target.value)} placeholder="01xxxxxxxxx" />
+      </Field>
+      {existing && (
+        <div style={{ background: "#FBF1E6", border: `1px solid ${COLORS.gold}`, borderRadius: 16, padding: 12, fontSize: 13, color: COLORS.text, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div><b>Already in the CRM:</b> {existing.name} · {STAGE_LABEL[existing.stage] || existing.stage} · with <b>{existingOwner?.name || "someone"}</b></div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {canOpenExisting && <button onClick={() => onOpenExisting(existing)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 999, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Open client</button>}
+            <button disabled={saving} onClick={sendDuplicate} style={{ border: "none", background: COLORS.gold, color: "#fff", padding: "7px 12px", borderRadius: 999, cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}>{saving ? "Sending…" : "Send to manager to decide"}</button>
+          </div>
+        </div>
+      )}
+      <Field label="Name"><input style={inputStyle} value={form.name} onChange={(e) => set("name")(e.target.value)} placeholder="Optional — you can add it later" /></Field>
       <div role="group" aria-label="Looking to">
-        <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.text, marginBottom: 6 }}>Looking to <span style={{ color: COLORS.danger }}>*</span></div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.text, marginBottom: 6 }}>Looking to</div>
         <div style={{ display: "flex", gap: 8 }}>
           {[["buy", "Buy"], ["rent", "Rent"]].map(([id, label]) => (
             <button key={id} type="button" onClick={() => set("interest")(id)} style={{
-              flex: 1, padding: "9px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+              flex: 1, padding: "10px", borderRadius: 999, cursor: "pointer", fontSize: 13, fontWeight: 700,
               border: `1px solid ${form.interest === id ? COLORS.navy : COLORS.border}`,
               background: form.interest === id ? COLORS.navy : "#fff", color: form.interest === id ? "#fff" : COLORS.text,
             }}>{label}</button>
           ))}
         </div>
       </div>
-      <Field label={form.interest === "rent" ? "Budget (monthly rent, EGP)" : "Budget"}><input style={inputStyle} type="number" value={form.budget} onChange={(e) => set("budget")(e.target.value)} /></Field>
-      <Field label="Source"><LabeledSelect value={form.source} onChange={set("source")} options={SOURCES} placeholder="Select source..." /></Field>
+      <div role="group" aria-label="Source">
+        <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.text, marginBottom: 6 }}>Source</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {SOURCES.map((s) => (
+            <button key={s.id} type="button" onClick={() => set("source")(form.source === s.id ? "" : s.id)} className="chip" style={{
+              padding: "6px 11px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              border: `1px solid ${form.source === s.id ? COLORS.navy : COLORS.border}`, background: form.source === s.id ? COLORS.navy : "#fff", color: form.source === s.id ? "#fff" : COLORS.text,
+            }}>{s.label}</button>
+          ))}
+        </div>
+      </div>
       {form.source === "colleague_referral" && (
         <Field label="Colleague's name" required><input style={inputStyle} value={form.referralName} onChange={(e) => set("referralName")(e.target.value)} /></Field>
       )}
-      <Field label="Assign to" required>
-        <select style={{ ...inputStyle, appearance: "none" }} value={form.assignedTo} onChange={(e) => set("assignedTo")(e.target.value)}>
-          <option value="">Select sales person...</option>
-          {assignableUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-        </select>
-      </Field>
-      <Field label="Starting stage" required>
-        <select style={{ ...inputStyle, appearance: "none" }} value={form.stage} onChange={(e) => set("stage")(e.target.value)}>
-          {STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-        </select>
-      </Field>
-      <Field label="Feedback" required>
-        <textarea style={{ ...inputStyle, minHeight: 70 }} value={form.feedback} onChange={(e) => set("feedback")(e.target.value)} placeholder="First impression / how you got this client..." />
-      </Field>
-      <Field label="Other notes"><textarea style={{ ...inputStyle, minHeight: 60 }} value={form.notes} onChange={(e) => set("notes")(e.target.value)} /></Field>
+      {assignableUsers.length > 1 && (
+        <Field label="Assign to">
+          <select style={{ ...inputStyle, appearance: "none" }} value={form.assignedTo} onChange={(e) => set("assignedTo")(e.target.value)}>
+            <option value="">Select sales person...</option>
+            {assignableUsers.map((u) => <option key={u.id} value={u.id}>{u.name}{u.id === currentUser.id ? " (me)" : ""}</option>)}
+          </select>
+        </Field>
+      )}
+      <button type="button" onClick={() => setMore((m) => !m)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>{more ? "− Fewer details" : "+ More details (budget, email, notes…)"}</button>
+      {more && (
+        <>
+          <Field label={form.interest === "rent" ? "Budget (monthly rent, EGP)" : "Budget (EGP)"}><input style={inputStyle} type="number" value={form.budget} onChange={(e) => set("budget")(e.target.value)} /></Field>
+          <Field label="Email"><input style={inputStyle} value={form.email} onChange={(e) => set("email")(e.target.value)} /></Field>
+          <Field label="Starting stage">
+            <select style={{ ...inputStyle, appearance: "none" }} value={form.stage} onChange={(e) => set("stage")(e.target.value)}>
+              {STAGES.filter((s) => !["contracted", "deal_done"].includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </Field>
+          <Field label="First note"><textarea style={{ ...inputStyle, minHeight: 60 }} value={form.feedback} onChange={(e) => set("feedback")(e.target.value)} placeholder="How you got this client / first impression" /></Field>
+          <Field label="Other notes"><textarea style={{ ...inputStyle, minHeight: 50 }} value={form.notes} onChange={(e) => set("notes")(e.target.value)} /></Field>
+        </>
+      )}
       {error && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{error}</div>}
-      <button disabled={saving} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "11px 18px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+      <button disabled={saving || !!existing} onClick={submit} className="btn-primary" style={{ background: existing ? COLORS.creamDark : COLORS.navy, color: existing ? COLORS.textMuted : "#fff", border: "none", padding: "13px 18px", borderRadius: 999, cursor: existing ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 700 }}>
         {saving ? "Saving…" : "Add client"}
       </button>
+    </div>
+  );
+}
+
+// Admin / CEO decide what happens to a number someone entered twice
+function DuplicateRequests({ requests, clients, users, onDecide, onOpenClient }) {
+  const pending = requests.filter((r) => r.status === "pending");
+  const [busyId, setBusyId] = useState(null);
+  const [err, setErr] = useState("");
+  const name = (id) => users.find((u) => u.id === id)?.name || "—";
+  if (pending.length === 0) return <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 24, color: COLORS.textMuted, fontSize: 14 }}>No duplicate numbers waiting for a decision.</div>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {err && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{err}</div>}
+      {pending.map((r) => {
+        const ex = clients.find((c) => c.id === r.existing_client_id);
+        const p = r.payload || {};
+        const decide = async (status) => {
+          setBusyId(r.id); setErr("");
+          try { await onDecide(r, status); } catch (e) { setErr(e.message || "Could not save"); } finally { setBusyId(null); }
+        };
+        return (
+          <div key={r.id} className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${COLORS.gold}`, borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontWeight: 700, color: COLORS.navy }}>{r.phone}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, fontSize: 12.5 }}>
+              <div style={{ background: COLORS.cream, borderRadius: 14, padding: 10 }}>
+                <div style={{ fontSize: 11, color: COLORS.textMuted, fontWeight: 700, marginBottom: 4 }}>NOW WITH</div>
+                <div><b>{name(ex?.assignedTo)}</b></div>
+                <div>{ex ? `${ex.name} · ${STAGE_LABEL[ex.stage] || ex.stage}` : "Client not found"}</div>
+                {ex && <div style={{ color: COLORS.textMuted }}>Added {formatDate(ex.createdAt)}</div>}
+                {ex && <button onClick={() => onOpenClient(ex)} style={{ marginTop: 6, border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 12 }}>Open client →</button>}
+              </div>
+              <div style={{ background: "#FBF1E6", borderRadius: 14, padding: 10 }}>
+                <div style={{ fontSize: 11, color: COLORS.textMuted, fontWeight: 700, marginBottom: 4 }}>NEW REQUEST FROM</div>
+                <div><b>{name(r.requested_by)}</b>{r.requested_for && r.requested_for !== r.requested_by ? ` · for ${name(r.requested_for)}` : ""}</div>
+                <div>{p.name || r.phone}{p.interest === "rent" ? " · rent" : ""}{p.source ? ` · ${SOURCE_LABEL[p.source] || p.source}` : ""}</div>
+                {p.feedback && <div style={{ color: COLORS.textMuted }}>{p.feedback}</div>}
+                <div style={{ color: COLORS.textMuted }}>{formatDateTime(r.created_at)}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <button disabled={busyId === r.id} onClick={() => decide("kept_old")} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Keep with {name(ex?.assignedTo)}</button>
+              <button disabled={busyId === r.id || !ex} onClick={() => decide("moved_new")} style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}>Move to {name(r.requested_for || r.requested_by)}</button>
+              <button disabled={busyId === r.id || !ex} onClick={() => decide("both")} style={{ border: "none", background: COLORS.gold, color: "#fff", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}>Both work it</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- Facebook / CSV lead import ----------
+function decodeUpload(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder("utf-16le").decode(buf);
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder("utf-16be").decode(buf);
+  return new TextDecoder("utf-8").decode(buf).replace(/^\ufeff/, "");
+}
+function parseDelimited(text) {
+  const firstLine = text.split(/\r?\n/)[0] || "";
+  const delim = [["\t", (firstLine.match(/\t/g) || []).length], [",", (firstLine.match(/,/g) || []).length], [";", (firstLine.match(/;/g) || []).length]].sort((a, b) => b[1] - a[1])[0][0];
+  const rows = []; let row = []; let cur = ""; let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cur); cur = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cur); rows.push(row); row = []; cur = ""; }
+    else cur += ch;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter((r) => r.some((c) => String(c).trim()));
+}
+const normHeader = (h) => String(h || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
+const HEADER_MAP = {
+  name: ["fullname", "name", "clientname", "الاسم", "الاسمبالكامل"],
+  first: ["firstname"], last: ["lastname"],
+  phone: ["phonenumber", "phone", "mobile", "mobilenumber", "whatsappnumber", "whatsapp", "رقمالهاتف", "الموبايل", "رقمالموبايل", "التليفون"],
+  email: ["email", "emailaddress", "البريدالإلكتروني"],
+  campaign: ["campaignname", "adname", "formname", "adsetname", "campaign"],
+};
+const SKIP_HEADERS = ["id", "createdtime", "adid", "adsetid", "campaignid", "formid", "isorganic", "platform", "leadstatus", "inboxurl"];
+
+function LeadImport({ clients, users, onImport, onDone, checkPhones }) {
+  const [rows, setRows] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [assignees, setAssignees] = useState(() => users.filter((u) => u.role === "sales_agent" || u.role === "team_leader").map((u) => u.id));
+  const [source, setSource] = useState("facebook_campaign");
+  const [interest, setInterest] = useState("buy");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  const [error, setError] = useState("");
+
+  const onFile = async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    setError(""); setResult(""); setFileName(f.name);
+    try {
+      const grid = parseDelimited(decodeUpload(await f.arrayBuffer()));
+      if (grid.length < 2) throw new Error("The file looks empty.");
+      const headers = grid[0].map(normHeader);
+      const col = (keys) => headers.findIndex((h) => keys.includes(h));
+      const iName = col(HEADER_MAP.name), iFirst = col(HEADER_MAP.first), iLast = col(HEADER_MAP.last), iPhone = col(HEADER_MAP.phone), iEmail = col(HEADER_MAP.email), iCamp = col(HEADER_MAP.campaign);
+      if (iPhone < 0) throw new Error("Couldn't find a phone column. The first row must have headers like phone_number or phone.");
+      const used = new Set([iName, iFirst, iLast, iPhone, iEmail, iCamp]);
+      const seen = new Set();
+      const remote = checkPhones ? await checkPhones(grid.slice(1).map((r) => String(r[iPhone] || "").replace(/^p:/i, ""))) : {};
+      const parsed = grid.slice(1).map((r) => {
+        const phone = cleanPhone(String(r[iPhone] || "").replace(/^p:/i, ""));
+        const nm = iName >= 0 ? r[iName] : [r[iFirst], r[iLast]].filter(Boolean).join(" ");
+        const extras = grid[0].map((h, i) => (used.has(i) || SKIP_HEADERS.includes(normHeader(h)) || !String(r[i] || "").trim() ? null : `${String(h).replace(/_/g, " ")}: ${r[i]}`)).filter(Boolean);
+        const key = phoneKey(phone);
+        const existing = findByPhone(clients, phone) || remote[key] || null;
+        const repeated = key && seen.has(key); if (key) seen.add(key);
+        return { name: String(nm || "").trim(), phone, email: iEmail >= 0 ? String(r[iEmail] || "").trim() : "", campaign: iCamp >= 0 ? String(r[iCamp] || "").trim() : "", notes: extras.join(" · "),
+          existing, repeated, invalid: key.length < 9 };
+      });
+      setRows(parsed);
+    } catch (err) { setError(err.message || "Could not read the file"); setRows(null); }
+  };
+
+  const fresh = rows ? rows.filter((r) => !r.invalid && !r.repeated && !r.existing) : [];
+  const dups = rows ? rows.filter((r) => !r.invalid && !r.repeated && r.existing) : [];
+  const skipped = rows ? rows.filter((r) => r.invalid || r.repeated) : [];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 820 }}>
+      <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 15 }}>Import leads</div>
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Download the leads from Facebook (Leads Center → Download CSV) or any Excel saved as CSV, and drop the file here. New numbers are shared between the chosen sales one by one; numbers already in the CRM go to Duplicates for you to decide.</div>
+        <label className="drop" style={{ border: `2px dashed ${COLORS.border}`, borderRadius: 14, padding: 20, textAlign: "center", cursor: "pointer", color: COLORS.navy, fontWeight: 600, fontSize: 13.5, background: COLORS.cream }}>
+          {fileName || "Choose a CSV file"}
+          <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={onFile} style={{ display: "none" }} />
+        </label>
+        {error && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{error}</div>}
+      </div>
+
+      {rows && (
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <FinStat label="New leads" value={fresh.length} tone="success" />
+            <FinStat label="Already in the CRM" value={dups.length} sub="Go to Duplicates" />
+            <FinStat label="Skipped" value={skipped.length} sub="Repeated in file / bad number" />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Share new leads between</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {users.map((u) => {
+                const on = assignees.includes(u.id);
+                return <button key={u.id} onClick={() => setAssignees((a) => (on ? a.filter((x) => x !== u.id) : [...a, u.id]))} className="chip" style={{ padding: "6px 11px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 600, border: `1px solid ${on ? COLORS.navy : COLORS.border}`, background: on ? COLORS.navy : "#fff", color: on ? "#fff" : COLORS.text }}>{u.name}</button>;
+              })}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <Field label="Source"><LabeledSelect value={source} onChange={setSource} options={SOURCES} placeholder="Source" /></Field>
+            <Field label="Looking to">
+              <select value={interest} onChange={(e) => setInterest(e.target.value)} style={{ ...inputStyle, appearance: "none" }}><option value="buy">Buy</option><option value="rent">Rent</option></select>
+            </Field>
+          </div>
+          <div style={{ maxHeight: 260, overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 14 }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
+              <thead><tr><th style={thStyle}>Name</th><th style={thStyle}>Phone</th><th style={thStyle}>Campaign</th><th style={thStyle}>Status</th></tr></thead>
+              <tbody>
+                {rows.slice(0, 300).map((r, i) => (
+                  <tr key={i}>
+                    <td style={tdStyle}>{r.name || "—"}</td><td style={tdStyle}>{r.phone}</td><td style={tdStyle}>{r.campaign || "—"}</td>
+                    <td style={tdStyle}>{r.invalid ? <Badge tone="hold">Bad number</Badge> : r.repeated ? <Badge tone="neutral">Repeated</Badge> : r.existing ? <Badge tone="pending">Duplicate</Badge> : <Badge tone="active">New</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {result && <div style={{ color: COLORS.success, fontWeight: 700, fontSize: 13 }}>{result}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button disabled={busy || (fresh.length + dups.length === 0) || assignees.length === 0} onClick={async () => {
+              setBusy(true); setError("");
+              try {
+                const n = await onImport({ fresh, dups, assignees, source, interest });
+                setResult(`Imported ${n.created} new lead${n.created === 1 ? "" : "s"}${n.dups ? ` · ${n.dups} sent to Duplicates` : ""}`);
+                setRows(null); setFileName("");
+                setTimeout(onDone, 1500);
+              } catch (err) { setError(err.message || "Import failed"); } finally { setBusy(false); }
+            }} className="btn-primary" style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "11px 20px", borderRadius: 999, cursor: "pointer", fontSize: 13.5, fontWeight: 700 }}>{busy ? "Importing…" : `Import ${fresh.length} lead${fresh.length === 1 ? "" : "s"}`}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// ---------- Team activity: what each sales person actually did ----------
+// =====================================================================
+function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient }) {
+  const [period, setPeriod] = useState("today");
+  const [drill, setDrill] = useState(null);
+  const now = new Date();
+  const start = period === "today" ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    : period === "week" ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 1) % 7))
+    : new Date(now.getFullYear(), now.getMonth(), 1);
+  const inPeriod = (iso) => new Date(iso) >= start;
+  const people = users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending" && u.role !== "admin");
+  const contactKinds = ["call", "whatsapp", "unit_sent"];
+  const updateKinds = ["quick_reply", "note", "stage_change"];
+
+  const rows = people.map((u) => {
+    const mine = activity.filter((a) => a.changedBy === u.id && inPeriod(a.changedAt));
+    const myClients = clients.filter((c) => c.assignedTo === u.id);
+    const active = myClients.filter((c) => !["closed", "deal_done", "not_qualified"].includes(c.stage));
+    const overdue = active.filter((c) => (c.nextAction && !c.nextActionDone && c.nextActionAt && new Date(c.nextActionAt).getTime() < Date.now() - 3600000)
+      || (c.meetingAt && c.stage === "meeting_generated" && new Date(c.meetingAt) < now));
+    const untouched = active.filter((c) => c.stage === "new_lead" && !activity.some((a) => a.clientId === c.id && [...contactKinds, ...updateKinds].includes(a.action)));
+    // first response time for leads assigned in this period
+    const newLeads = myClients.filter((c) => inPeriod(c.createdAt));
+    const responses = newLeads.map((c) => {
+      const first = activity.filter((a) => a.clientId === c.id && [...contactKinds, ...updateKinds].includes(a.action)).sort((a, b) => new Date(a.changedAt) - new Date(b.changedAt))[0];
+      return first ? (new Date(first.changedAt) - new Date(c.createdAt)) / 3600000 : null;
+    }).filter((x) => x !== null && x >= 0).sort((a, b) => a - b);
+    const median = responses.length ? responses[Math.floor(responses.length / 2)] : null;
+    return {
+      u,
+      contacts: mine.filter((a) => contactKinds.includes(a.action)).length,
+      updates: mine.filter((a) => updateKinds.includes(a.action)).length,
+      added: mine.filter((a) => a.action === "created").length,
+      meetings: mine.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").length,
+      reserved: mine.filter((a) => a.action === "stage_change" && (a.newValue === "contracted" || a.newValue === "deal_done")).length,
+      overdue, untouched, median, active: active.length,
+    };
+  }).sort((a, b) => (b.contacts + b.updates) - (a.contacts + a.updates));
+
+  const sum = (k) => rows.reduce((s, r) => s + (Array.isArray(r[k]) ? r[k].length : r[k]), 0);
+  const fmtHours = (h) => (h === null ? "—" : h < 1 ? `${Math.round(h * 60)}m` : h < 48 ? `${h.toFixed(1)}h` : `${Math.round(h / 24)}d`);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>Team activity</div>
+        <div className="seg" style={{ display: "flex", gap: 4, background: COLORS.creamDark, padding: 4, borderRadius: 999 }}>
+          {[["today", "Today"], ["week", "This week"], ["month", "This month"]].map(([id, label]) => (
+            <button key={id} onClick={() => setPeriod(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: period === id ? "#fff" : "transparent", color: period === id ? COLORS.navy : COLORS.textMuted }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <FinStat label="Calls & chats" value={sum("contacts")} />
+        <FinStat label="Client updates" value={sum("updates")} />
+        <FinStat label="Meetings booked" value={sum("meetings")} tone="success" />
+        <FinStat label="Overdue right now" value={sum("overdue")} tone={sum("overdue") ? "danger" : undefined} />
+        <FinStat label="New leads not contacted" value={sum("untouched")} tone={sum("untouched") ? "danger" : undefined} />
+      </div>
+      <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+          <thead><tr>
+            <th style={thStyle}>Sales</th><th style={thNum}>Calls & chats</th><th style={thNum}>Updates</th><th style={thNum}>Added</th>
+            <th style={thNum}>Meetings</th><th style={thNum}>Reserved / done</th><th style={thNum}>First reply</th><th style={thNum}>Overdue</th><th style={thNum}>Not contacted</th><th style={thNum}>Active clients</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.u.id}>
+                <td style={{ ...tdStyle, fontWeight: 700 }}>{r.u.name}</td>
+                <td style={tdNum}>{r.contacts}</td><td style={tdNum}>{r.updates}</td><td style={tdNum}>{r.added}</td>
+                <td style={tdNum}>{r.meetings}</td><td style={tdNum}>{r.reserved}</td>
+                <td style={{ ...tdNum, color: r.median !== null && r.median > 24 ? COLORS.danger : COLORS.text }} title="Median time from a lead being added to the first call / update">{fmtHours(r.median)}</td>
+                <td style={tdNum}>{r.overdue.length ? <button onClick={() => setDrill({ title: `${r.u.name} · overdue`, list: r.overdue })} style={{ border: "none", background: "none", color: COLORS.danger, fontWeight: 800, cursor: "pointer", fontSize: 12.5 }}>{r.overdue.length}</button> : 0}</td>
+                <td style={tdNum}>{r.untouched.length ? <button onClick={() => setDrill({ title: `${r.u.name} · not contacted`, list: r.untouched })} style={{ border: "none", background: "none", color: COLORS.danger, fontWeight: 800, cursor: "pointer", fontSize: 12.5 }}>{r.untouched.length}</button> : 0}</td>
+                <td style={tdNum}>{r.active}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {drill && <MiniClientList title={drill.title} clientList={drill.list} users={users} onOpenClient={onOpenClient} onClose={() => setDrill(null)} />}
     </div>
   );
 }
@@ -1811,7 +2656,7 @@ function StageChangeModal({ client, onConfirm, onCancel }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const needsMeetingTime = newStage === "meeting_generated" || newStage === "second_meeting";
+  const needsMeetingTime = newStage === "meeting_generated";
 
   const submit = async () => {
     if (!note.trim()) { setError("Feedback is required when changing the stage."); return; }
@@ -1827,7 +2672,7 @@ function StageChangeModal({ client, onConfirm, onCancel }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 22, width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Change stage — {client.name}</div>
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Current: <ClientStageBadge stage={client.stage} /></div>
 
@@ -1854,8 +2699,8 @@ function StageChangeModal({ client, onConfirm, onCancel }) {
 
         {error && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{error}</div>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-          <button disabled={saving} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+          <button disabled={saving} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
@@ -1875,13 +2720,13 @@ function AddFeedbackModal({ client, onConfirm, onCancel }) {
   };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 22, width: "100%", maxWidth: 400, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 400, display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Add feedback — {client.name}</div>
         <textarea style={{ ...inputStyle, minHeight: 90 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Write an update about this client..." />
         {error && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{error}</div>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-          <button disabled={saving} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+          <button disabled={saving} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             {saving ? "Saving…" : "Add"}
           </button>
         </div>
@@ -1903,7 +2748,7 @@ function CloseLeadModal({ client, onConfirm, onCancel }) {
   };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 22, width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Remove lead — {client.name}</div>
         <div style={{ fontSize: 12, color: COLORS.textMuted }}>This removes the client from your active list. It stays in the system and managers can still see it.</div>
         <Field label="Reason" required>
@@ -1919,8 +2764,8 @@ function CloseLeadModal({ client, onConfirm, onCancel }) {
         )}
         {error && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{error}</div>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-          <button disabled={saving} onClick={submit} style={{ background: COLORS.danger, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+          <button disabled={saving} onClick={submit} style={{ background: COLORS.danger, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             {saving ? "Removing…" : "Remove lead"}
           </button>
         </div>
@@ -1941,7 +2786,7 @@ function RestoreLeadModal({ client, onConfirm, onCancel }) {
   };
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 22, width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Restore lead — {client.name}</div>
         <div style={{ fontSize: 12, color: COLORS.textMuted }}>Bring this client back into the active pipeline at any stage.</div>
         <Field label="Restore to stage" required>
@@ -1954,8 +2799,8 @@ function RestoreLeadModal({ client, onConfirm, onCancel }) {
         </Field>
         {error && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{error}</div>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-          <button disabled={saving} onClick={submit} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+          <button onClick={onCancel} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+          <button disabled={saving} onClick={submit} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             {saving ? "Restoring…" : "Restore"}
           </button>
         </div>
@@ -1966,7 +2811,7 @@ function RestoreLeadModal({ client, onConfirm, onCancel }) {
 
 function ClientCard({ client, assignedUser, onOpen, notifCount, lastActivityAt }) {
   const accent =
-    client.stage === "not_qualified" || client.stage === "not_responding" ? COLORS.danger :
+    client.stage === "not_responding" ? COLORS.danger :
     client.stage === "deal_done" || client.stage === "contracted" ? COLORS.success :
     COLORS.gold;
   return (
@@ -1974,7 +2819,7 @@ function ClientCard({ client, assignedUser, onOpen, notifCount, lastActivityAt }
       onClick={onOpen}
       style={{
         background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${accent}`,
-        borderRadius: 10, padding: "14px 16px", cursor: "pointer",
+        borderRadius: 14, padding: "14px 16px", cursor: "pointer",
         display: "flex", flexDirection: "column", gap: 10, position: "relative",
         boxShadow: "0 1px 2px rgba(27,42,74,0.05)",
       }}
@@ -2008,7 +2853,7 @@ function ClientCard({ client, assignedUser, onOpen, notifCount, lastActivityAt }
   );
 }
 
-function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest }) {
+function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest, onQuickReply, onContact, matchSlot }) {
   const [unitPickerOpen, setUnitPickerOpen] = useState(false);
   const timeline = activity.filter((a) => a.clientId === client.id).sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
 
@@ -2027,11 +2872,11 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <button onClick={onBack} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>&larr; Back to clients</button>
 
-      <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 17, color: COLORS.navy }}>{client.name}</div>
-            <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>{client.phone}{client.email ? ` · ${client.email}` : ""}<ContactButtons phone={client.phone} /></div>
+            <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>{client.phone}{client.email ? ` · ${client.email}` : ""}<ContactButtons phone={client.phone} size={15} onContact={(kind) => onContact && onContact(client, kind)} /></div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             {client.qualified && <Badge tone="active">Qualified</Badge>}
@@ -2054,27 +2899,38 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
           <div><b>Added:</b> {formatDate(client.createdAt)}</div>
           <div><b>Last update:</b> {formatDate(clientLastActivityAt(client, activity))}</div>
           {client.meetingAt && <div><b>Meeting:</b> {formatDateTime(client.meetingAt)}</div>}
-          {client.nextAction && !client.nextActionDone && <div><b>Next action:</b> {client.nextAction} ({formatDateTime(client.nextActionAt)})</div>}
+          {client.nextAction && !client.nextActionDone && (
+            <div style={{ color: client.nextActionAt && new Date(client.nextActionAt) < new Date() ? COLORS.danger : COLORS.text }}>
+              <b>Next follow-up:</b> {client.nextAction} · {timeUntil(client.nextActionAt)}
+            </div>
+          )}
           {client.stage === "closed" && <div><b>Closed reason:</b> {client.closedReason === "other" ? client.closedNote : CLOSE_REASON_LABEL[client.closedReason]}</div>}
         </div>
-        {client.notes && <div style={{ fontSize: 12.5, color: COLORS.text, background: COLORS.cream, padding: 10, borderRadius: 8 }}>{client.notes}</div>}
+        {client.notes && <div style={{ fontSize: 12.5, color: COLORS.text, background: COLORS.cream, padding: 10, borderRadius: 10 }}>{client.notes}</div>}
+
+        {canManage && onQuickReply && !["closed", "deal_done"].includes(client.stage) && (
+          <div style={{ background: COLORS.cream, borderRadius: 16, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 8 }}>Quick update</div>
+            <QuickReplyBar client={client} activity={activity} onQuickReply={onQuickReply} onCloseLead={() => onCloseLead()} />
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
           {client.stage !== "closed" && (
             <>
-              <button onClick={onChangeStage} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Change stage</button>
+              <button onClick={onChangeStage} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 }}>Change stage</button>
               {canManage && onMarkSold && client.stage !== "deal_done" && (
-                <button onClick={onMarkSold} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>{client.interest === "rent" ? "Mark as rented" : "Mark as sold"}</button>
+                <button onClick={onMarkSold} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>{client.interest === "rent" ? "Mark as rented" : "Mark as sold"}</button>
               )}
-              <button onClick={onAddFeedback} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Add feedback</button>
-              {canManage && <button onClick={() => setUnitPickerOpen(true)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Link units</button>}
-              <button onClick={onCloseLead} style={{ border: `1px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Remove lead</button>
+              <button onClick={onAddFeedback} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 }}>Add feedback</button>
+              {canManage && <button onClick={() => setUnitPickerOpen(true)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 }}>Link units</button>}
+              <button onClick={onCloseLead} style={{ border: `1px solid ${COLORS.danger}`, background: "#fff", color: COLORS.danger, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 }}>Remove lead</button>
             </>
           )}
           {client.stage === "closed" && (
-            <button onClick={onRestore} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Restore lead</button>
+            <button onClick={onRestore} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 }}>Restore lead</button>
           )}
-          <button onClick={shareOnWhatsApp} style={{ border: "none", background: "#25D366", color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Share on WhatsApp</button>
+          <button onClick={shareOnWhatsApp} style={{ border: "none", background: "#25D366", color: "#fff", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 }}>Share on WhatsApp</button>
         </div>
 
         {linkedUnitIds.length > 0 && (
@@ -2104,7 +2960,9 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
         )}
       </div>
 
-      <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 18 }}>
+      {matchSlot}
+
+      <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18 }}>
         <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 12 }}>Timeline</div>
         {timeline.length === 0 ? (
           <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>No activity yet.</div>
@@ -2121,6 +2979,9 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
                     {a.action === "closed" && <span>Lead removed</span>}
                     {a.action === "project_link" && <span>Linked to project: {a.newValue}</span>}
                     {a.action === "unit_link" && <span>Linked to unit: {a.newValue}</span>}
+                    {a.action === "call" && <span>Called</span>}
+                    {a.action === "whatsapp" && <span>WhatsApp chat</span>}
+                    {a.action === "unit_sent" && <span>Sent unit on WhatsApp: {a.newValue}</span>}
                     {a.note && <div style={{ marginTop: 2, color: COLORS.text }}>{a.note}</div>}
                   </div>
                 </div>
@@ -2148,7 +3009,7 @@ function UnitPicker({ units, developers, projects, projectInfoFn, linkedUnitIds,
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: 900, maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 20, width: "100%", maxWidth: 900, maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Pick interested units</div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer" }}><X size={18} /></button>
@@ -2174,7 +3035,7 @@ function UnitPicker({ units, developers, projects, projectInfoFn, linkedUnitIds,
           {filtered.map((u) => {
             const linked = linkedUnitIds.includes(u.id);
             return (
-              <div key={u.id} style={{ position: "relative", border: linked ? `2px solid ${COLORS.success}` : "2px solid transparent", borderRadius: 12 }}>
+              <div key={u.id} style={{ position: "relative", border: linked ? `2px solid ${COLORS.success}` : "2px solid transparent", borderRadius: 16 }}>
                 {linked && (
                   <div style={{ position: "absolute", top: 6, right: 6, zIndex: 5, background: COLORS.success, color: "#fff", borderRadius: "50%", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <Check size={13} />
@@ -2235,15 +3096,14 @@ function ClientRow({ client, assignedUser, linkedUnits, notifCount, lastActivity
 function ClientsList({ clients, users, projects, units, clientUnitLinks, activity, visibleSalesIds, currentUserId, isManager, onOpenClient, onOpenUnit }) {
   const [filters, setFilters] = useState({ stage: "", assignedTo: "", projectId: "", source: "", interest: "", needsFollowUp: false });
   const [search, setSearch] = useState("");
-  const [view, setView] = useState("active"); // "active" | "not_qualified" | "closed"
+  const [view, setView] = useState("active"); // "active" | "closed"
 
   const visible = clients.filter((c) => visibleSalesIds.includes(c.assignedTo));
   // Not-qualified / closed clients are hidden from the normal list — sales don't see them at all,
   // managers/admin/CEO see them only in their own separate views below.
   const activeVisible = visible.filter((c) => c.stage !== "not_qualified" && c.stage !== "closed");
-  const notQualifiedVisible = visible.filter((c) => c.stage === "not_qualified");
-  const closedVisible = visible.filter((c) => c.stage === "closed");
-  const base = !isManager ? activeVisible : view === "not_qualified" ? notQualifiedVisible : view === "closed" ? closedVisible : activeVisible;
+  const closedVisible = visible.filter((c) => c.stage === "closed" || c.stage === "not_qualified");
+  const base = !isManager ? activeVisible : view === "closed" ? closedVisible : activeVisible;
 
   const filtered = base.filter((c) => {
     if (filters.stage && c.stage !== filters.stage) return false;
@@ -2259,7 +3119,7 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, activit
   }).sort((a, b) => new Date(clientLastActivityAt(b, activity)) - new Date(clientLastActivityAt(a, activity)));
 
   const assignableUsers = users.filter((u) => visibleSalesIds.includes(u.id));
-  const selectableStages = view === "active" ? PIPELINE_STAGES.concat(EXCEPTION_STAGES.filter((s) => s.id === "not_responding" || s.id === "long_term")) : [];
+  const selectableStages = view === "active" ? PIPELINE_STAGES.concat(EXCEPTION_STAGES) : [];
 
   // Group rows by the assigned sales person, like a spreadsheet with one section per person.
   const groups = {};
@@ -2290,7 +3150,6 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, activit
       {isManager && (
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={() => setView("active")} style={{ border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: view === "active" ? COLORS.navy : COLORS.creamDark, color: view === "active" ? "#fff" : COLORS.text }}>Active ({activeVisible.length})</button>
-          <button onClick={() => setView("not_qualified")} style={{ border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: view === "not_qualified" ? COLORS.danger : COLORS.creamDark, color: view === "not_qualified" ? "#fff" : COLORS.text }}>Not Qualified ({notQualifiedVisible.length})</button>
           <button onClick={() => setView("closed")} style={{ border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: view === "closed" ? COLORS.textMuted : COLORS.creamDark, color: view === "closed" ? "#fff" : COLORS.text }}>Closed ({closedVisible.length})</button>
         </div>
       )}
@@ -2327,13 +3186,13 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, activit
       <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{filtered.length} client{filtered.length !== 1 ? "s" : ""} · most recent activity first</div>
 
       {filtered.length === 0 ? (
-        <div style={{ fontSize: 13, color: COLORS.textMuted, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 20, textAlign: "center" }}>No clients here.</div>
+        <div style={{ fontSize: 13, color: COLORS.textMuted, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20, textAlign: "center" }}>No clients here.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           {groupOrder.map((salesId) => {
             const person = users.find((u) => u.id === salesId);
             return (
-              <div key={salesId} style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div key={salesId} style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden" }}>
                 <div style={{ background: COLORS.cream, padding: "8px 14px", fontWeight: 600, fontSize: 12.5, color: COLORS.navy, borderBottom: `1px solid ${COLORS.border}` }}>
                   {person ? person.name : "Unassigned"} <span style={{ color: COLORS.textMuted, fontWeight: 400 }}>({groups[salesId].length})</span>
                 </div>
@@ -2405,7 +3264,7 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
     .sort((a, b) => new Date(b.checkedInAt) - new Date(a.checkedInAt));
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 14, marginTop: 10 }}>
+    <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 14, marginTop: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontWeight: 700, fontSize: 13.5, color: COLORS.navy }}>Attendance ({rows.length})</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: COLORS.textMuted }}>
@@ -2420,7 +3279,7 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
           {rows.map((a) => {
             const u = users.find((usr) => usr.id === a.userId);
             return (
-              <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+              <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
                 {showPerson && <div style={{ fontWeight: 600, fontSize: 12.5, color: COLORS.text }}>{u?.name || "—"}</div>}
                 <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{formatDateTime(a.checkedInAt)}</div>
               </div>
@@ -2435,7 +3294,7 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
 // A small inline panel listing clients, used by both the Dashboard and Reports drilldowns.
 function MiniClientList({ title, clientList, users, onOpenClient, onClose }) {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 14, marginTop: 10 }}>
+    <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 14, marginTop: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div style={{ fontWeight: 700, fontSize: 13.5, color: COLORS.navy }}>{title} ({clientList.length})</div>
         <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer" }}><X size={16} /></button>
@@ -2447,7 +3306,7 @@ function MiniClientList({ title, clientList, users, onOpenClient, onClose }) {
           {clientList.map((c) => {
             const owner = users.find((u) => u.id === c.assignedTo);
             return (
-              <div key={c.id} onClick={() => onOpenClient(c)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: "pointer" }}>
+              <div key={c.id} onClick={() => onOpenClient(c)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 10, cursor: "pointer" }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, color: COLORS.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
                   <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{owner?.name || "Unassigned"} · {c.phone}</div>
@@ -2467,7 +3326,7 @@ function StatTile({ label, count, onClick, active }) {
   return (
     <button onClick={onClick} style={{
       textAlign: "left", cursor: "pointer", border: `1px solid ${active ? COLORS.navy : COLORS.border}`,
-      background: active ? COLORS.creamDark : "#fff", borderRadius: 10, padding: "12px 14px", minWidth: 140,
+      background: active ? COLORS.creamDark : "#fff", borderRadius: 14, padding: "12px 14px", minWidth: 140,
     }}>
       <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.navy }}>{count}</div>
       <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 2 }}>{label}</div>
@@ -2481,7 +3340,7 @@ function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, at
   const [salesFilter, setSalesFilter] = useState("");
 
   const scoped = clients.filter((c) => visibleSalesIds.includes(c.assignedTo));
-  const meetingsToday = scoped.filter((c) => c.meetingAt && isToday(c.meetingAt) && (c.stage === "meeting_generated" || c.stage === "second_meeting"));
+  const meetingsToday = scoped.filter((c) => c.meetingAt && isToday(c.meetingAt) && c.stage === "meeting_generated");
   const delayedLeads = scoped.filter((c) => isClientDelayed(c, activity));
   const longTermLeads = scoped.filter((c) => c.stage === LONG_TERM_STAGE);
   const dashboardStages = PIPELINE_STAGES.concat(EXCEPTION_STAGES);
@@ -2517,7 +3376,7 @@ function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, at
       </div>
 
       {(metric === "checked_in" || metric === "not_checked_in") && (
-        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 14, marginTop: 4, marginBottom: 10 }}>
+        <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 14, marginTop: 4, marginBottom: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ fontWeight: 700, fontSize: 13.5, color: COLORS.navy }}>
               {metric === "checked_in" ? `Checked in today (${checkedInStaff.length})` : `Not checked in yet (${notCheckedInStaff.length})`}
@@ -2531,7 +3390,7 @@ function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, at
               {(metric === "checked_in" ? checkedInStaff : notCheckedInStaff).map((u) => {
                 const a = attendance.find((row) => row.userId === u.id && isToday(row.checkedInAt));
                 return (
-                  <div key={u.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}>
+                  <div key={u.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 10 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: COLORS.text }}>{u.name} <span style={{ fontWeight: 400, color: COLORS.textMuted }}>· {ROLE_LABEL[u.role]}</span></div>
                     {a && <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{formatDateTime(a.checkedInAt)}</div>}
                   </div>
@@ -2577,7 +3436,7 @@ function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, at
 
 function MiniUnitList({ title, unitList, onOpenUnit, onClose }) {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 14, marginTop: 10 }}>
+    <div style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 14, marginTop: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div style={{ fontWeight: 700, fontSize: 13.5, color: COLORS.navy }}>{title} ({unitList.length})</div>
         <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer" }}><X size={16} /></button>
@@ -2587,7 +3446,7 @@ function MiniUnitList({ title, unitList, onOpenUnit, onClose }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {unitList.map((u) => (
-            <div key={u.id} onClick={() => onOpenUnit(u)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 8, cursor: "pointer" }}>
+            <div key={u.id} onClick={() => onOpenUnit(u)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${COLORS.border}`, borderRadius: 10, cursor: "pointer" }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: COLORS.text }}>Unit {u.unitNumber}</div>
               <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{formatDate(u.updatedAt)}</div>
             </div>
@@ -2611,7 +3470,7 @@ function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenCl
         <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Reports</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {reportable.map((u) => (
-            <button key={u.id} onClick={() => setPersonId(u.id)} style={{ textAlign: "left", cursor: "pointer", border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 10, padding: "12px 14px", minWidth: 180, display: "flex", alignItems: "center", gap: 10 }}>
+            <button key={u.id} onClick={() => setPersonId(u.id)} style={{ textAlign: "left", cursor: "pointer", border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 14, padding: "12px 14px", minWidth: 180, display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 34, height: 34, borderRadius: "50%", background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 }}>{initials(u.name)}</div>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13.5, color: COLORS.text }}>{u.name}</div>
@@ -2631,8 +3490,8 @@ function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenCl
   const addedToday = mine.filter((c) => isToday(c.createdAt));
   const actionTodayIds = new Set(activity.filter((a) => isToday(a.changedAt) && mine.some((c) => c.id === a.clientId)).map((a) => a.clientId));
   const actionToday = mine.filter((c) => actionTodayIds.has(c.id));
-  const meetingScheduledToday = mine.filter((c) => c.meetingAt && isToday(c.meetingAt) && (c.stage === "meeting_generated" || c.stage === "second_meeting"));
-  const meetingDoneTodayIds = new Set(activity.filter((a) => a.action === "stage_change" && a.newValue === "meeting_done" && isToday(a.changedAt)).map((a) => a.clientId));
+  const meetingScheduledToday = mine.filter((c) => c.meetingAt && isToday(c.meetingAt) && c.stage === "meeting_generated");
+  const meetingDoneTodayIds = new Set(activity.filter((a) => isToday(a.changedAt) && ((a.action === "quick_reply" && a.fieldName === "meeting_done") || (a.action === "stage_change" && (a.newValue === "meeting_done" || (a.oldValue === "meeting_generated" && a.newValue !== "meeting_generated"))))).map((a) => a.clientId));
   const meetingDoneToday = mine.filter((c) => meetingDoneTodayIds.has(c.id));
 
   const myUnitsAll = units.filter((u) => u.salesIds.includes(personId));
@@ -2656,7 +3515,7 @@ function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenCl
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <button onClick={() => { setPersonId(""); setMetric(null); }} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>← All people</button>
+        <button onClick={() => { setPersonId(""); setMetric(null); }} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 }}>← All people</button>
         <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy }}>{person?.name} <span style={{ color: COLORS.gold, fontSize: 13 }}>· {ROLE_LABEL[person?.role]}</span></div>
       </div>
 
@@ -2959,9 +3818,9 @@ function equalSplits(n) {
 // =====================================================================
 // ---------- FINANCE: shared UI pieces ----------
 // =====================================================================
-const finCard = { background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 16 };
-const btnPrimary = { background: COLORS.navy, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 600 };
-const btnGhost = { border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 };
+const finCard = { background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16 };
+const btnPrimary = { background: COLORS.navy, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5, fontWeight: 600 };
+const btnGhost = { border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12.5 };
 const btnDanger = { ...btnGhost, border: `1px solid ${COLORS.danger}`, color: COLORS.danger };
 const btnSuccess = { ...btnPrimary, background: COLORS.success };
 const thStyle = { textAlign: "left", padding: "8px 10px", fontSize: 11.5, color: COLORS.textMuted, fontWeight: 600, borderBottom: `1px solid ${COLORS.border}`, whiteSpace: "nowrap", background: "#FBFAF6" };
@@ -3026,7 +3885,7 @@ function FinStat({ label, value, sub, tone, onClick }) {
 function FinModal({ title, onClose, children, width = 560 }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(16,26,48,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }} onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "100%", maxWidth: width, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 20, width: "100%", maxWidth: width, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>{title}</div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={18} /></button>
@@ -3048,7 +3907,7 @@ function FinTitle({ children, right }) {
 
 function FinError({ text }) {
   if (!text) return null;
-  return <div style={{ color: COLORS.danger, fontSize: 12.5, background: "#F8ECE8", padding: "8px 10px", borderRadius: 8 }}>{text}</div>;
+  return <div style={{ color: COLORS.danger, fontSize: 12.5, background: "#F8ECE8", padding: "8px 10px", borderRadius: 10 }}>{text}</div>;
 }
 
 function TableWrap({ children }) {
@@ -3158,7 +4017,7 @@ function SideTeamEditor({ title, team, setTeam, people, lockFirst }) {
   const sum = round2(team.reduce((x, a) => x + num(a.split), 0));
   const equal = (list) => { const sp = equalSplits(list.length); return list.map((a, i) => ({ ...a, split: String(sp[i]) })); };
   return (
-    <div style={{ background: COLORS.cream, borderRadius: 10, padding: 12 }}>
+    <div style={{ background: COLORS.cream, borderRadius: 14, padding: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
         <div style={{ fontWeight: 600, fontSize: 13, color: COLORS.navy }}>{title}</div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -3191,7 +4050,7 @@ function SideTeamEditor({ title, team, setTeam, people, lockFirst }) {
   );
 }
 
-function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesIds, accounts, getProjectInfo, initial, editing, onSave, onClose }) {
+function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesIds, accounts, getProjectInfo, initial, editing, onSave, onClose, defaults }) {
   const ed = editing ? editing.deal : null;
   const [unitId, setUnitId] = useState(ed?.unit_id || initial?.unitId || "");
   const [clientId, setClientId] = useState(ed?.client_id || initial?.clientId || "");
@@ -3200,7 +4059,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const isRent = dealType === "rent";
   const [rentMonthly, setRentMonthly] = useState(ed?.rent_monthly != null ? String(ed.rent_monthly) : "");
   const [leaseMonths, setLeaseMonths] = useState(ed?.lease_months != null ? String(ed.lease_months) : "12");
-  const [sides, setSides] = useState(ed?.sides || "buyer");
+  const [sides, setSides] = useState(ed?.sides || initial?.sides || "buyer");
   const [commBuyer, setCommBuyer] = useState(ed ? String(sideCommission(ed, "buyer") || "") : "");
   const [commSeller, setCommSeller] = useState(ed ? String(sideCommission(ed, "seller") || "") : "");
   const [dealDate, setDealDate] = useState(ed?.deal_date || todayInput());
@@ -3225,6 +4084,25 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const [transferDate, setTransferDate] = useState(todayInput());
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
   const { busy, error, run } = useAction();
+
+  // ---- pre-fill for new deals: price from the unit, commission from the default % / months ----
+  const salePct = Number(defaults?.salePct) || 0;
+  const rentMonths = Number(defaults?.rentMonths) || 0;
+  const touched = useRef({ price: false, rent: false, buyer: false, seller: false });
+  useEffect(() => {
+    if (ed) return;
+    const u = units.find((x) => x.id === unitId);
+    if (!u) return;
+    if (!isRent && !touched.current.price && Number(u.totalPrice) > 0) setSalePrice(String(u.totalPrice));
+    if (isRent && !touched.current.rent && Number(u.rentPrice) > 0) setRentMonthly(String(u.rentPrice));
+  }, [unitId, dealType]);
+  const autoComm = isRent ? Math.round(num(rentMonthly) * rentMonths) : Math.round(num(salePrice) * salePct / 100);
+  useEffect(() => {
+    if (ed || autoComm <= 0) return;
+    if (!touched.current.buyer) setCommBuyer(String(autoComm));
+    if (!touched.current.seller) setCommSeller(String(autoComm));
+  }, [autoComm]);
+  const commHint = ed ? "" : isRent ? (rentMonths ? `Filled with ${rentMonths} month${rentMonths === 1 ? "" : "s"} of rent — change it if different.` : "") : (salePct ? `Filled with ${salePct}% of the price — change it if different.` : "");
 
   const people = users.filter((u) => u.role !== "pending");
   const unitOptions = units
@@ -3298,7 +4176,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
 
   const sideBtn = (id, label) => (
     <button key={id} onClick={() => setSides(id)} style={{
-      flex: 1, padding: "9px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+      flex: 1, padding: "9px 10px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600,
       border: `1px solid ${sides === id ? COLORS.navy : COLORS.border}`, background: sides === id ? COLORS.navy : "#fff", color: sides === id ? "#fff" : COLORS.text,
     }}>{label}</button>
   );
@@ -3309,7 +4187,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         <div role="group" aria-label="Deal type" style={{ display: "flex", gap: 8 }}>
           {[["sale", "Sale"], ["rent", "Rent"]].map(([id, label]) => (
             <button key={id} type="button" onClick={() => { setDealType(id); if (unitId && !units.some((u) => u.id === unitId && (id === "rent" ? isForRent(u) : isForSale(u)))) setUnitId(""); }} style={{
-              flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700,
+              flex: 1, padding: "8px 10px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700,
               border: `1px solid ${dealType === id ? COLORS.gold : COLORS.border}`, background: dealType === id ? COLORS.gold : "#fff", color: dealType === id ? "#fff" : COLORS.text,
             }}>{label}</button>
           ))}
@@ -3330,7 +4208,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
           {isRent ? (
             <>
               <Field label="Monthly rent (EGP)" required>
-                <input type="number" min="0" style={inputStyle} value={rentMonthly} onChange={(e) => setRentMonthly(e.target.value)} />
+                <input type="number" min="0" style={inputStyle} value={rentMonthly} onChange={(e) => { touched.current.rent = true; setRentMonthly(e.target.value); }} />
               </Field>
               <Field label="Lease length (months)" required>
                 <input type="number" min="1" style={inputStyle} value={leaseMonths} onChange={(e) => setLeaseMonths(e.target.value)} />
@@ -3338,7 +4216,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
             </>
           ) : (
             <Field label="Sale price (EGP)" required>
-              <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
+              <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => { touched.current.price = true; setSalePrice(e.target.value); }} />
             </Field>
           )}
           <Field label={isRent ? "Reservation date" : "Promise of sale date"} required>
@@ -3357,15 +4235,16 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
           {hasBuyer && (
             <Field label={`Commission from the ${partyName(dealType, "buyer")} (EGP)`} required>
-              <input type="number" min="0" style={inputStyle} value={commBuyer} onChange={(e) => setCommBuyer(e.target.value)} />
+              <input type="number" min="0" style={inputStyle} value={commBuyer} onChange={(e) => { touched.current.buyer = true; setCommBuyer(e.target.value); }} />
             </Field>
           )}
           {hasSeller && (
             <Field label={`Commission from the ${partyName(dealType, "seller")} (EGP)`} required>
-              <input type="number" min="0" style={inputStyle} value={commSeller} onChange={(e) => setCommSeller(e.target.value)} />
+              <input type="number" min="0" style={inputStyle} value={commSeller} onChange={(e) => { touched.current.seller = true; setCommSeller(e.target.value); }} />
             </Field>
           )}
         </div>
+        {commHint && autoComm > 0 && <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: -6 }}>{commHint}</div>}
         {(sides === "both" || isRent) && (
           <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: -6 }}>
             {isRent && contractValue > 0 && <>Contract value: <b>{egpFull(contractValue)}</b>{sides === "both" ? " · " : ""}</>}
@@ -3381,7 +4260,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         </Field>
 
         {isAdmin && !editing && (
-          <div style={{ background: "#EEF3EF", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ background: "#EEF3EF", borderRadius: 14, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
               <input type="checkbox" checked={approveNow} onChange={(e) => setApproveNow(e.target.checked)} />
               Approve now (you are adding it as Admin / CEO)
@@ -3516,7 +4395,7 @@ function ApprovalCard({ deal, ctx }) {
         <div><b>{isRentDeal(deal) ? "Reservation" : "Promise of sale"}:</b> {deal.deal_date}</div>
       </div>
       <DealTeams deal={deal} agents={agents} userName={userName} />
-      {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 8 }}>{deal.notes}</div>}
+      {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 10 }}>{deal.notes}</div>}
       {deal.review_note && <div style={{ fontSize: 12, color: COLORS.danger }}>Your last note: {deal.review_note}</div>}
 
       <div style={{ overflowX: "auto" }}>
@@ -3729,7 +4608,7 @@ function DealDetail({ deal, ctx, onBack }) {
           {deal.status === "approved" && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
         </div>
         <DealTeams deal={deal} agents={agents} userName={userName} />
-        {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 8 }}>{deal.notes}</div>}
+        {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 10 }}>{deal.notes}</div>}
         {deal.review_note && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Review note:</b> {deal.review_note}</div>}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {mine && <button style={btnGhost} onClick={() => onEditDeal(deal)}>Edit & resubmit</button>}
@@ -3906,7 +4785,7 @@ function CashOutModal({ deal, lines, ctx, onClose }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {collected < num(deal.commission_total) - 0.5 && (
-            <div style={{ fontSize: 12.5, background: "#FBF3E4", color: "#8A6416", padding: 8, borderRadius: 8 }}>
+            <div style={{ fontSize: 12.5, background: "#FBF3E4", color: "#8A6416", padding: 8, borderRadius: 10 }}>
               Only {egpFull(collected)} of {egpFull(deal.commission_total)} has been collected from the client so far. Amounts below are based on what was collected.
             </div>
           )}
@@ -4840,6 +5719,42 @@ function CharitySettings({ ctx }) {
   );
 }
 
+function DealDefaultsSettings({ ctx }) {
+  const { fin, act } = ctx;
+  const st = fin.settings || {};
+  const [pct, setPct] = useState(String(st.default_sale_commission_pct ?? 2.5));
+  const [months, setMonths] = useState(String(st.default_rent_commission_months ?? 1));
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  return (
+    <div style={finCard}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>New deal defaults</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>Used to fill the commission when a deal is added. Sales can still change it per deal.</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 13, width: 70 }}>Sale</span>
+        <input type="number" step="0.1" min="0" style={{ ...inputStyle, width: 90, padding: "6px 8px" }} value={pct} onChange={(e) => setPct(e.target.value)} />
+        <span style={{ fontSize: 12, color: COLORS.textMuted }}>% of the price, per side</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 13, width: 70 }}>Rent</span>
+        <input type="number" step="0.5" min="0" style={{ ...inputStyle, width: 90, padding: "6px 8px" }} value={months} onChange={(e) => setMonths(e.target.value)} />
+        <span style={{ fontSize: 12, color: COLORS.textMuted }}>month(s) of rent, per side</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+          setSaved(false);
+          if (num(pct) < 0 || num(pct) > 20) throw new Error("Enter a % between 0 and 20.");
+          if (num(months) < 0 || num(months) > 12) throw new Error("Enter 0 to 12 months.");
+          await act((t) => db.update("finance_settings", 1, { default_sale_commission_pct: num(pct), default_rent_commission_months: num(months), updated_at: new Date().toISOString() }, t));
+          setSaved(true);
+        })}>Save</button>
+        {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
+      </div>
+      <FinError text={error} />
+    </div>
+  );
+}
+
 function FinSettings({ ctx }) {
   const { fin, act, thresholds, addCategory } = ctx;
   const [tiers, setTiers] = useState(thresholds.map(String));
@@ -4875,6 +5790,8 @@ function FinSettings({ ctx }) {
         </div>
 
         <CharitySettings ctx={ctx} />
+
+        <DealDefaultsSettings ctx={ctx} />
 
         <NamedListEditor title="Accounts (treasuries)" items={fin.accounts}
           onAdd={(name) => act((t) => db.insert("finance_accounts", { name }, t))}
@@ -5092,7 +6009,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16, borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 8 }}>
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
+            padding: "7px 12px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
             background: tab === t.id ? COLORS.creamDark : "transparent", color: tab === t.id ? COLORS.navy : COLORS.textMuted,
           }}>{t.label}</button>
         ))}
@@ -5124,12 +6041,13 @@ export default function App() {
   const [attendance, setAttendance] = useState([]);
   const EMPTY_FIN = { loaded: false, error: "", deals: [], dealAgents: [], dealRates: [], txns: [], accounts: [], categories: [], recurring: [], targets: [], salaries: [], rates: [], settings: null };
   const [fin, setFin] = useState(EMPTY_FIN);
-  const [dealModal, setDealModal] = useState(null); // { initial } | { editing: { deal, agents } }
+  const [dealModal, setDealModal] = useState(null);
+  const [clientsTab, setClientsTab] = useState("today"); // { initial } | { editing: { deal, agents } }
   const [dataLoading, setDataLoading] = useState(() => !!loadSession());
   const [loadError, setLoadError] = useState("");
 
   const [tab, setTab] = useState("home");
-  const [section, setSection] = useState("units");
+  const [section, setSection] = useState("clients");
   const [openUnit, setOpenUnit] = useState(null);
   const [editingUnit, setEditingUnit] = useState(null);
   const [viewedUserId, setViewedUserId] = useState(null);
@@ -5177,8 +6095,8 @@ export default function App() {
       db.select("projects", "&order=name", t),
       db.select("units", "&order=created_at.desc", t),
       db.select("unit_sales", "", t),
-      db.select("clients", "&order=updated_at.desc", t),
-      db.select("client_activity", "&order=changed_at.desc", t),
+      db.selectAll("clients", "&order=updated_at.desc", t),
+      db.selectAll("client_activity", "&order=changed_at.desc", t),
       db.select("client_projects", "", t),
       db.select("client_units", "", t),
       db.select("attendance", "&order=checked_in_at.desc", t),
@@ -5204,6 +6122,7 @@ export default function App() {
     const me = profiles.find((p) => p.id === currentSession.user.id);
     setProfile(me || null);
     loadFinance(t);
+    loadDuplicates(t);
   };
 
   // Finance loads separately so a problem there never blocks the rest of the CRM
@@ -5345,8 +6264,8 @@ export default function App() {
   const refreshClients = async () => {
     const t = await getValidToken();
     const [clientsRows, activityRows, cProjRows, cUnitRows] = await Promise.all([
-      db.select("clients", "&order=updated_at.desc", t),
-      db.select("client_activity", "&order=changed_at.desc", t),
+      db.selectAll("clients", "&order=updated_at.desc", t),
+      db.selectAll("client_activity", "&order=changed_at.desc", t),
       db.select("client_projects", "", t),
       db.select("client_units", "", t),
     ]);
@@ -5354,6 +6273,107 @@ export default function App() {
     setClientActivity((activityRows || []).map(mapActivity));
     setClientProjectLinks(cProjRows || []);
     setClientUnitLinks(cUnitRows || []);
+    loadDuplicates(t);
+  };
+
+  // ---- duplicate numbers ----
+  const [duplicates, setDuplicates] = useState([]);
+  const loadDuplicates = async (t) => {
+    try { setDuplicates((await db.select("lead_duplicates", "&order=created_at.desc", t)) || []); } catch (e) { setDuplicates([]); }
+  };
+  // Who already has these numbers? Uses the database (sales can't see other teams' clients)
+  const checkPhones = async (phones) => {
+    const keys = [...new Set(phones.map(phoneKey).filter((k) => k.length >= 9))];
+    if (!keys.length) return {};
+    try {
+      const t = await getValidToken();
+      const rows = await db.rpc("phone_owners", { p_phones: keys }, t);
+      const out = {};
+      (rows || []).forEach((r) => { if (!out[r.phone_key]) out[r.phone_key] = { id: r.client_id, assignedTo: r.assigned_to, stage: r.stage, createdAt: r.created_at, name: clients.find((c) => c.id === r.client_id)?.name || "Client of another sales" }; });
+      return out;
+    } catch (e) {
+      const out = {}; keys.forEach((k) => { const c = clients.find((x) => phoneKey(x.phone) === k); if (c) out[k] = c; }); return out;
+    }
+  };
+  const requestDuplicate = async (existing, form) => {
+    const t = await getValidToken();
+    await db.insert("lead_duplicates", { existing_client_id: existing.id, phone: form.phone, payload: form, requested_by: profile.id, requested_for: form.assignedTo || profile.id }, t);
+    await loadDuplicates(t);
+  };
+  const importLeads = async ({ fresh, dups, assignees, source, interest }) => {
+    const t = await getValidToken();
+    let created = 0;
+    for (let i = 0; i < fresh.length; i += 100) {
+      const chunk = fresh.slice(i, i + 100).map((r, j) => ({
+        name: r.name || r.phone, phone: r.phone, email: r.email || null, source, interest,
+        notes: [r.campaign ? `Campaign: ${r.campaign}` : "", r.notes].filter(Boolean).join(" · ") || null,
+        stage: "new_lead", assigned_to: assignees[(i + j) % assignees.length], created_by: profile.id, ...autoFollowUp("new_lead"),
+      }));
+      const rows = await db.insert("clients", chunk, t);
+      created += rows.length;
+      await db.insert("client_activity", rows.map((c) => ({ client_id: c.id, action: "created", new_value: "new_lead", note: `Imported lead${source ? ` · ${SOURCE_LABEL[source] || source}` : ""}`, changed_by: profile.id })), t);
+    }
+    // A number that's already in the CRM: if it would go to someone else, the CEO/admin decides;
+    // if it's the same sales person anyway, just note on the client that the lead came again.
+    let rr = fresh.length;
+    const reqs = [], again = [];
+    dups.forEach((r) => {
+      const others = assignees.filter((a) => a !== r.existing.assignedTo);
+      const info = { name: r.name, phone: r.phone, email: r.email, source, interest, feedback: r.campaign ? `Imported · ${r.campaign}` : "Imported lead", notes: r.notes };
+      if (!others.length) { again.push({ client_id: r.existing.id, action: "note", note: `Lead came in again${r.campaign ? ` · ${r.campaign}` : ""}`, changed_by: profile.id }); return; }
+      reqs.push({ existing_client_id: r.existing.id, phone: r.phone, requested_by: profile.id, requested_for: others[rr++ % others.length], payload: info });
+    });
+    if (reqs.length) await db.insert("lead_duplicates", reqs, t);
+    if (again.length) await db.insert("client_activity", again, t);
+    await refreshClients();
+    return { created, dups: dups.length };
+  };
+  const decideDuplicate = async (req, status) => {
+    const t = await getValidToken();
+    const ex = clients.find((c) => c.id === req.existing_client_id);
+    const p = req.payload || {};
+    const newOwner = req.requested_for || req.requested_by;
+    const nm = (id) => users.find((u) => u.id === id)?.name || "—";
+    if (status === "moved_new" && ex) {
+      await db.update("clients", ex.id, { assigned_to: newOwner, ...autoFollowUp(ex.stage === "new_lead" ? "new_lead" : ex.stage) }, t);
+      await db.insert("client_activity", { client_id: ex.id, action: "field_update", field_name: "assigned_to", old_value: nm(ex.assignedTo), new_value: nm(newOwner), note: `Duplicate number — moved from ${nm(ex.assignedTo)} to ${nm(newOwner)}`, changed_by: profile.id }, t);
+    }
+    if (status === "both" && ex) {
+      const [copy] = await db.insert("clients", {
+        name: p.name || ex.name, phone: p.phone || ex.phone, email: p.email || null, source: p.source || ex.source || null, interest: p.interest || ex.interest,
+        budget: p.budget === "" || p.budget == null ? null : p.budget, notes: p.notes || null, stage: "new_lead", assigned_to: newOwner,
+        created_by: req.requested_by, duplicate_of: ex.id, ...autoFollowUp("new_lead"),
+      }, t);
+      await db.insert("client_activity", [
+        { client_id: copy.id, action: "created", new_value: "new_lead", note: `Shared lead — also with ${nm(ex.assignedTo)}${p.feedback ? ` · ${p.feedback}` : ""}`, changed_by: profile.id },
+        { client_id: ex.id, action: "note", note: `Same number also given to ${nm(newOwner)} (both work it)`, changed_by: profile.id },
+      ], t);
+    }
+    if (status === "kept_old" && ex) {
+      await db.insert("client_activity", { client_id: ex.id, action: "note", note: `${nm(req.requested_by)} also entered this number — kept with ${nm(ex.assignedTo)}`, changed_by: profile.id }, t);
+    }
+    await db.update("lead_duplicates", req.id, { status, decided_by: profile.id, decided_at: new Date().toISOString() }, t);
+    await refreshClients();
+  };
+
+  // Opens WhatsApp with the unit ready to send, then logs it and links the unit to the client
+  const sendUnitToClient = (client, unit) => {
+    const info = getProjectInfo(unit);
+    window.open(`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(unitPitch(unit, info, client))}`, "_blank");
+    (async () => {
+      try {
+        const t = await getValidToken();
+        const label = `${unit.type}${unit.unitNumber ? ` ${unit.unitNumber}` : ""} · ${info.name}`;
+        await db.insert("client_activity", { client_id: client.id, action: "unit_sent", field_name: unit.id, new_value: label, changed_by: profile.id }, t);
+        if (!clientUnitLinks.some((l) => l.client_id === client.id && l.unit_id === unit.id)) await db.insert("client_units", { client_id: client.id, unit_id: unit.id }, t);
+        const early = ["new_lead", "not_responding", "long_term"].includes(client.stage);
+        const patch = early || client.stage === "options_sent" ? { ...autoFollowUp("options_sent"), next_action: "Get feedback on the unit" } : {};
+        if (early) { patch.stage = "options_sent"; patch.previous_stage = client.stage; }
+        if (Object.keys(patch).length) await db.update("clients", client.id, patch, t);
+        if (patch.stage) await db.insert("client_activity", { client_id: client.id, action: "stage_change", old_value: client.stage, new_value: "options_sent", note: "Sent a unit on WhatsApp", changed_by: profile.id }, t);
+        await refreshClients();
+      } catch (e) { console.warn(e); }
+    })();
   };
 
   const checkIn = async ({ lat, lng, distance }) => {
@@ -5365,9 +6385,39 @@ export default function App() {
 
   const addClient = async (form) => {
     const t = await getValidToken();
-    const [created] = await db.insert("clients", clientToDbRow(form, profile.id), t);
-    await db.insert("client_activity", { client_id: created.id, action: "created", new_value: form.stage, note: form.feedback, changed_by: profile.id }, t);
+    const [created] = await db.insert("clients", { ...clientToDbRow(form, profile.id), ...autoFollowUp(form.stage || "new_lead") }, t);
+    await db.insert("client_activity", { client_id: created.id, action: "created", new_value: form.stage, note: form.feedback || "Client added", changed_by: profile.id }, t);
     await refreshClients();
+    return created;
+  };
+
+  // One-tap update from the Today board / client page
+  const quickReply = async (client, plan) => {
+    const t = await getValidToken();
+    const changes = { ...(plan.follow || {}) };
+    if (plan.stage) {
+      changes.stage = plan.stage;
+      changes.previous_stage = client.stage;
+    }
+    if (plan.meetingAt !== undefined) changes.meeting_at = plan.meetingAt;
+    if (Object.keys(changes).length) await db.update("clients", client.id, changes, t);
+    await db.insert("client_activity", plan.stage
+      ? { client_id: client.id, action: "stage_change", field_name: "stage", old_value: client.stage, new_value: plan.stage, note: plan.note, changed_by: profile.id }
+      : { client_id: client.id, action: "quick_reply", field_name: plan.replyId, note: plan.note, changed_by: profile.id }, t);
+    await refreshClients();
+  };
+
+  // Tapping Call / WhatsApp is logged automatically (once per 10 minutes per client)
+  const lastContactRef = useRef({});
+  const logContact = async (client, kind) => {
+    const key = `${client.id}|${kind}`;
+    if (Date.now() - (lastContactRef.current[key] || 0) < 10 * 60 * 1000) return;
+    lastContactRef.current[key] = Date.now();
+    try {
+      const t = await getValidToken();
+      await db.insert("client_activity", { client_id: client.id, action: kind, changed_by: profile.id }, t);
+      await refreshClients();
+    } catch (e) { /* logging a tap should never block the call */ }
   };
 
   const changeClientStage = async (client, { newStage, note, meetingAt }) => {
@@ -5376,6 +6426,7 @@ export default function App() {
       stage: newStage,
       previous_stage: client.stage,
       meeting_at: meetingAt,
+      ...autoFollowUp(newStage),
     }, t);
     await db.insert("client_activity", {
       client_id: client.id, action: "stage_change", field_name: "stage",
@@ -5658,7 +6709,7 @@ export default function App() {
 
   if (dataLoading) {
     return (
-      <div style={{ minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.cream, color: COLORS.textMuted, fontFamily: "-apple-system, Helvetica, Arial, sans-serif" }}>
+      <div style={{ minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.textMuted }}>
         Loading…
       </div>
     );
@@ -5666,9 +6717,9 @@ export default function App() {
 
   if (loadError) {
     return (
-      <div style={{ minHeight: 480, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, background: COLORS.cream, color: COLORS.danger, fontFamily: "-apple-system, Helvetica, Arial, sans-serif", padding: 20, textAlign: "center" }}>
+      <div style={{ minHeight: 480, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: COLORS.danger, padding: 20, textAlign: "center" }}>
         <div>Could not load data: {loadError}</div>
-        <button onClick={() => fetchAll(session)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "8px 16px", borderRadius: 8, cursor: "pointer" }}>Retry</button>
+        <button onClick={() => fetchAll(session)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "8px 16px", borderRadius: 10, cursor: "pointer" }}>Retry</button>
       </div>
     );
   }
@@ -5679,8 +6730,8 @@ export default function App() {
   const SECTIONS = [
     { id: "clients", label: "Clients", icon: MessageSquare },
     { id: "units", label: "Units", icon: Building2 },
-    { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", icon: Wallet },
-    { id: "profile", label: "My Profile", icon: UserRound },
+    { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", short: "Finance", badge: finPending || 0, icon: Wallet },
+    { id: "profile", label: "My Profile", short: "Profile", icon: UserRound },
   ];
   const UNITS_SUBNAV = [
     { id: "home", label: "Home", icon: Home },
@@ -5709,69 +6760,70 @@ export default function App() {
   const currentSubNav = section === "units" ? UNITS_SUBNAV : section === "profile" ? PROFILE_SUBNAV : [];
 
   return (
-    <div style={{ fontFamily: "-apple-system, Helvetica, Arial, sans-serif", background: COLORS.cream, minHeight: 560, borderRadius: 12, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
+    <div className="app-shell">
       {/* Top bar */}
-      <div style={{ background: COLORS.navy, color: "#fff", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", padding: "4px 10px", borderRadius: 6 }}>
-          <img src={LOGO_SRC} alt="Origin Real Estate" style={{ height: 28 }} />
+      <div className="topbar">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", background: "#fff", padding: "4px 10px", borderRadius: 14 }}>
+              <img src={LOGO_SRC} alt="Origin Real Estate" style={{ height: 26 }} />
+            </div>
+            <nav className="topnav">
+              {SECTIONS.map((n) => (
+                <button key={n.id} className={section === n.id ? "on" : ""} onClick={() => goSection(n.id)}>
+                  <n.icon size={15} /> {n.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13 }}>
+            <CheckInWidget
+              checkedInToday={attendance.find((a) => a.userId === profile.id && isToday(a.checkedInAt))}
+              onCheckIn={checkIn}
+            />
+            <NotificationsBell
+              clients={clients}
+              activity={clientActivity}
+              visibleSalesIds={visibleSalesIds}
+              onOpenClient={(c) => { setSection("clients"); setOpenClientId(c.id); }}
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }} title={`${profile.name} · ${ROLE_LABEL[profile.role]}`}>
+              <div className="avatar">{(profile.name || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}</div>
+              <div className="hide-sm" style={{ lineHeight: 1.15 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{profile.name}</div>
+                <div style={{ color: COLORS.gold, fontSize: 11.5, fontWeight: 600 }}>{ROLE_LABEL[profile.role]}</div>
+              </div>
+            </div>
+            <button onClick={signOut} title="Sign out" style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 600 }}>
+              <LogOut size={14} /><span className="hide-sm">Sign out</span>
+            </button>
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 13 }}>
-          <CheckInWidget
-            checkedInToday={attendance.find((a) => a.userId === profile.id && isToday(a.checkedInAt))}
-            onCheckIn={checkIn}
-          />
-          <NotificationsBell
-            clients={clients}
-            activity={clientActivity}
-            visibleSalesIds={visibleSalesIds}
-            onOpenClient={(c) => { setSection("clients"); setOpenClientId(c.id); }}
-          />
-          <span>{profile.name} <span style={{ color: COLORS.gold }}>· {ROLE_LABEL[profile.role]}</span></span>
-          <button onClick={signOut} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-            <LogOut size={14} /> Sign out
-          </button>
-        </div>
-      </div>
-
-      {/* Top-level sections */}
-      <div style={{ display: "flex", gap: 4, padding: "10px 20px 0", background: "#fff", flexWrap: "wrap" }}>
-        {SECTIONS.map((n) => (
-          <button
-            key={n.id}
-            onClick={() => goSection(n.id)}
-            style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderRadius: "8px 8px 0 0",
-              border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 600,
-              background: section === n.id ? COLORS.navy : "transparent",
-              color: section === n.id ? "#fff" : COLORS.text,
-            }}
-          >
-            <n.icon size={15} /> {n.label}
-          </button>
-        ))}
       </div>
 
       {/* Sub-nav */}
       {currentSubNav.length > 0 && (
-        <div style={{ display: "flex", gap: 4, padding: "8px 20px", background: "#fff", borderBottom: `1px solid ${COLORS.border}`, flexWrap: "wrap" }}>
+        <div className="subnav">
           {currentSubNav.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => setTab(n.id)}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8,
-                border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
-                background: tab === n.id ? COLORS.creamDark : "transparent",
-                color: tab === n.id ? COLORS.navy : COLORS.textMuted,
-              }}
-            >
+            <button key={n.id} className={tab === n.id ? "on" : ""} onClick={() => setTab(n.id)}>
               <n.icon size={13} /> {n.label}
             </button>
           ))}
         </div>
       )}
 
-      <div style={{ padding: 20 }}>
+      {/* Phone: bottom tab bar */}
+      <nav className="bottom-nav">
+        {SECTIONS.map((n) => (
+          <button key={n.id} className={section === n.id ? "on" : ""} onClick={() => goSection(n.id)}>
+            <n.icon size={19} />
+            <span>{n.short || n.label}</span>
+            {n.badge ? <span className="dot">{n.badge}</span> : null}
+          </button>
+        ))}
+      </nav>
+
+      <div className="page" key={section + ":" + tab}>
         {viewedUserId ? (
           <SalesProfile
             person={users.find((u) => u.id === viewedUserId)}
@@ -5818,7 +6870,7 @@ export default function App() {
                         <div
                           key={u.id}
                           onClick={() => setViewedUserId(u.id)}
-                          style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 14px", cursor: "pointer" }}
+                          style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer" }}
                         >
                           <div style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", background: COLORS.creamDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                             {u.avatarUrl ? <img src={u.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <UserRound size={16} color={COLORS.textMuted} />}
@@ -5865,7 +6917,7 @@ export default function App() {
         {section === "units" && tab === "all" && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>All units</div>
-            <div style={{ background: "#fff", padding: 16, borderRadius: 10, border: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
+            <div style={{ background: "#fff", padding: 16, borderRadius: 14, border: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, marginBottom: 14 }}>
                 <Select value={filters.destination} onChange={(v) => setFilters((f) => ({ ...f, destination: v, projectId: "" }))} options={DESTINATIONS} placeholder="Destination" />
                 <select value={filters.developerId} onChange={(e) => setFilters((f) => ({ ...f, developerId: e.target.value, projectId: "" }))} style={{ ...inputStyle, appearance: "none" }}>
@@ -5903,7 +6955,7 @@ export default function App() {
               </div>
               <button
                 onClick={() => setFilters({ destination: "", developerId: "", projectId: "", type: "", finishing: "", deliveryDate: "", floorMin: "", floorMax: "", landAreaMin: "", landAreaMax: "", buaMin: "", buaMax: "", extraAreaMin: "", extraAreaMax: "", priceMin: "", priceMax: "", unitNumber: "", phase: "" })}
-                style={{ marginTop: 14, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, color: COLORS.textMuted }}
+                style={{ marginTop: 14, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, color: COLORS.textMuted }}
               >
                 Clear all filters
               </button>
@@ -5938,14 +6990,14 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {holdUnits.map((u) => (
-                  <div key={u.id} style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12 }}>
+                  <div key={u.id} style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 12 }}>
                     <img src={u.photos[0]} alt="" style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 6 }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy }}>{u.type} · {u.unitNumber}</div>
                       <div style={{ fontSize: 12, color: COLORS.textMuted }}>{getProjectInfo(u).destination} · {getProjectInfo(u).name}</div>
                       <div style={{ fontSize: 12, color: COLORS.danger, marginTop: 4 }}>Reason: {u.holdReason}</div>
                     </div>
-                    <button onClick={() => releaseHold(u)} style={{ alignSelf: "center", border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+                    <button onClick={() => releaseHold(u)} style={{ alignSelf: "center", border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                       Reactivate
                     </button>
                   </div>
@@ -5980,7 +7032,22 @@ export default function App() {
                     onRestore={() => setRestoreTarget(client)}
                     onOpenUnit={(u) => setOpenUnit(u)}
                     onToggleUnitLink={(uid) => toggleClientUnitLink(client, uid)}
-                    onMarkSold={() => setDealModal({ initial: { clientId: client.id, unitId: linkedUnitIds.length === 1 ? linkedUnitIds[0] : "", dealType: client.interest === "rent" ? "rent" : "sale" } })}
+                    onMarkSold={() => setDealModal({ initial: { clientId: client.id, unitId: linkedUnitIds.length === 1 ? linkedUnitIds[0] : "", dealType: client.interest === "rent" ? "rent" : "sale", sides: "buyer" } })}
+                    onQuickReply={quickReply}
+                    onContact={logContact}
+                    matchSlot={!["closed", "deal_done"].includes(client.stage) && (
+                      <ClientMatches
+                        client={client}
+                        units={units}
+                        projectInfoFn={getProjectInfo}
+                        prefProjectIds={clientProjectLinks.filter((l) => l.client_id === client.id).map((l) => l.project_id)}
+                        linkedUnitIds={linkedUnitIds}
+                        sentUnitIds={clientActivity.filter((a) => a.clientId === client.id && a.action === "unit_sent").map((a) => a.fieldName)}
+                        canSend={visibleSalesIds.includes(client.assignedTo)}
+                        onSend={sendUnitToClient}
+                        onOpenUnit={(u) => setOpenUnit(u)}
+                      />
+                    )}
                     onChangeInterest={async (interest) => {
                       try {
                         const t = await getValidToken();
@@ -5993,13 +7060,40 @@ export default function App() {
               })()
             ) : (
               <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy }}>Clients</div>
-                  <button onClick={() => setOpenClientId("__new__")} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
-                    + Add client
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
+                  <div className="seg" style={{ display: "flex", gap: 4, background: COLORS.creamDark, padding: 4, borderRadius: 999 }}>
+                    {[["today", "Today"], ["all", "All clients"], ...(profile.role !== "sales_agent" ? [["team", "Team activity"], ["import", "Import leads"]] : []), ...(isFinanceAdmin(profile) ? [["dups", `Duplicates${duplicates.filter((d) => d.status === "pending").length ? ` (${duplicates.filter((d) => d.status === "pending").length})` : ""}`]] : [])].map(([id, label]) => (
+                      <button key={id} onClick={() => setClientsTab(id)} style={{ border: "none", borderRadius: 999, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: clientsTab === id ? "#fff" : "transparent", color: clientsTab === id ? COLORS.navy : COLORS.textMuted, boxShadow: clientsTab === id ? "0 1px 3px rgba(16,26,48,0.12)" : "none" }}>{label}</button>
+                    ))}
+                  </div>
+                  <button onClick={() => setOpenClientId("__new__")} className="btn-primary add-btn" style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "10px 18px", borderRadius: 999, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                    +<span className="hide-sm"> Add client</span>
                   </button>
                 </div>
-                <ClientsList
+                {clientsTab === "today" && (
+                  <TodayBoard
+                    profile={profile}
+                    clients={clients}
+                    activity={clientActivity}
+                    users={users}
+                    visibleSalesIds={visibleSalesIds}
+                    isManager={profile.role !== "sales_agent"}
+                    onOpenClient={(c) => setOpenClientId(c.id)}
+                    onQuickReply={quickReply}
+                    onContact={logContact}
+                    onCloseLead={(c) => setCloseTarget(c)}
+                  />
+                )}
+                {clientsTab === "team" && profile.role !== "sales_agent" && (
+                  <TeamActivity clients={clients} activity={clientActivity} users={users} visibleSalesIds={visibleSalesIds} onOpenClient={(c) => setOpenClientId(c.id)} />
+                )}
+                {clientsTab === "import" && profile.role !== "sales_agent" && (
+                  <LeadImport clients={clients} users={users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending")} onImport={importLeads} checkPhones={checkPhones} onDone={() => setClientsTab("all")} />
+                )}
+                {clientsTab === "dups" && isFinanceAdmin(profile) && (
+                  <DuplicateRequests requests={duplicates} clients={clients} users={users} onDecide={decideDuplicate} onOpenClient={(c) => setOpenClientId(c.id)} />
+                )}
+                {clientsTab === "all" && <ClientsList
                   clients={clients}
                   users={users}
                   projects={projects}
@@ -6011,21 +7105,27 @@ export default function App() {
                   isManager={profile.role !== "sales_agent"}
                   onOpenClient={(c) => setOpenClientId(c.id)}
                   onOpenUnit={(u) => setOpenUnit(u)}
-                />
+                />}
               </>
             )}
 
             {openClientId === "__new__" && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-                <div style={{ background: "#fff", borderRadius: 12, padding: 22, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto" }}>
+                <div style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Add client</div>
                     <button onClick={() => setOpenClientId(null)} style={{ border: "none", background: "none", cursor: "pointer" }}><X size={18} /></button>
                   </div>
                   <AddClientForm
                     currentUser={profile}
-                    assignableUsers={users.filter((u) => visibleSalesIds.includes(u.id))}
-                    onAdd={async (form) => { await addClient(form); setOpenClientId(null); }}
+                    assignableUsers={users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending")}
+                    clients={clients}
+                    users={users}
+                    visibleSalesIds={visibleSalesIds}
+                    checkPhones={checkPhones}
+                    onDuplicate={requestDuplicate}
+                    onOpenExisting={(c) => setOpenClientId(c.id)}
+                    onAdd={async (form) => { const c = await addClient(form); setOpenClientId(c && c.id ? c.id : null); }}
                   />
                 </div>
               </div>
@@ -6136,7 +7236,7 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {pendingDeleteUnits.map((u) => (
-                  <div key={u.id} style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: 12 }}>
+                  <div key={u.id} style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 12 }}>
                     <img src={u.photos[0]} alt="" style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 6 }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy }}>{u.type} · {u.unitNumber}</div>
@@ -6144,10 +7244,10 @@ export default function App() {
                       <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 4 }}>Requested by {getHandledBy(u)?.name || "—"}</div>
                     </div>
                     <div style={{ display: "flex", gap: 8, alignSelf: "center" }}>
-                      <button onClick={() => rejectDelete(u)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+                      <button onClick={() => rejectDelete(u)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                         Reject
                       </button>
-                      <button onClick={() => approveDelete(u)} style={{ border: "none", background: COLORS.danger, color: "#fff", padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>
+                      <button onClick={() => approveDelete(u)} style={{ border: "none", background: COLORS.danger, color: "#fff", padding: "7px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
                         Approve delete
                       </button>
                     </div>
@@ -6173,6 +7273,7 @@ export default function App() {
           getProjectInfo={getProjectInfo}
           initial={dealModal.initial}
           editing={dealModal.editing}
+          defaults={{ salePct: fin.settings?.default_sale_commission_pct ?? 2.5, rentMonths: fin.settings?.default_rent_commission_months ?? 1 }}
           onSave={saveDeal}
           onClose={() => setDealModal(null)}
         />
@@ -6193,7 +7294,7 @@ export default function App() {
             onReassign={reassignUnit}
             canEdit={profile.role === "admin" || openUnit.salesIds.includes(profile.id)}
             onEditRequest={(u) => { setOpenUnit(null); setEditingUnit(u); setTab("add"); }}
-            onMarkSold={(u, dealType) => { setOpenUnit(null); setDealModal({ initial: { unitId: u.id, dealType } }); }}
+            onMarkSold={(u, dealType) => { setOpenUnit(null); setDealModal({ initial: { unitId: u.id, dealType, sides: "seller" } }); }}
             onRequestDelete={
               profile.role !== "admin" && openUnit.salesIds.some((id) => visibleSalesIds.includes(id))
                 ? requestDelete
@@ -6204,12 +7305,23 @@ export default function App() {
               .map((l) => clients.find((c) => c.id === l.client_id))
               .filter((c) => c && visibleSalesIds.includes(c.assignedTo))}
             onOpenClient={(c) => { setOpenUnit(null); setSection("clients"); setOpenClientId(c.id); }}
+            matchSlot={
+              <UnitMatches
+                unit={openUnit}
+                clients={clients.filter((c) => visibleSalesIds.includes(c.assignedTo))}
+                users={users}
+                clientProjectLinks={clientProjectLinks}
+                sentClientIds={clientActivity.filter((a) => a.action === "unit_sent" && a.fieldName === openUnit.id).map((a) => a.clientId)}
+                onSend={sendUnitToClient}
+                onOpenClient={(c) => { setOpenUnit(null); setSection("clients"); setOpenClientId(c.id); }}
+              />
+            }
           />
           {openUnit.status === "active" && openUnit.salesIds.some((id) => visibleSalesIds.includes(id)) && (
             <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 60 }}>
               <button
                 onClick={() => { setHoldTarget(openUnit); setOpenUnit(null); }}
-                style={{ background: COLORS.danger, color: "#fff", border: "none", padding: "9px 18px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}
+                style={{ background: COLORS.danger, color: "#fff", border: "none", padding: "9px 18px", borderRadius: 10, cursor: "pointer", fontSize: 13 }}
               >
                 Put on hold
               </button>
