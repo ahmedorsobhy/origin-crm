@@ -384,7 +384,8 @@ create policy "admin write" on public.commission_rates for all
   using (public.is_finance_admin()) with check (public.is_finance_admin());
 
 -- Deals
-create policy "read" on public.deals for select using (public.can_see_deal(id));
+create policy "read" on public.deals for select
+  using (created_by = auth.uid() or public.can_see_deal(id));
 create policy "insert" on public.deals for insert with check (auth.role() = 'authenticated');
 create policy "update" on public.deals for update
   using (public.is_finance_admin() or (created_by = auth.uid() and status in ('pending','returned')));
