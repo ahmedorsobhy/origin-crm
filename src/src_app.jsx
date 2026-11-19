@@ -129,62 +129,123 @@ const COLORS = {
 
 // ---------- Look & feel (one place for the whole app) ----------
 const GLOBAL_CSS = `
-:root { --navy:#17264A; --navy2:#22386A; --gold:#B8965A; --gold2:#D9BC84; --cream:#F7F4EE; --ink:#17264A; --muted:#69707D; --line:#E7E2D7; }
-html, body { background: radial-gradient(1200px 600px at 10% -10%, #EADFC9 0%, rgba(234,223,201,0) 60%), radial-gradient(900px 500px at 100% 0%, #DCE3F2 0%, rgba(220,227,242,0) 55%), #F4F1EA !important; background-attachment: fixed !important; }
+:root { --navy:#17264A; --navy2:#22386A; --gold:#B8965A; --gold2:#D9BC84; --cream:#F7F4EE; --ink:#17264A; --muted:#69707D; --line:#E7E2D7; --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.82); --glass-line: rgba(255,255,255,.75); --blur: blur(14px) saturate(165%); }
+html, body { background: #EEF0F5 !important; }
 body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
-#root { max-width: 1180px !important; margin: 0 auto !important; }
+#root { max-width: 1180px !important; margin: 0 auto !important; position: relative; }
+.orbs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.orbs i { position: absolute; width: 62vmax; height: 62vmax; border-radius: 50%; will-change: transform; }
+.orbs i:nth-child(1) { top: -22vmax; left: -18vmax; background: radial-gradient(circle, rgba(226,201,150,.75) 0%, rgba(226,201,150,0) 62%); animation: orbA 26s ease-in-out infinite alternate; }
+.orbs i:nth-child(2) { bottom: -28vmax; right: -22vmax; background: radial-gradient(circle, rgba(160,186,238,.7) 0%, rgba(160,186,238,0) 62%); animation: orbB 32s ease-in-out infinite alternate; }
+.orbs i:nth-child(3) { top: 30%; left: 35%; width: 42vmax; height: 42vmax; background: radial-gradient(circle, rgba(205,184,236,.5) 0%, rgba(205,184,236,0) 62%); animation: orbC 38s ease-in-out infinite alternate; }
+.app-shell > *:not(.orbs):not(.celebrate):not(.bottom-nav):not(.topbar) { position: relative; z-index: 1; }
+@keyframes orbA { to { transform: translate(18vmax, 12vmax) scale(1.15); } }
+@keyframes orbB { to { transform: translate(-16vmax, -14vmax) scale(1.1); } }
+@keyframes orbC { to { transform: translate(-20vmax, 10vmax) scale(.9); } }
+
 .app-shell, .app-shell input, .app-shell select, .app-shell textarea, .app-shell button { font-family: inherit !important; }
 .app-shell { min-height: 100vh; }
-.app-shell button { transition: transform .12s ease, box-shadow .2s ease, background-color .2s ease, color .2s ease, opacity .2s; -webkit-tap-highlight-color: transparent; }
-.app-shell button:not(:disabled):active { transform: scale(.97); }
+.app-shell button { transition: transform .14s cubic-bezier(.2,.8,.2,1.4), box-shadow .2s ease, background-color .2s ease, color .2s ease, opacity .2s; -webkit-tap-highlight-color: transparent; }
+.app-shell button:not(:disabled):active, .app-shell a:active { transform: scale(.96); }
 .app-shell button:disabled { opacity: .55; cursor: default !important; }
-.app-shell input:focus, .app-shell select:focus, .app-shell textarea:focus { outline: none; border-color: var(--gold) !important; box-shadow: 0 0 0 3px rgba(184,150,90,.22); }
-.app-shell input, .app-shell select, .app-shell textarea { border-radius: 10px !important; transition: border-color .15s, box-shadow .15s; }
+.app-shell input:focus, .app-shell select:focus, .app-shell textarea:focus { outline: none; border-color: var(--gold) !important; box-shadow: 0 0 0 4px rgba(184,150,90,.2); }
+.app-shell input, .app-shell select, .app-shell textarea { border-radius: 12px !important; transition: border-color .15s, box-shadow .2s, background-color .2s; background-color: rgba(255,255,255,.78); }
 
-.topbar { position: sticky; top: 0; z-index: 50; border-radius: 0 0 20px 20px; background: linear-gradient(120deg, #0E1830 0%, #17264A 55%, #24396B 100%); color: #fff; box-shadow: 0 6px 24px rgba(14,24,48,.18); }
+/* Glass: every white or cream surface turns into frosted glass */
+.app-shell div[style*="background: rgb(255, 255, 255)"], .app-shell .card, .app-shell .glass, .app-shell table { background: var(--glass) !important; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-color: var(--glass-line) !important; }
+.app-shell div[style*="background: rgb(247, 244, 238)"] { background: rgba(247,244,238,.55) !important; }
+.app-shell .topbar div[style*="background: rgb(255, 255, 255)"] { background: #fff !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.app-shell div[style*="background: rgb(255, 255, 255)"][style*="max-height: 90vh"], .app-shell div[style*="max-height: 88vh"] { background: var(--glass-strong) !important; }
+.app-shell div[style*="position: fixed"][style*="inset: 0px"] { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: fadeIn .2s ease both; }
+.app-shell div[style*="position: fixed"][style*="inset: 0px"] > div { animation: popIn .32s cubic-bezier(.2,.9,.25,1.2) backwards; }
+.card { box-shadow: 0 1px 2px rgba(23,38,74,.04), 0 10px 30px rgba(23,38,74,.07); border-radius: 18px; }
+.app-shell div[style*="border-radius: 16px"][style*="background: rgb(255, 255, 255)"] { box-shadow: 0 1px 2px rgba(23,38,74,.04), 0 10px 30px rgba(23,38,74,.06); }
+.lift, .app-shell div[style*="cursor: pointer"][style*="background: rgb(255, 255, 255)"] { transition: transform .22s cubic-bezier(.2,.8,.2,1.2), box-shadow .25s ease; }
+.lift:hover, .app-shell div[style*="cursor: pointer"][style*="background: rgb(255, 255, 255)"]:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(23,38,74,.12); }
+.hero { background: linear-gradient(125deg, #0E1830, #1E3263 40%, #3A4F82 70%, #B8965A 130%) !important; background-size: 220% 220% !important; animation: heroShift 14s ease infinite; color: #fff; border-radius: 24px !important; box-shadow: 0 18px 50px rgba(14,24,48,.28); position: relative; overflow: hidden; }
+.hero::after { content: ""; position: absolute; inset: -40% auto auto -20%; width: 60%; height: 180%; background: linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.18) 50%, rgba(255,255,255,0) 100%); transform: rotate(18deg); animation: sheen 6s ease-in-out infinite; pointer-events: none; }
+.hero .glass { background: rgba(255,255,255,.14) !important; border: 1px solid rgba(255,255,255,.22) !important; }
+.pill, .chip { transition: background-color .15s, color .15s, border-color .15s, transform .14s; }
+.round-btn { box-shadow: 0 6px 16px rgba(0,0,0,.14); }
+.round-btn:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
+.btn-primary { box-shadow: 0 8px 20px rgba(23,38,74,.25); position: relative; overflow: hidden; }
+.btn-primary::after { content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.35), rgba(255,255,255,0)); transform: skewX(-20deg); transition: left .6s ease; }
+.btn-primary:hover::after { left: 130%; }
+.btn-primary:hover { box-shadow: 0 12px 26px rgba(23,38,74,.32); transform: translateY(-1px); }
+.seg { box-shadow: inset 0 1px 2px rgba(0,0,0,.05); overflow-x: auto; scrollbar-width: none; max-width: 100%; background: rgba(237,231,218,.7) !important; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.seg::-webkit-scrollbar { display: none; }
+.seg button { white-space: nowrap; transition: all .25s cubic-bezier(.2,.8,.2,1.2); }
+.drop:hover { border-color: var(--gold) !important; background: rgba(251,246,236,.8) !important; }
+
+.topbar { position: sticky; top: 0; z-index: 50; border-radius: 0 0 22px 22px; background: linear-gradient(120deg, rgba(14,24,48,.86) 0%, rgba(23,38,74,.84) 55%, rgba(36,57,107,.82) 100%); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); color: #fff; box-shadow: 0 10px 30px rgba(14,24,48,.22); border-bottom: 1px solid rgba(255,255,255,.08); }
 .topnav { display: flex; gap: 4px; background: rgba(255,255,255,.08); padding: 4px; border-radius: 999px; }
 .topnav button { display: flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 999px; border: none; cursor: pointer; font-size: 13.5px; font-weight: 700; background: transparent; color: rgba(255,255,255,.78); }
-.topnav button:hover { color: #fff; background: rgba(255,255,255,.08); }
-.topnav button.on { background: #fff; color: var(--navy); box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+.topnav button:hover { color: #fff; background: rgba(255,255,255,.1); }
+.topnav button.on { background: #fff; color: var(--navy); box-shadow: 0 4px 14px rgba(0,0,0,.2); }
 .subnav { display: flex; gap: 6px; padding: 12px 20px 0; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
-.subnav button { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; font-size: 12.5px; font-weight: 700; background: rgba(255,255,255,.7); color: var(--muted); white-space: nowrap; backdrop-filter: blur(6px); }
-.subnav button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+.subnav button { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--glass-line); cursor: pointer; font-size: 12.5px; font-weight: 700; background: var(--glass); color: var(--muted); white-space: nowrap; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.subnav button.on { background: var(--navy); color: #fff; border-color: var(--navy); box-shadow: 0 6px 16px rgba(23,38,74,.25); }
 .bottom-nav { display: none; }
-.page { padding: 20px; animation: fadeUp .35s ease both; }
-.avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--gold), var(--gold2)); color: var(--navy); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; }
-
-.card { box-shadow: 0 1px 2px rgba(23,38,74,.04), 0 6px 20px rgba(23,38,74,.05); border-radius: 16px; }
-.lift { transition: transform .18s ease, box-shadow .2s ease; }
-.lift:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(23,38,74,.10); }
-.glass { background: rgba(255,255,255,.72) !important; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-.hero { background: linear-gradient(125deg, #0E1830, #1E3263 45%, #3A4F82 75%, #B8965A 130%); background-size: 200% 200%; animation: heroShift 14s ease infinite; color: #fff; border-radius: 22px; box-shadow: 0 14px 40px rgba(14,24,48,.25); }
-.pill, .chip { transition: background-color .15s, color .15s, border-color .15s, transform .12s; }
-.round-btn { box-shadow: 0 4px 12px rgba(0,0,0,.12); }
-.round-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(0,0,0,.16); }
-.btn-primary { box-shadow: 0 6px 16px rgba(23,38,74,.22); }
-.btn-primary:hover { box-shadow: 0 10px 22px rgba(23,38,74,.28); transform: translateY(-1px); }
-.seg { box-shadow: inset 0 1px 2px rgba(0,0,0,.05); overflow-x: auto; scrollbar-width: none; max-width: 100%; }
-.seg::-webkit-scrollbar { display: none; }
-.seg button { white-space: nowrap; transition: all .2s ease; }
-.drop:hover { border-color: var(--gold) !important; background: #FBF6EC !important; }
-.fade-in { animation: fadeUp .3s ease both; }
-@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.page { padding: 20px; }
+.page > * { animation: fadeUp .45s cubic-bezier(.2,.8,.2,1) backwards; }
+.page > *:nth-child(2) { animation-delay: .05s; } .page > *:nth-child(3) { animation-delay: .1s; } .page > *:nth-child(4) { animation-delay: .15s; } .page > *:nth-child(5) { animation-delay: .2s; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--gold), var(--gold2)); color: var(--navy); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; flex-shrink: 0; }
+.theme-btn { background: rgba(255,255,255,.1); border: none; color: #fff; cursor: pointer; width: 34px; height: 34px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+.fade-in { animation: fadeUp .3s ease backwards; }
+.pop-in { animation: popIn .45s cubic-bezier(.2,.9,.25,1.3) backwards; }
+.grow-bar { animation: growBar 1s cubic-bezier(.2,.8,.2,1) backwards; transform-origin: left center; }
+.skeleton { background: linear-gradient(90deg, rgba(255,255,255,.4) 0%, rgba(255,255,255,.85) 50%, rgba(255,255,255,.4) 100%); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; border-radius: 14px; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes growBar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes heroShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+@keyframes sheen { 0%, 60% { transform: translateX(-120%) rotate(18deg); } 100% { transform: translateX(320%) rotate(18deg); } }
+
+/* Celebrations */
+.ca { transform-box: fill-box; transform-origin: center; }
+.celebrate { animation: fadeIn .2s ease both; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.celebrate .glass { background: rgba(255,255,255,.86) !important; }
+.confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.confetti i { position: absolute; top: -20px; width: 9px; height: 14px; border-radius: 3px; animation: confetti 2.6s cubic-bezier(.3,.6,.4,1) forwards; }
+@keyframes confetti { 0% { transform: translateY(0) rotate(0); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
+@keyframes cdance { 0%,100% { transform: translateY(0) rotate(-8deg); } 50% { transform: translateY(-10px) rotate(8deg); } }
+@keyframes carm { 0%,100% { transform: rotate(-30deg); } 50% { transform: rotate(30deg); } }
+@keyframes cfall { 0% { transform: translateY(-20px); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(110px); opacity: 0; } }
+@keyframes cpop { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@keyframes cray { 0%,100% { opacity: .2; } 50% { opacity: 1; } }
+@keyframes cup { 0% { transform: translateY(25px); } 50% { transform: translateY(-8px); } 100% { transform: translateY(25px); } }
+@keyframes cflame { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(1.5); } }
+@keyframes cswing { 0%,100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+@keyframes cdrop { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(40px); opacity: 0; } }
+@keyframes csag { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(.9) translateY(4px); } }
+@keyframes cdeflate { 0% { transform: scale(1); } 70% { transform: scale(.55) translateY(20px); } 100% { transform: scale(1); } }
+@keyframes cwilt { 0%,100% { transform: rotate(0); } 50% { transform: rotate(22deg); } }
+@keyframes cshrug { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+/* Dark mode: the whole page is flipped once; photos, GIFs and the already-dark bars are flipped back */
+html.dark { filter: invert(.9) hue-rotate(180deg); background: #EEF0F5; }
+html.dark .orbs { opacity: .5; }
+html.dark img, html.dark video, html.dark .topbar, html.dark .bottom-nav, html.dark .hero, html.dark .celebrate .glass > div:first-child, html.dark .avatar, html.dark .round-btn { filter: invert(1) hue-rotate(180deg); }
+html.dark .hero img, html.dark .topbar img, html.dark .bottom-nav img { filter: none; }
 
 @media (max-width: 760px) {
-  .topbar { border-radius: 0 0 18px 18px; }
+  .topbar { border-radius: 0 0 20px 20px; }
   .topnav, .hide-sm { display: none !important; }
-  .page { padding: 14px 12px 96px; }
+  .page { padding: 14px 12px 100px; }
   .subnav { padding: 10px 12px 0; }
-  .add-btn { position: fixed; right: 16px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 80; width: 56px; height: 56px; padding: 0 !important; font-size: 28px !important; font-weight: 500 !important; line-height: 1; background: linear-gradient(135deg, #B8965A, #D9BC84) !important; color: #17264A !important; box-shadow: 0 10px 26px rgba(14,24,48,.35) !important; }
-  .bottom-nav { display: flex; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 90; justify-content: space-around; padding: 6px; border-radius: 22px; background: rgba(14,24,48,.92); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 12px 30px rgba(14,24,48,.35); }
-  .bottom-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: none; background: transparent; color: rgba(255,255,255,.6); font-size: 10.5px; font-weight: 700; padding: 7px 2px; border-radius: 16px; cursor: pointer; position: relative; }
-  .bottom-nav button.on { color: var(--navy); background: #fff; }
+  .add-btn { position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; padding: 0 !important; font-size: 28px !important; font-weight: 500 !important; line-height: 1; background: linear-gradient(135deg, #B8965A, #D9BC84) !important; color: #17264A !important; box-shadow: 0 12px 28px rgba(14,24,48,.35) !important; }
+  .bottom-nav { display: flex; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 90; justify-content: space-around; padding: 6px; border-radius: 24px; background: rgba(14,24,48,.78); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); box-shadow: 0 14px 34px rgba(14,24,48,.35); border: 1px solid rgba(255,255,255,.1); }
+  .bottom-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: none; background: transparent; color: rgba(255,255,255,.6); font-size: 10.5px; font-weight: 700; padding: 7px 2px; border-radius: 18px; cursor: pointer; position: relative; transition: all .3s cubic-bezier(.2,.8,.2,1.2); }
+  .bottom-nav button.on { color: var(--navy); background: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.25); }
   .bottom-nav .dot { position: absolute; top: 3px; right: calc(50% - 18px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--gold); color: #fff; font-size: 10px; line-height: 16px; }
+
 }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 `;
+if (typeof document !== "undefined") { try { if (localStorage.getItem("origin_theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {} }
 if (typeof document !== "undefined" && !document.getElementById("origin-ui")) {
   const el = document.createElement("style"); el.id = "origin-ui"; el.textContent = GLOBAL_CSS; document.head.appendChild(el);
   if (!document.getElementById("origin-font")) {
@@ -282,6 +343,21 @@ const inputStyle = {
   width: "100%",
 };
 
+// Amount field that understands 5m, 2.5m, 500k and commas; stores plain digits
+function MoneyInput({ value, onChange, placeholder = "e.g. 5m or 500k", style, ...rest }) {
+  const [raw, setRaw] = useState(value === null || value === undefined ? "" : String(value));
+  useEffect(() => { const n = parseAmount(raw); if (String(value ?? "") !== String(n ?? "") && String(value ?? "") !== raw) setRaw(value === null || value === undefined ? "" : String(value)); }, [value]);
+  const n = parseAmount(raw);
+  return (
+    <div style={{ position: "relative" }}>
+      <input {...rest} inputMode="decimal" style={{ ...inputStyle, ...style }} value={raw} placeholder={placeholder}
+        onChange={(e) => { setRaw(e.target.value); const v = parseAmount(e.target.value); onChange(v === null ? "" : String(v)); }}
+        onBlur={() => { if (n !== null) setRaw(String(n)); }} />
+      {n !== null && /[a-z,]/i.test(raw) && <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>= {n.toLocaleString("en-US")} EGP</div>}
+    </div>
+  );
+}
+
 function Select({ value, onChange, options, placeholder }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
@@ -354,6 +430,73 @@ function ContactButtons({ phone, size = 12, onContact }) {
 }
 
 // ---------- Unit card ----------
+
+const UNIT_FILTERS_INITIAL = { q: "", listing: "", projectId: "", type: "", price: { min: "", max: "" }, destination: "", developerId: "", finishing: "", deliveryDate: "", furnished: "", bua: { min: "", max: "" }, land: { min: "", max: "" }, extra: { min: "", max: "" }, floor: { min: "", max: "" }, salesId: "", added: { p: "" }, updated: { p: "" }, status: "" };
+function UnitsBrowser({ id, units, title, empty, projects, developers, users, getProjectInfo, canSeeOwner, getHandledBy, onOpen, onViewProfile, showStatus }) {
+  const [fv, setF, resetF, setAllF] = useFilters(`units:${id}`, UNIT_FILTERS_INITIAL);
+  const rentView = fv.listing === "rent";
+  const list = units.filter((u) => {
+    const info = getProjectInfo(u);
+    if (fv.listing === "sale" && !isForSale(u)) return false;
+    if (fv.listing === "rent" && !isForRent(u)) return false;
+    if (fv.projectId && u.projectId !== fv.projectId) return false;
+    if (fv.type && u.type !== fv.type) return false;
+    if (!inRange(rentView ? u.rentPrice : u.totalPrice, fv.price)) return false;
+    if (fv.destination && info.destination !== fv.destination) return false;
+    if (fv.developerId && info.developerId !== fv.developerId) return false;
+    if (fv.finishing && u.finishing !== fv.finishing) return false;
+    if (fv.deliveryDate && u.deliveryDate !== fv.deliveryDate) return false;
+    if (fv.furnished && u.furnished !== fv.furnished) return false;
+    if (!inRange(u.bua, fv.bua) || !inRange(u.landArea, fv.land) || !inRange(u.extraArea, fv.extra) || !inRange(u.floor, fv.floor)) return false;
+    if (fv.salesId && !u.salesIds.includes(fv.salesId)) return false;
+    if (!inDate(u.createdAt, fv.added) || !inDate(u.updatedAt || u.createdAt, fv.updated)) return false;
+    if (fv.status && u.status !== fv.status) return false;
+    if ((fv.q || "").trim()) {
+      const t = fv.q.trim().toLowerCase();
+      const hay = [u.unitNumber, u.type, u.phase, info.name, info.destination, info.developerName, u.description, ...(canSeeOwner(u) ? [u.ownerName, u.ownerNumber] : [])];
+      if (!hay.some((x) => String(x || "").toLowerCase().includes(t))) return false;
+    }
+    return true;
+  }).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  const usedProjects = projects.filter((p) => units.some((u) => u.projectId === p.id) && (!fv.destination || p.destination === fv.destination) && (!fv.developerId || p.developerId === fv.developerId));
+  const usedDevelopers = developers.filter((d) => projects.some((p) => p.developerId === d.id && units.some((u) => u.projectId === p.id)));
+  const dests = [...new Set(units.map((u) => getProjectInfo(u).destination))].filter((d) => d && d !== "—").sort();
+  const sales = users.filter((usr) => units.some((u) => u.salesIds.includes(usr.id)));
+  return (
+    <>
+      <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy, marginBottom: 12 }}>{title}</div>
+      <FilterBar id={`units:${id}`} values={fv} set={setF} reset={resetF} setAll={setAllF} count={list.length} noun={list.length === 1 ? "unit" : "units"}
+        searchPlaceholder="Search unit number, project, developer, owner…"
+        defs={[
+          { id: "listing", label: "Listed for", type: "select", primary: true, all: "Sale and rent", options: [{ id: "sale", label: "For sale" }, { id: "rent", label: "For rent" }] },
+          { id: "projectId", label: "Project", type: "select", primary: true, options: opt(usedProjects, "id", "name") },
+          { id: "type", label: "Type", type: "select", primary: true, options: opt([...new Set(units.map((u) => u.type))].filter(Boolean).sort()) },
+          { id: "price", label: rentView ? "Monthly rent" : "Price", type: "range", primary: true, money: true },
+          { id: "destination", label: "Area", type: "select", options: opt(dests) },
+          { id: "developerId", label: "Developer", type: "select", options: opt(usedDevelopers, "id", "name") },
+          { id: "finishing", label: "Finishing", type: "select", all: "Any finishing", options: opt(FINISHING) },
+          { id: "deliveryDate", label: "Delivery", type: "select", all: "Any delivery", options: opt(DELIVERY) },
+          { id: "furnished", label: "Furnished", type: "select", all: "Any furnishing", options: opt(FURNISHING) },
+          { id: "bua", label: "BUA m²", type: "range" },
+          { id: "land", label: "Land m²", type: "range" },
+          { id: "extra", label: "Extra area m²", type: "range" },
+          { id: "floor", label: "Floor", type: "range" },
+          { id: "salesId", label: "Handled by", type: "select", all: "Anyone", options: sales.length > 1 ? opt(sales, "id", "name") : [] },
+          { id: "added", label: "Added", type: "date" },
+          { id: "updated", label: "Last updated", type: "date" },
+          { id: "status", label: "Status", type: "select", all: "All statuses", hidden: !showStatus, options: [{ id: "active", label: "Available" }, { id: "hold", label: "On hold" }, { id: "sold", label: "Sold" }] },
+        ]}
+      />
+      {list.length === 0 ? (
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{units.length === 0 ? empty : "No units match these filters."}</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+          {list.map((u) => <UnitCard key={u.id} unit={u} projectInfo={getProjectInfo(u)} canSeeOwner={canSeeOwner(u)} handledBy={getHandledBy(u)} onOpen={onOpen} onViewProfile={onViewProfile} />)}
+        </div>
+      )}
+    </>
+  );
+}
 
 function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewProfile }) {
   return (
@@ -656,7 +799,7 @@ function autoUnitDescription(form, project, developer) {
 }
 const LAST_UNIT_KEY = "origin_last_unit_place";
 
-function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing }) {
+function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing, units = [], onOpenUnit }) {
   const empty = {
     developerId: "", projectId: "", phase: "", type: "", landArea: "", bua: "",
     extraArea: "", floor: "", finishing: "", downpayment: "", remaining: "",
@@ -821,21 +964,33 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
         <Field label="Delivery date" required><Select value={form.deliveryDate} onChange={set("deliveryDate")} options={DELIVERY} /></Field>
         {forSale && (
           <>
-        <Field label="Downpayment"><input style={inputStyle} type="number" value={form.downpayment} onChange={(e) => set("downpayment")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Remaining"><input style={inputStyle} type="number" value={form.remaining} onChange={(e) => set("remaining")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Remaining Maintenance"><input style={inputStyle} type="number" value={form.remainingMaintenance} onChange={(e) => set("remainingMaintenance")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Remaining Club payment"><input style={inputStyle} type="number" value={form.remainingClubPayment} onChange={(e) => set("remainingClubPayment")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Extras (price)"><input style={inputStyle} type="number" value={form.extrasPrice} onChange={(e) => set("extrasPrice")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Total price" required><input style={inputStyle} type="number" value={form.totalPrice} onChange={(e) => set("totalPrice")(e.target.value)} placeholder="0" /></Field>
+        <Field label="Downpayment"><MoneyInput value={form.downpayment} onChange={set("downpayment")} /></Field>
+        <Field label="Remaining"><MoneyInput value={form.remaining} onChange={set("remaining")} /></Field>
+        <Field label="Remaining Maintenance"><MoneyInput value={form.remainingMaintenance} onChange={set("remainingMaintenance")} /></Field>
+        <Field label="Remaining Club payment"><MoneyInput value={form.remainingClubPayment} onChange={set("remainingClubPayment")} /></Field>
+        <Field label="Extras (price)"><MoneyInput value={form.extrasPrice} onChange={set("extrasPrice")} /></Field>
+        <Field label="Total price" required><MoneyInput value={form.totalPrice} onChange={set("totalPrice")} /></Field>
           </>
         )}
         {forRent && (
           <>
-            <Field label="Monthly rent (EGP)" required><input style={inputStyle} type="number" value={form.rentPrice} onChange={(e) => set("rentPrice")(e.target.value)} placeholder="0" /></Field>
+            <Field label="Monthly rent (EGP)" required><MoneyInput value={form.rentPrice} onChange={set("rentPrice")} /></Field>
             <Field label="Furnishing"><Select value={form.furnished} onChange={set("furnished")} options={FURNISHING} /></Field>
           </>
         )}
-        <Field label="Unit number" required><input style={inputStyle} value={form.unitNumber} onChange={(e) => set("unitNumber")(e.target.value)} placeholder="e.g. OT-304" /></Field>
+        <Field label="Unit number" required>
+          <input style={inputStyle} value={form.unitNumber} onChange={(e) => set("unitNumber")(e.target.value)} placeholder="e.g. OT-304" />
+          {(() => {
+            const norm = (x) => String(x || "").toLowerCase().replace(/[\s-_/]/g, "");
+            const dup = form.projectId && norm(form.unitNumber).length >= 2 && units.find((u) => u.projectId === form.projectId && norm(u.unitNumber) === norm(form.unitNumber) && (!editingUnit || u.id !== editingUnit.id) && u.status !== "pending_delete");
+            return dup ? (
+              <div style={{ marginTop: 4, fontSize: 12, color: COLORS.danger, background: "#FCEBEB", borderRadius: 8, padding: "6px 8px" }}>
+                This unit is already in the system ({dup.status === "sold" ? "sold" : dup.status === "hold" ? "on hold" : "available"}).
+                {onOpenUnit && <button type="button" onClick={() => onOpenUnit(dup)} style={{ marginLeft: 6, border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12, padding: 0 }}>Open it</button>}
+              </div>
+            ) : null;
+          })()}
+        </Field>
         <Field label="Owner name" required><input style={inputStyle} value={form.ownerName} onChange={(e) => set("ownerName")(e.target.value)} placeholder="Full name" /></Field>
         <Field label="Owner phone" required><input style={inputStyle} value={form.ownerNumber} onChange={(e) => set("ownerNumber")(e.target.value)} placeholder="01xxxxxxxxx" /></Field>
       </div>
@@ -1963,6 +2118,135 @@ function todayBucket(client, activity) {
   return null;
 }
 
+// ---------- Motivation: streak, target, leaderboard, morning brief, past buyers ----------
+function streakDays(activity, userId, workDays = DEFAULT_WORK_DAYS) {
+  const counts = {};
+  activity.forEach((a) => {
+    if (a.changedBy !== userId || !["call", "whatsapp", "unit_sent", "quick_reply", "note", "stage_change"].includes(a.action)) return;
+    const k = dateKey(a.changedAt); counts[k] = (counts[k] || 0) + 1;
+  });
+  let n = 0;
+  const d = new Date();
+  for (let i = 0; i < 120; i++) {
+    const k = dateKey(d.toISOString().slice(0, 10) + "T12:00:00");
+    if (workDays.includes(d.getDay())) {
+      if ((counts[k] || 0) >= 3) n++;
+      else if (i > 0) break; // today not done yet doesn't break the streak
+    }
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}
+function HeroExtras({ streak, target }) {
+  if (!streak && !target) return null;
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", width: "100%", marginTop: 6 }}>
+      {streak > 0 && <div className="glass" style={{ background: "rgba(255,255,255,0.14)", borderRadius: 14, padding: "6px 12px", fontSize: 12.5, fontWeight: 700 }}>🔥 {streak}-day streak</div>}
+      {target && target.target > 0 && (
+        <div className="glass" style={{ flex: "1 1 220px", background: "rgba(255,255,255,0.14)", borderRadius: 14, padding: "6px 12px", fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}><span>Quarter target</span><span>{Math.round(target.pct)}%</span></div>
+          <div style={{ height: 7, borderRadius: 7, background: "rgba(255,255,255,0.2)", marginTop: 4, overflow: "hidden" }}>
+            <div className="grow-bar" style={{ width: `${Math.min(100, target.pct)}%`, height: "100%", borderRadius: 7, background: target.pct >= 100 ? "#7FD6A4" : COLORS.gold }} />
+          </div>
+          <div style={{ opacity: 0.85, marginTop: 3 }}>{egp(target.achieved)} of {egp(target.target)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+const BOARD_METRICS = [["deals_done", "Deals"], ["meetings", "Meetings"], ["contacts", "Calls & chats"], ["updates", "Updates"]];
+function Leaderboard({ rows, profileId }) {
+  const [metric, setMetric] = useState("deals_done");
+  if (!rows || !rows.length) return null;
+  const sorted = [...rows].sort((a, b) => b[metric] - a[metric] || b.contacts - a.contacts).slice(0, 8);
+  const max = Math.max(1, ...sorted.map((r) => r[metric]));
+  const medal = ["🥇", "🥈", "🥉"];
+  return (
+    <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 14 }}>🏆 This month's leaders</div>
+        <div className="seg" style={{ display: "flex", gap: 2, background: COLORS.creamDark, padding: 3, borderRadius: 999 }}>
+          {BOARD_METRICS.map(([id, label]) => <button key={id} onClick={() => setMetric(id)} style={{ border: "none", borderRadius: 999, padding: "5px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", background: metric === id ? "#fff" : "transparent", color: metric === id ? COLORS.navy : COLORS.textMuted }}>{label}</button>)}
+        </div>
+      </div>
+      {sorted.map((r, i) => (
+        <div key={r.user_id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: r.user_id === profileId ? 800 : 500 }}>
+          <span style={{ width: 22, textAlign: "center" }}>{medal[i] || i + 1}</span>
+          <span style={{ width: 110, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: COLORS.navy }}>{r.name}{r.user_id === profileId ? " (you)" : ""}</span>
+          <div style={{ flex: 1, height: 9, borderRadius: 9, background: COLORS.cream, overflow: "hidden" }}><div className="grow-bar" style={{ width: `${(r[metric] / max) * 100}%`, height: "100%", borderRadius: 9, background: i === 0 ? COLORS.gold : COLORS.navy }} /></div>
+          <span style={{ width: 30, textAlign: "right" }}>{r[metric]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function MorningBrief({ clients, activity, fin, attendance, users, visibleSalesIds, settings, onOpen }) {
+  const [open, setOpen] = useState(() => new Date().getHours() < 14);
+  const day = Date.now() - MS_DAY;
+  const team = (id) => visibleSalesIds.includes(id);
+  const recent = activity.filter((a) => new Date(a.changedAt).getTime() >= day && team(a.changedBy));
+  const cut = lateCutoff(settings);
+  const lateToday = attendance.filter((a) => isToday(a.checkedInAt) && team(a.userId)).filter((a) => { const t = new Date(a.checkedInAt); return t.getHours() * 60 + t.getMinutes() > cut.h * 60 + cut.m; }).length;
+  const notIn = users.filter((u) => team(u.id) && !["pending", "admin", "ceo"].includes(u.role) && !attendance.some((a) => a.userId === u.id && isToday(a.checkedInAt))).length;
+  const items = [
+    ["New leads (24h)", clients.filter((c) => team(c.assignedTo) && new Date(c.createdAt).getTime() >= day).length, null],
+    ["Calls & chats (24h)", recent.filter((a) => ["call", "whatsapp", "unit_sent"].includes(a.action)).length, null],
+    ["Meetings booked (24h)", recent.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").length, null],
+    ["Deals waiting for you", (fin.deals || []).filter((d) => d.status === "pending").length, "approvals"],
+    ["Overdue follow-ups", clients.filter((c) => team(c.assignedTo) && c.nextActionAt && !c.nextActionDone && new Date(c.nextActionAt) < new Date() && !["closed", "deal_done"].includes(c.stage)).length, null],
+    [`Late today (after ${cut.label})`, lateToday, "attendance"],
+    ["Not checked in yet", notIn, "attendance"],
+  ];
+  return (
+    <div className="card glass" style={{ border: `1px solid ${COLORS.border}`, padding: 14 }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ width: "100%", display: "flex", justifyContent: "space-between", border: "none", background: "none", cursor: "pointer", padding: 0, fontWeight: 800, color: COLORS.navy, fontSize: 14 }}>
+        <span>☀️ Morning brief</span><span style={{ color: COLORS.textMuted, fontWeight: 600, fontSize: 12 }}>{open ? "Hide" : "Show"}</span>
+      </button>
+      {open && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 10 }}>
+          {items.map(([label, v, link]) => (
+            <button key={label} onClick={() => link && onOpen(link)} style={{ textAlign: "left", border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 12, padding: "8px 10px", cursor: link ? "pointer" : "default" }}>
+              <div className="count-up" style={{ fontSize: 20, fontWeight: 800, color: v && /Overdue|Late|Not checked|waiting/.test(label) ? COLORS.danger : COLORS.navy }}>{v}</div>
+              <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{label}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+// People who bought through us about a year ago: time to ask about reselling or renting
+function PastBuyers({ units, profile, visibleSalesIds, getProjectInfo, onContact }) {
+  const [done, setDone] = useState(() => { try { return JSON.parse(localStorage.getItem("origin_pastbuyers_done") || "[]"); } catch (e) { return []; } });
+  const now = Date.now();
+  const list = units.filter((u) => u.status === "sold" && u.soldVia === "us" && u.newOwnerPhone && u.soldAt
+    && now - new Date(u.soldAt).getTime() > 330 * MS_DAY && now - new Date(u.soldAt).getTime() < 420 * MS_DAY
+    && u.salesIds.some((id) => (profile.role === "sales_agent" ? id === profile.id : visibleSalesIds.includes(id)))
+    && !done.includes(`${u.id}:${new Date(u.soldAt).getFullYear()}`));
+  if (!list.length) return null;
+  const markDone = (u) => { const v = [...done, `${u.id}:${new Date(u.soldAt).getFullYear()}`]; setDone(v); try { localStorage.setItem("origin_pastbuyers_done", JSON.stringify(v)); } catch (e) {} };
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 8, background: COLORS.success, display: "inline-block" }} />
+        <b style={{ color: COLORS.navy }}>Past buyers to call</b><span style={{ fontSize: 12, color: COLORS.textMuted }}>{list.length} · bought about a year ago — ask if they'd resell or rent</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {list.map((u) => (
+          <div key={u.id} className="card lift" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 180px" }}>
+              <div style={{ fontWeight: 700, color: COLORS.navy }}>{u.newOwnerName}</div>
+              <div style={{ fontSize: 12, color: COLORS.textMuted }}>{u.type} · {getProjectInfo(u).name} · bought {formatDate(u.soldAt)}</div>
+            </div>
+            <ContactButtons phone={u.newOwnerPhone} size={16} onContact={onContact} />
+            <button onClick={() => markDone(u)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Done</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const TODAY_GROUPS = [
   { key: "overdue", title: "Overdue", hint: "Promised follow-ups that slipped", color: COLORS.danger },
   { key: "today", title: "Today", hint: "Calls and meetings planned for today", color: COLORS.gold },
@@ -1970,7 +2254,7 @@ const TODAY_GROUPS = [
   { key: "cold", title: "Going cold", hint: "No update in over a week", color: COLORS.textMuted },
 ];
 
-function TodayBoard({ profile, clients, activity, users, visibleSalesIds, isManager, onOpenClient, onQuickReply, onContact, onCloseLead }) {
+function TodayBoard({ profile, clients, activity, users, visibleSalesIds, isManager, onOpenClient, onQuickReply, onContact, onCloseLead, heroExtra, topSlot, bottomSlot }) {
   // Managers land on their team; a manager with their own leads can switch to "My clients"
   const [scope, setScope] = useState(() => (isManager && !clients.some((c) => c.assignedTo === profile.id && !["closed", "deal_done"].includes(c.stage)) ? "team" : "mine"));
   const [openId, setOpenId] = useState(null);
@@ -1998,7 +2282,9 @@ function TodayBoard({ profile, clients, activity, users, visibleSalesIds, isMana
             <div style={{ fontSize: 20, fontWeight: 800 }}>{callsToday}</div><div style={{ fontSize: 11, opacity: 0.85 }}>calls & chats</div>
           </div>
         </div>
+        {heroExtra}
       </div>
+      {topSlot}
 
       {isManager && (
         <div style={{ display: "flex", gap: 6 }}>
@@ -2048,6 +2334,7 @@ function TodayBoard({ profile, clients, activity, users, visibleSalesIds, isMana
           </div>
         </div>
       ))}
+      {bottomSlot}
     </div>
   );
 }
@@ -2154,6 +2441,174 @@ function UnitMatches({ unit, clients, users, clientProjectLinks, sentClientIds, 
         />
       ))}
       {list.length > 5 && <button onClick={() => setShowAll((v) => !v)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
+    </div>
+  );
+}
+
+// ---------- Phone notifications ----------
+const VAPID_PUBLIC_KEY = "BHfeXp2oGlBeGHHlyLbLOQQNeUcE8FxX8wuRbzFbeNeEhxUTsoYcliEyxtDBMv7S_vOI_ZJkspg5cxP4q6Agw6Q";
+const isStandalone = () => (typeof window !== "undefined") && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+function pushSupported() { return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
+function b64uToBytes(s) { const p = "=".repeat((4 - (s.length % 4)) % 4); const b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, (c) => c.charCodeAt(0)); }
+async function subscribePush(profileId, getToken) {
+  const reg = await navigator.serviceWorker.register("sw.js");
+  await navigator.serviceWorker.ready;
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Notifications are blocked. Allow them for this site in your phone settings.");
+  const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(VAPID_PUBLIC_KEY) }));
+  const j = sub.toJSON();
+  await db.upsert("push_subscriptions", { user_id: profileId, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, user_agent: navigator.userAgent.slice(0, 200) }, "endpoint", await getToken());
+  try { localStorage.setItem("origin_push_on", "1"); } catch (e) {}
+  return true;
+}
+function NotificationsCard({ profile, compact, getToken }) {
+  const [state, setState] = useState(() => {
+    if (!pushSupported()) return isIOS() && !isStandalone() ? "ios-install" : "unsupported";
+    if (Notification.permission === "denied") return "blocked";
+    if (Notification.permission === "granted" && localStorage.getItem("origin_push_on") === "1") return "on";
+    return "off";
+  });
+  const [err, setErr] = useState("");
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("origin_push_hide") === "1"; } catch (e) { return false; } });
+  useEffect(() => { // keep the subscription fresh (phones sometimes rotate it)
+    if (state === "on") subscribePush(profile.id, getToken).catch(() => {});
+  }, []); // eslint-disable-line
+  if (state === "unsupported" || (compact && (state === "on" || hidden))) return null;
+  const box = { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 16, border: `1px solid ${COLORS.border}`, background: "#fff" };
+  if (state === "on") return <div className="card" style={box}><Bell size={18} color={COLORS.success} /><div style={{ flex: 1, fontSize: 13 }}><b>Phone notifications are on.</b> You'll get reminders even when the app is closed.</div></div>;
+  return (
+    <div className="card glass fade-in" style={box}>
+      <div style={{ width: 38, height: 38, borderRadius: 12, background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><Bell size={18} /></div>
+      <div style={{ flex: "1 1 200px", fontSize: 13 }}>
+        {state === "ios-install" ? (
+          <><b>Get reminders on your iPhone</b><div style={{ color: COLORS.textMuted }}>In Safari tap Share → <b>Add to Home Screen</b>, then open Origin CRM from the icon and turn notifications on here.</div></>
+        ) : state === "blocked" ? (
+          <><b>Notifications are blocked</b><div style={{ color: COLORS.textMuted }}>Allow notifications for this site in your browser or phone settings, then come back.</div></>
+        ) : (
+          <><b>Turn on phone notifications</b><div style={{ color: COLORS.textMuted }}>New leads, follow-ups, meetings, check-in reminder and deal approvals — straight to your phone.</div></>
+        )}
+        {err && <div style={{ color: COLORS.danger, marginTop: 4 }}>{err}</div>}
+      </div>
+      {state === "off" && <button className="btn-primary" onClick={async () => { setErr(""); try { await subscribePush(profile.id, getToken); setState("on"); } catch (e) { setErr(e.message || "Could not turn them on"); } }} style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "9px 16px", borderRadius: 999, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>Turn on</button>}
+      {compact && <button aria-label="Hide" onClick={() => { setHidden(true); try { localStorage.setItem("origin_push_hide", "1"); } catch (e) {} }} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={16} /></button>}
+    </div>
+  );
+}
+
+const CELEB_SVGS = {"H1": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cfall 1.6s linear infinite\"><rect x=\"15\" y=\"0\" width=\"5\" height=\"9\" fill=\"#EF9F27\"/><rect x=\"95\" y=\"5\" width=\"5\" height=\"9\" fill=\"#1D9E75\"/></g><g class=\"ca\" style=\"animation:cfall 1.9s .5s linear infinite\"><rect x=\"40\" y=\"0\" width=\"5\" height=\"9\" fill=\"#D4537E\"/><rect x=\"75\" y=\"0\" width=\"5\" height=\"9\" fill=\"#378ADD\"/></g><g class=\"ca\" style=\"animation:cdance .7s ease-in-out infinite;transform-origin:60px 90px\"><ellipse cx=\"60\" cy=\"62\" rx=\"24\" ry=\"27\" fill=\"#B8965A\"/><circle cx=\"52\" cy=\"56\" r=\"3\" fill=\"#17264A\"/><circle cx=\"68\" cy=\"56\" r=\"3\" fill=\"#17264A\"/><path d=\"M50 68 Q60 78 70 68\" stroke=\"#17264A\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><g class=\"ca\" style=\"animation:carm .35s ease-in-out infinite;transform-origin:38px 60px\"><path d=\"M38 60 L24 44\" stroke=\"#B8965A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:carm .35s .17s ease-in-out infinite;transform-origin:82px 60px\"><path d=\"M82 60 L96 44\" stroke=\"#B8965A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g></g></svg>", "H2": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cray 1s ease-in-out infinite\"><path d=\"M60 8 V18 M30 20 L37 27 M90 20 L83 27 M20 48 H30 M100 48 H90\" stroke=\"#EF9F27\" stroke-width=\"3\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:cpop 1s ease-in-out infinite\"><path d=\"M42 30 H78 V46 Q78 66 60 68 Q42 66 42 46 Z\" fill=\"#EF9F27\"/><path d=\"M42 36 Q30 36 32 48 Q34 56 44 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><path d=\"M78 36 Q90 36 88 48 Q86 56 76 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><rect x=\"55\" y=\"68\" width=\"10\" height=\"10\" fill=\"#BA7517\"/><rect x=\"45\" y=\"78\" width=\"30\" height=\"8\" rx=\"2\" fill=\"#17264A\"/><circle cx=\"54\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><circle cx=\"66\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><path d=\"M53 54 Q60 60 67 54\" stroke=\"#633806\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g></svg>", "H3": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cup 2s ease-in-out infinite\"><g class=\"ca\" style=\"animation:cflame .2s ease-in-out infinite;transform-origin:60px 70px\"><path d=\"M53 70 Q60 92 67 70 Z\" fill=\"#EF9F27\"/></g><path d=\"M60 12 Q76 28 74 58 H46 Q44 28 60 12 Z\" fill=\"#17264A\"/><circle cx=\"60\" cy=\"36\" r=\"7\" fill=\"#85B7EB\"/><path d=\"M46 50 L36 66 H46 Z M74 50 L84 66 H74 Z\" fill=\"#D85A30\"/></g><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"#B8965A\"/><circle cx=\"100\" cy=\"40\" r=\"2\" fill=\"#B8965A\"/><circle cx=\"96\" cy=\"14\" r=\"1.5\" fill=\"#B8965A\"/></svg>", "H4": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cpop .9s ease-in-out infinite\"><path d=\"M30 50 L60 24 L90 50 V86 H30 Z\" fill=\"#1D9E75\"/><path d=\"M24 52 L60 20 L96 52\" stroke=\"#17264A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"52\" y=\"62\" width=\"16\" height=\"24\" fill=\"#17264A\"/><circle cx=\"48\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"72\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/></g><g class=\"ca\" style=\"animation:cswing .6s ease-in-out infinite;transform-origin:96px 14px\"><line x1=\"96\" y1=\"14\" x2=\"96\" y2=\"32\" stroke=\"#888780\" stroke-width=\"1.5\"/><circle cx=\"96\" cy=\"37\" r=\"5\" fill=\"none\" stroke=\"#EF9F27\" stroke-width=\"3\"/><path d=\"M96 42 V54 M96 48 H100 M96 52 H100\" stroke=\"#EF9F27\" stroke-width=\"3\"/></g></svg>", "H5": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cfall 1.3s linear infinite\"><circle cx=\"20\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"85\" cy=\"6\" r=\"6\" fill=\"#EF9F27\"/></g><g style=\"animation:cfall 1.5s .4s linear infinite\"><circle cx=\"50\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/><circle cx=\"105\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g style=\"animation:cfall 1.7s .8s linear infinite\"><circle cx=\"35\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"70\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g class=\"ca\" style=\"animation:cshrug .5s ease-in-out infinite\"><circle cx=\"60\" cy=\"66\" r=\"20\" fill=\"#17264A\"/><circle cx=\"53\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"67\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><path d=\"M52 71 Q60 79 68 71\" stroke=\"#fff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M42 58 L30 46 M78 58 L90 46\" stroke=\"#17264A\" stroke-width=\"5\" stroke-linecap=\"round\"/></g></svg>", "S1": "<svg viewBox=\"0 0 120 100\"><ellipse cx=\"60\" cy=\"30\" rx=\"30\" ry=\"14\" fill=\"#888780\"/><circle cx=\"44\" cy=\"26\" r=\"12\" fill=\"#888780\"/><circle cx=\"72\" cy=\"22\" r=\"14\" fill=\"#888780\"/><g style=\"animation:cdrop .8s linear infinite\"><path d=\"M45 46 v6 M60 46 v6 M75 46 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop .8s .4s linear infinite\"><path d=\"M52 44 v6 M68 44 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><path d=\"M44 72 L60 60 L76 72 V92 H44 Z\" fill=\"#B4B2A9\"/><rect x=\"56\" y=\"80\" width=\"8\" height=\"12\" fill=\"#5F5E5A\"/></svg>", "S2": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:csag 2s ease-in-out infinite;transform-origin:60px 92px\"><ellipse cx=\"60\" cy=\"66\" rx=\"26\" ry=\"24\" fill=\"#85B7EB\"/><path d=\"M48 58 Q52 55 56 58 M64 58 Q68 55 72 58\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51 76 Q60 69 69 76\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop 1.4s ease-in infinite\"><path d=\"M50 62 Q47 68 50 71 Q53 68 50 62 Z\" fill=\"#378ADD\"/></g></svg>", "S3": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cdeflate 2.4s ease-in-out infinite;transform-origin:60px 70px\"><ellipse cx=\"60\" cy=\"40\" rx=\"20\" ry=\"24\" fill=\"#E24B4A\"/><path d=\"M57 64 L60 70 L63 64 Z\" fill=\"#A32D2D\"/><circle cx=\"53\" cy=\"38\" r=\"2\" fill=\"#501313\"/><circle cx=\"67\" cy=\"38\" r=\"2\" fill=\"#501313\"/><path d=\"M53 48 Q60 43 67 48\" stroke=\"#501313\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"/></g><path d=\"M60 70 Q55 80 60 88 Q65 94 60 98\" stroke=\"#888780\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "S4": "<svg viewBox=\"0 0 120 100\"><path d=\"M40 78 H80 L76 96 H44 Z\" fill=\"#D85A30\"/><g class=\"ca\" style=\"animation:cwilt 2.4s ease-in-out infinite;transform-origin:60px 78px\"><path d=\"M60 78 Q58 54 62 34\" stroke=\"#639922\" stroke-width=\"3\" fill=\"none\"/><path d=\"M60 62 Q48 56 44 62 Q50 68 60 62 Z\" fill=\"#97C459\"/><circle cx=\"62\" cy=\"30\" r=\"9\" fill=\"#ED93B1\"/><circle cx=\"62\" cy=\"30\" r=\"4\" fill=\"#EF9F27\"/></g></svg>", "S5": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cshrug 1.2s ease-in-out infinite\"><circle cx=\"60\" cy=\"58\" r=\"22\" fill=\"#B8965A\"/><circle cx=\"52\" cy=\"54\" r=\"2.5\" fill=\"#17264A\"/><circle cx=\"68\" cy=\"54\" r=\"2.5\" fill=\"#17264A\"/><path d=\"M52 66 H68\" stroke=\"#17264A\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><path d=\"M38 60 L26 50 L22 56 M82 60 L94 50 L98 56\" stroke=\"#B8965A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg>"};
+// ---------- Celebrations: happy when a deal goes in, a kind word when one is lost ----------
+const HAPPY_LINES = ["{first}, you're on fire! 🔥", "Big one, {first}! Keep them coming 🚀", "{first} closes again! 🏆", "That's how it's done, {first} 💪", "Money talks, {first} 💸"];
+const SAD_LINES = ["Hard luck, {first} — the next one is yours 💪", "Shake it off, {first}. Every no gets you closer to a yes 🌱", "Not this time, {first}. Your next deal is around the corner 🚀", "Chin up, {first} — champions lose some too 🏆", "On to the next one, {first} 💫"];
+function celebrate(mood, title) { try { window.dispatchEvent(new CustomEvent("origin-celebrate", { detail: { mood, title } })); } catch (e) {} }
+function mediaUrl(raw) {
+  const u = String(raw || "").trim();
+  const g = u.match(/giphy\.com\/(?:gifs|stickers)\/(?:[^/?#]*-)?([A-Za-z0-9]+)(?:[/?#]|$)/);
+  if (g && !/media\d*\.giphy\.com/.test(u)) return `https://media.giphy.com/media/${g[1]}/giphy.gif`;
+  return u;
+}
+const isVideo = (u) => /\.(mp4|webm|mov)(\?|$)/i.test(u);
+function CelebrationOverlay({ profile, settings }) {
+  const [show, setShow] = useState(null);
+  useEffect(() => {
+    const on = (e) => {
+      const mood = e.detail?.mood === "sad" ? "sad" : "happy";
+      const media = (Array.isArray(settings?.celebration_media) ? settings.celebration_media : []).filter((m) => m.mood === mood);
+      const uploads = media.filter((m) => m.url);
+      const builtins = media.filter((m) => m.builtin).map((m) => m.builtin);
+      const pool = uploads.length ? uploads.map((m) => ({ url: mediaUrl(m.url) })) : (builtins.length ? builtins : mood === "happy" ? ["H1", "H2", "H3", "H4", "H5"] : ["S1", "S2", "S3", "S4", "S5"]).map((b) => ({ svg: CELEB_SVGS[b] })).filter((x) => x.svg);
+      const pick = pool[Math.floor(Math.random() * pool.length)] || {};
+      const lines = mood === "happy" ? HAPPY_LINES : SAD_LINES;
+      const first = String(profile?.name || "").trim().split(/\s+/)[0] || "champ";
+      setShow({ mood, title: e.detail?.title || "", line: lines[Math.floor(Math.random() * lines.length)].replace(/\{first\}/g, first), ...pick, n: Date.now() });
+    };
+    window.addEventListener("origin-celebrate", on);
+    return () => window.removeEventListener("origin-celebrate", on);
+  }, [settings, profile]);
+  useEffect(() => { if (!show) return; const t = setTimeout(() => setShow(null), show.mood === "happy" ? 4200 : 3600); return () => clearTimeout(t); }, [show]);
+  if (!show) return null;
+  const happy = show.mood === "happy";
+  return (
+    <div className="celebrate" onClick={() => setShow(null)} role="dialog" aria-label={show.line}
+      style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", background: happy ? "rgba(14,24,48,.35)" : "rgba(14,24,48,.45)", padding: 20, cursor: "pointer" }}>
+      {happy && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }).map((_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 9) * 0.12}s`, background: ["#B8965A", "#1D9E75", "#378ADD", "#D4537E", "#EF9F27"][i % 5] }} />)}</div>}
+      <div className="glass pop-in" style={{ borderRadius: 26, padding: 18, width: "100%", maxWidth: 360, textAlign: "center", border: "1px solid rgba(255,255,255,.6)", boxShadow: "0 30px 80px rgba(0,0,0,.35)" }}>
+        <div style={{ borderRadius: 18, overflow: "hidden", background: happy ? "#FBF6EC" : "#EEF3FA", height: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {show.url ? (isVideo(show.url) ? <video src={show.url} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <img src={show.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />)
+            : <div style={{ width: "86%", height: "100%" }} dangerouslySetInnerHTML={{ __html: show.svg || "" }} />}
+        </div>
+        <div style={{ fontWeight: 800, fontSize: 19, color: COLORS.navy, marginTop: 12 }}>{show.line}</div>
+        {show.title && <div style={{ fontSize: 13, color: COLORS.textMuted, marginTop: 4 }}>{show.title}</div>}
+        <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 8 }}>Tap anywhere to close</div>
+      </div>
+    </div>
+  );
+}
+// Admin: choose the GIFs (upload or paste a link) and which built-in animations to use
+function CelebrationSettings({ ctx, uploadMedia }) {
+  const { fin, act } = ctx;
+  const [list, setList] = useState(() => (Array.isArray(fin.settings?.celebration_media) ? fin.settings.celebration_media : []));
+  const [link, setLink] = useState({ happy: "", sad: "" });
+  const [busyMood, setBusyMood] = useState("");
+  const [msg, setMsg] = useState("");
+  const { error, run } = useAction();
+  const save = (next) => run(async () => { setList(next); await act((t) => db.update("finance_settings", 1, { celebration_media: next, updated_at: new Date().toISOString() }, t)); setMsg("Saved ✓"); });
+  const toggleBuiltin = (mood, id) => {
+    const has = list.some((m) => m.builtin === id);
+    save(has ? list.filter((m) => m.builtin !== id) : [...list, { mood, builtin: id }]);
+  };
+  const Section = ({ mood, title, ids }) => {
+    const uploads = list.filter((m) => m.mood === mood && m.url);
+    return (
+      <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5 }}>{title}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {uploads.map((m, i) => (
+            <div key={i} style={{ position: "relative", width: 92, height: 72, borderRadius: 10, overflow: "hidden", background: COLORS.cream }}>
+              {isVideo(mediaUrl(m.url)) ? <video src={mediaUrl(m.url)} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <img src={mediaUrl(m.url)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+              <button aria-label="Remove" onClick={() => save(list.filter((x) => x !== m))} style={{ position: "absolute", top: 3, right: 3, border: "none", borderRadius: 999, background: "rgba(0,0,0,.6)", color: "#fff", cursor: "pointer", width: 20, height: 20, fontSize: 12 }}>×</button>
+            </div>
+          ))}
+          {uploads.length === 0 && <div style={{ fontSize: 12, color: COLORS.textMuted }}>No GIFs yet — the animations below are used.</div>}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <input style={{ ...inputStyle, flex: "1 1 180px", padding: "6px 8px", fontSize: 12.5 }} value={link[mood]} onChange={(e) => setLink((l) => ({ ...l, [mood]: e.target.value }))} placeholder="Paste a GIF link (Giphy, Tenor…)" />
+          <button style={btnGhost} onClick={() => { if (link[mood].trim()) { save([...list, { mood, url: link[mood].trim() }]); setLink((l) => ({ ...l, [mood]: "" })); } }}>Add link</button>
+          <label style={{ ...btnGhost, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+            {busyMood === mood ? "Uploading…" : "Upload GIF"}
+            <input type="file" accept="image/gif,image/webp,video/mp4,video/webm" style={{ display: "none" }} onChange={async (e) => {
+              const f = e.target.files && e.target.files[0]; if (!f) return;
+              if (f.size > 8 * 1024 * 1024) { setMsg("That file is over 8 MB — pick a shorter GIF."); return; }
+              setBusyMood(mood);
+              try { const url = await uploadMedia(f); await save([...list, { mood, url }]); } catch (err) { setMsg(err.message || "Upload failed"); } finally { setBusyMood(""); e.target.value = ""; }
+            }} />
+          </label>
+        </div>
+        <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Built-in animations (used when there are no GIFs):</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {ids.map((id) => {
+            const on = list.some((m) => m.builtin === id) || !list.some((m) => m.mood === mood && m.builtin);
+            return (
+              <button key={id} onClick={() => toggleBuiltin(mood, id)} title={id} style={{ width: 62, height: 52, borderRadius: 10, padding: 2, cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, opacity: on ? 1 : 0.5 }}>
+                <div style={{ width: "100%", height: "100%" }} dangerouslySetInnerHTML={{ __html: CELEB_SVGS[id] }} />
+              </button>
+            );
+          })}
+        </div>
+        <button style={{ ...btnGhost, alignSelf: "flex-start" }} onClick={() => celebrate(mood, "Preview")}>Preview</button>
+      </div>
+    );
+  };
+  return (
+    <div style={{ ...finCard, gridColumn: "1 / -1" }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Celebrations</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12 }}>Happy: when a deal is sent or approved. Sad: unit sold without us, unit put on hold, or a client not interested — always with an encouraging message using the sales person's name. One is picked at random each time.</div>
+      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+        {Section({ mood: "happy", title: "🎉 Happy", ids: ["H1", "H2", "H3", "H4", "H5"] })}
+        {Section({ mood: "sad", title: "😢 Sad", ids: ["S1", "S2", "S3", "S4", "S5"] })}
+      </div>
+      {msg && <div style={{ fontSize: 12.5, color: /fail|over/i.test(msg) ? COLORS.danger : COLORS.success, marginTop: 8 }}>{msg}</div>}
+      <FinError text={error} />
     </div>
   );
 }
@@ -2306,6 +2761,7 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
 
   const validate = () => {
     if (String(form.phone).replace(/[^0-9]/g, "").length < 10) return "Enter a valid phone number.";
+    if (form.name.trim().length < 2) return "Write the client's name.";
     if (form.source === "colleague_referral" && !form.referralName) return "Write the colleague's name.";
     if (!form.assignedTo) return "Choose the sales person.";
     return "";
@@ -2319,7 +2775,7 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
     try { await onAdd(payload()); setForm(blank); } catch (e) { setError(e.message || "Could not save client."); } finally { setSaving(false); }
   };
   const sendDuplicate = async () => {
-    const v = validate(); if (v) { setError(v); return; }
+    const v = validate(); if (v && v !== "Write the client's name.") { setError(v); return; }
     setSaving(true);
     try { await onDuplicate(existing, payload()); setSent(true); } catch (e) { setError(e.message || "Could not send."); } finally { setSaving(false); }
   };
@@ -2348,7 +2804,7 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
           </div>
         </div>
       )}
-      <Field label="Name"><input style={inputStyle} value={form.name} onChange={(e) => set("name")(e.target.value)} placeholder="Optional — you can add it later" /></Field>
+      <Field label="Name" required><input style={inputStyle} value={form.name} onChange={(e) => set("name")(e.target.value)} placeholder="Client's name" /></Field>
       <div role="group" aria-label="Looking to">
         <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.text, marginBottom: 6 }}>Looking to</div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -2386,7 +2842,7 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
       <button type="button" onClick={() => setMore((m) => !m)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>{more ? "− Fewer details" : "+ More details (budget, email, notes…)"}</button>
       {more && (
         <>
-          <Field label={form.interest === "rent" ? "Budget (monthly rent, EGP)" : "Budget (EGP)"}><input style={inputStyle} type="number" value={form.budget} onChange={(e) => set("budget")(e.target.value)} /></Field>
+          <Field label={form.interest === "rent" ? "Budget (monthly rent, EGP)" : "Budget (EGP)"}><MoneyInput value={form.budget} onChange={set("budget")} /></Field>
           <Field label="Email"><input style={inputStyle} value={form.email} onChange={(e) => set("email")(e.target.value)} /></Field>
           <Field label="Starting stage">
             <select style={{ ...inputStyle, appearance: "none" }} value={form.stage} onChange={(e) => set("stage")(e.target.value)}>
@@ -2596,14 +3052,12 @@ function LeadImport({ clients, users, onImport, onDone, checkPhones }) {
 // ---------- Team activity: what each sales person actually did ----------
 // =====================================================================
 function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient }) {
-  const [period, setPeriod] = useState("today");
+  const [fv, setF, resetF, setAllF] = useFilters("team", { when: { p: "today" }, person: "", role: "" });
   const [drill, setDrill] = useState(null);
   const now = new Date();
-  const start = period === "today" ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    : period === "week" ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 1) % 7))
-    : new Date(now.getFullYear(), now.getMonth(), 1);
-  const inPeriod = (iso) => new Date(iso) >= start;
-  const people = users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending" && u.role !== "admin");
+  const inPeriod = (iso) => inDate(iso, fv.when);
+  const allPeople = users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending" && u.role !== "admin");
+  const people = allPeople.filter((u) => (!fv.person || u.id === fv.person) && (!fv.role || u.role === fv.role));
   const contactKinds = ["call", "whatsapp", "unit_sent"];
   const updateKinds = ["quick_reply", "note", "stage_change"];
 
@@ -2638,12 +3092,13 @@ function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient 
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>Team activity</div>
-        <div className="seg" style={{ display: "flex", gap: 4, background: COLORS.creamDark, padding: 4, borderRadius: 999 }}>
-          {[["today", "Today"], ["week", "This week"], ["month", "This month"]].map(([id, label]) => (
-            <button key={id} onClick={() => setPeriod(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: period === id ? "#fff" : "transparent", color: period === id ? COLORS.navy : COLORS.textMuted }}>{label}</button>
-          ))}
-        </div>
       </div>
+      <FilterBar id="team" values={fv} set={setF} reset={resetF} setAll={setAllF} count={people.length} noun="people"
+        defs={[
+          { id: "when", label: "Period", type: "date", primary: true },
+          { id: "person", label: "Person", type: "select", primary: true, all: "Everyone", options: opt(allPeople, "id", "name") },
+          { id: "role", label: "Role", type: "select", primary: true, all: "All roles", options: [...new Set(allPeople.map((u) => u.role))].map((r) => ({ id: r, label: ROLE_LABEL[r] || r })) },
+        ]} />
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <FinStat label="Calls & chats" value={sum("contacts")} />
         <FinStat label="Client updates" value={sum("updates")} />
@@ -2886,7 +3341,65 @@ function ClientCard({ client, assignedUser, onOpen, notifCount, lastActivityAt }
   );
 }
 
-function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest, onQuickReply, onContact, matchSlot }) {
+// ---------- WhatsApp templates ----------
+const DEFAULT_WA_TEMPLATES = [
+  { id: "welcome", label: "Welcome", text: "Hi {first}, this is {sales} from Origin Real Estate. Thanks for your interest! When is a good time for a quick call?" },
+  { id: "meeting", label: "Confirm meeting", text: "Hi {first}, just confirming our meeting on {meeting}. Looking forward to seeing you. — {sales}, Origin Real Estate" },
+  { id: "after_units", label: "After sending units", text: "Hi {first}, did you get a chance to look at the units I sent? Happy to arrange a viewing whenever suits you. — {sales}" },
+  { id: "no_answer", label: "Missed call", text: "Hi {first}, I tried calling you. Let me know a good time to talk. — {sales}, Origin Real Estate" },
+];
+function fillTemplate(text, client, salesName) {
+  const meeting = client.meetingAt ? new Date(client.meetingAt).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+  const first = client.name && !/^[0-9+ ]+$/.test(client.name) ? client.name.split(" ")[0] : "";
+  return String(text).replace(/\{first\}/g, first || "there").replace(/\{name\}/g, client.name || "").replace(/\{sales\}/g, salesName || "").replace(/\{meeting\}/g, meeting);
+}
+function WhatsAppTemplates({ client, templates, salesName, onSent }) {
+  const list = Array.isArray(templates) && templates.length ? templates : DEFAULT_WA_TEMPLATES;
+  if (!client.phone) return null;
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      <span style={{ fontSize: 11.5, fontWeight: 800, color: COLORS.textMuted, letterSpacing: 0.3 }}>WHATSAPP</span>
+      {list.map((t) => (
+        <a key={t.id || t.label} className="chip" href={`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(fillTemplate(t.text, client, salesName))}`} target="_blank" rel="noreferrer"
+          onClick={() => onSent && onSent()}
+          style={{ textDecoration: "none", fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 999, background: "#E7F8EE", color: "#137A3F", border: "1px solid #BFE9CF" }}>{t.label}</a>
+      ))}
+    </div>
+  );
+}
+function WaTemplatesSettings({ ctx }) {
+  const { fin, act } = ctx;
+  const [list, setList] = useState(() => (Array.isArray(fin.settings?.wa_templates) && fin.settings.wa_templates.length ? fin.settings.wa_templates : DEFAULT_WA_TEMPLATES));
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  const upd = (i, k, v) => setList((l) => l.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  return (
+    <div style={{ ...finCard, gridColumn: "1 / -1" }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>WhatsApp templates</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>One tap from the client page. Use {"{first}"} for the client's first name, {"{name}"} full name, {"{sales}"} the sales person, {"{meeting}"} the meeting time.</div>
+      {list.map((t, i) => (
+        <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <input style={{ ...inputStyle, width: 170, padding: "6px 8px" }} value={t.label} onChange={(e) => upd(i, "label", e.target.value)} placeholder="Button name" />
+          <textarea rows={2} style={{ ...inputStyle, flex: "1 1 280px", padding: "6px 8px", resize: "vertical" }} value={t.text} onChange={(e) => upd(i, "text", e.target.value)} />
+          <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} style={{ border: "none", background: "none", color: COLORS.danger, cursor: "pointer" }} aria-label="Remove"><X size={16} /></button>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button style={btnGhost} onClick={() => setList((l) => [...l, { id: `t${Date.now()}`, label: "New message", text: "Hi {first}, " }])}>+ Add template</button>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+          setSaved(false);
+          const clean = list.filter((t) => t.label.trim() && t.text.trim()).map((t, i) => ({ id: t.id || `t${i}`, label: t.label.trim(), text: t.text.trim() }));
+          await act((tk) => db.update("finance_settings", 1, { wa_templates: clean, updated_at: new Date().toISOString() }, tk));
+          setSaved(true);
+        })}>Save templates</button>
+        {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
+      </div>
+      <FinError text={error} />
+    </div>
+  );
+}
+
+function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest, onQuickReply, onContact, matchSlot, waTemplates, salesName }) {
   const [unitPickerOpen, setUnitPickerOpen] = useState(false);
   const timeline = activity.filter((a) => a.clientId === client.id).sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
 
@@ -2945,6 +3458,7 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
           <div style={{ background: COLORS.cream, borderRadius: 16, padding: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.navy, marginBottom: 8 }}>Quick update</div>
             <QuickReplyBar client={client} activity={activity} onQuickReply={onQuickReply} onCloseLead={() => onCloseLead()} />
+            <div style={{ marginTop: 10 }}><WhatsAppTemplates client={client} templates={waTemplates} salesName={salesName} onSent={() => onContact && onContact(client, "whatsapp")} /></div>
           </div>
         )}
 
@@ -3126,10 +3640,213 @@ function ClientRow({ client, assignedUser, linkedUnits, notifCount, lastActivity
   );
 }
 
-function ClientsList({ clients, users, projects, units, clientUnitLinks, activity, visibleSalesIds, currentUserId, isManager, onOpenClient, onOpenUnit }) {
-  const [filters, setFilters] = useState({ stage: "", assignedTo: "", projectId: "", source: "", interest: "", needsFollowUp: false });
-  const [search, setSearch] = useState("");
+// ---------- Filters: one look and one behaviour on every screen ----------
+const DATE_PRESETS = [
+  ["", "Any time"], ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["week", "This week"],
+  ["month", "This month"], ["lastmonth", "Last month"], ["30d", "Last 30 days"], ["quarter", "This quarter"],
+  ["lastquarter", "Last quarter"], ["year", "This year"], ["lastyear", "Last year"], ["custom", "Custom dates"],
+];
+const DATE_PRESET_LABEL = Object.fromEntries(DATE_PRESETS);
+// Returns [from, to) for a date filter value { p, from, to }, or null for "any time"
+function dateRangeOf(v) {
+  if (!v || !v.p) return null;
+  const now = new Date();
+  const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = (n) => new Date(d0.getTime() + n * MS_DAY);
+  switch (v.p) {
+    case "today": return [d0, day(1)];
+    case "yesterday": return [day(-1), d0];
+    case "7d": return [day(-6), day(1)];
+    case "30d": return [day(-29), day(1)];
+    case "week": { const back = (d0.getDay() + 1) % 7; return [day(-back), day(7 - back)]; } // week starts Saturday
+    case "month": return [new Date(now.getFullYear(), now.getMonth(), 1), new Date(now.getFullYear(), now.getMonth() + 1, 1)];
+    case "lastmonth": return [new Date(now.getFullYear(), now.getMonth() - 1, 1), new Date(now.getFullYear(), now.getMonth(), 1)];
+    case "quarter": { const q = Math.floor(now.getMonth() / 3) * 3; return [new Date(now.getFullYear(), q, 1), new Date(now.getFullYear(), q + 3, 1)]; }
+    case "lastquarter": { const q = Math.floor(now.getMonth() / 3) * 3; return [new Date(now.getFullYear(), q - 3, 1), new Date(now.getFullYear(), q, 1)]; }
+    case "year": return [new Date(now.getFullYear(), 0, 1), new Date(now.getFullYear() + 1, 0, 1)];
+    case "lastyear": return [new Date(now.getFullYear() - 1, 0, 1), new Date(now.getFullYear(), 0, 1)];
+    case "custom": {
+      const f = v.from ? new Date(`${v.from}T00:00:00`) : new Date(2000, 0, 1);
+      const t = v.to ? new Date(new Date(`${v.to}T00:00:00`).getTime() + MS_DAY) : new Date(2100, 0, 1);
+      return [f, t];
+    }
+    default: return null;
+  }
+}
+function inDate(iso, v) {
+  const r = dateRangeOf(v);
+  if (!r) return true;
+  if (!iso) return false;
+  const d = new Date(String(iso).length === 10 ? `${iso}T12:00:00` : iso);
+  return d >= r[0] && d < r[1];
+}
+// "5m" → 5,000,000 · "500k" → 500,000 · "1,250,000" → 1250000
+function parseAmount(s) {
+  if (s === null || s === undefined) return null;
+  const t = String(s).trim().toLowerCase().replace(/,/g, "").replace(/\s/g, "");
+  if (!t) return null;
+  const m = t.match(/^(-?\d*\.?\d+)\s*(k|m|mn|million|b)?$/);
+  if (!m) return null;
+  const mult = { k: 1e3, m: 1e6, mn: 1e6, million: 1e6, b: 1e9 }[m[2]] || 1;
+  return Math.round(parseFloat(m[1]) * mult);
+}
+function inRange(n, v) {
+  if (!v) return true;
+  const mn = parseAmount(v.min), mx = parseAmount(v.max);
+  if (mn === null && mx === null) return true;
+  if (n === null || n === undefined || n === "" || isNaN(Number(n))) return false;
+  const x = Number(n);
+  return (mn === null || x >= mn) && (mx === null || x <= mx);
+}
+const shortNum = (n) => (n >= 1e6 ? `${+(n / 1e6).toFixed(2)}m` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
+function filterIsSet(def, v) {
+  if (def.type === "date") return !!(v && v.p);
+  if (def.type === "range") return !!(v && (String(v.min || "").trim() || String(v.max || "").trim()));
+  if (def.type === "toggle") return !!v;
+  return v !== undefined && v !== null && v !== "";
+}
+function filterChipText(def, v) {
+  if (def.type === "date") return `${def.label}: ${v.p === "custom" ? `${v.from || "…"} → ${v.to || "…"}` : DATE_PRESET_LABEL[v.p]}`;
+  if (def.type === "range") {
+    const mn = parseAmount(v.min), mx = parseAmount(v.max);
+    return `${def.label}: ${mn !== null && mx !== null ? `${shortNum(mn)}–${shortNum(mx)}` : mn !== null ? `≥ ${shortNum(mn)}` : `≤ ${shortNum(mx)}`}`;
+  }
+  if (def.type === "toggle") return def.label;
+  return `${def.label}: ${(def.options || []).find((o) => String(o.id) === String(v))?.label || v}`;
+}
+// Filters remembered per screen on this device
+function useFilters(key, initial) {
+  const storeKey = `origin_filters:${key}`;
+  const [values, setValues] = useState(() => {
+    try { const s = localStorage.getItem(storeKey); return s ? { ...initial, ...JSON.parse(s) } : initial; } catch (e) { return initial; }
+  });
+  useEffect(() => { try { localStorage.setItem(storeKey, JSON.stringify(values)); } catch (e) {} }, [storeKey, values]);
+  const set = (k, v) => setValues((x) => ({ ...x, [k]: v }));
+  const reset = () => setValues(initial);
+  return [values, set, reset, setValues];
+}
+
+const fbCtl = { ...inputStyle, padding: "8px 10px", fontSize: 13, minHeight: 38 };
+const pluralLabel = (l) => { const w = l.toLowerCase(); return /s$/.test(w) ? w : /[^aeiou]y$/.test(w) ? w.slice(0, -1) + "ies" : w + "s"; };
+function FilterControl({ def, value, onChange }) {
+  if (def.type === "select") {
+    return (
+      <select aria-label={def.label} value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={{ ...fbCtl, appearance: "none", background: filterIsSet(def, value) ? "#FBF6EC" : "#fff", borderColor: filterIsSet(def, value) ? COLORS.gold : COLORS.border }}>
+        <option value="">{def.all || `All ${pluralLabel(def.label)}`}</option>
+        {(def.options || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+    );
+  }
+  if (def.type === "date") {
+    const v = value || {};
+    return (
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <select aria-label={def.label} value={v.p || ""} onChange={(e) => onChange({ ...v, p: e.target.value })} style={{ ...fbCtl, appearance: "none", flex: "1 1 140px", background: v.p ? "#FBF6EC" : "#fff", borderColor: v.p ? COLORS.gold : COLORS.border }}>
+          {DATE_PRESETS.map(([id, label]) => <option key={id || "any"} value={id}>{id ? label : `${def.label}: any time`}</option>)}
+        </select>
+        {v.p === "custom" && (
+          <>
+            <input type="date" aria-label={`${def.label} from`} value={v.from || ""} onChange={(e) => onChange({ ...v, from: e.target.value })} style={{ ...fbCtl, flex: "1 1 130px" }} />
+            <input type="date" aria-label={`${def.label} to`} value={v.to || ""} onChange={(e) => onChange({ ...v, to: e.target.value })} style={{ ...fbCtl, flex: "1 1 130px" }} />
+          </>
+        )}
+      </div>
+    );
+  }
+  if (def.type === "range") {
+    const v = value || {};
+    return (
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <input inputMode="decimal" aria-label={`${def.label} min`} placeholder={def.money ? "Min (e.g. 3m)" : "Min"} value={v.min || ""} onChange={(e) => onChange({ ...v, min: e.target.value })} style={{ ...fbCtl, minWidth: 0, flex: 1 }} />
+        <span style={{ color: COLORS.textMuted }}>–</span>
+        <input inputMode="decimal" aria-label={`${def.label} max`} placeholder={def.money ? "Max (e.g. 8m)" : "Max"} value={v.max || ""} onChange={(e) => onChange({ ...v, max: e.target.value })} style={{ ...fbCtl, minWidth: 0, flex: 1 }} />
+      </div>
+    );
+  }
+  if (def.type === "toggle") {
+    return (
+      <button type="button" onClick={() => onChange(!value)} className="chip" style={{ ...fbCtl, width: "100%", cursor: "pointer", fontWeight: 700, textAlign: "left", background: value ? COLORS.navy : "#fff", color: value ? "#fff" : COLORS.text, borderColor: value ? COLORS.navy : COLORS.border }}>
+        {value ? "✓ " : ""}{def.label}
+      </button>
+    );
+  }
+  return null;
+}
+
+// defs: [{ id, label, type: "select"|"date"|"range"|"toggle", options, primary, money, all }]
+function FilterBar({ id, defs, values, set, reset, setAll, count, noun = "results", searchPlaceholder, right }) {
+  const [open, setOpen] = useState(false);
+  const [naming, setNaming] = useState(null);
+  const viewsKey = `origin_views:${id}`;
+  const [views, setViews] = useState(() => { try { return JSON.parse(localStorage.getItem(viewsKey) || "[]"); } catch (e) { return []; } });
+  const saveViews = (v) => { setViews(v); try { localStorage.setItem(viewsKey, JSON.stringify(v)); } catch (e) {} };
+  const shown = defs.filter((d) => !d.hidden && (d.type !== "select" || (d.options || []).length > 0));
+  const primary = shown.filter((d) => d.primary);
+  const more = shown.filter((d) => !d.primary);
+  const active = shown.filter((d) => filterIsSet(d, values[d.id]));
+  const activeMore = more.filter((d) => filterIsSet(d, values[d.id])).length;
+  const clearOne = (d) => set(d.id, d.type === "date" ? { p: "" } : d.type === "range" ? { min: "", max: "" } : d.type === "toggle" ? false : "");
+  return (
+    <div className="filterbar" style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {searchPlaceholder !== undefined && (
+          <div style={{ position: "relative", flex: "2 1 220px" }}>
+            <Search size={15} style={{ position: "absolute", left: 11, top: 12, color: COLORS.textMuted }} />
+            <input aria-label="Search" style={{ ...fbCtl, width: "100%", paddingLeft: 32 }} value={values.q || ""} onChange={(e) => set("q", e.target.value)} placeholder={searchPlaceholder} />
+          </div>
+        )}
+        {primary.map((d) => <div key={d.id} style={{ flex: d.type === "date" ? "1 1 170px" : d.type === "range" ? "1 1 200px" : "1 1 140px", minWidth: 0 }}><FilterControl def={d} value={values[d.id]} onChange={(v) => set(d.id, v)} /></div>)}
+        {more.length > 0 && (
+          <button type="button" onClick={() => setOpen((o) => !o)} className="chip" style={{ ...fbCtl, width: "auto", flex: "0 0 auto", cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, background: open || activeMore ? COLORS.navy : "#fff", color: open || activeMore ? "#fff" : COLORS.navy, borderColor: COLORS.navy }}>
+            <Layers size={14} /> Filters{activeMore ? ` · ${activeMore}` : ""}
+          </button>
+        )}
+        {right}
+      </div>
+      {open && more.length > 0 && (
+        <div className="glass fade-in card" style={{ border: `1px solid ${COLORS.border}`, padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
+          {more.map((d) => (
+            <div key={d.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {d.type !== "toggle" && <span style={{ fontSize: 11, fontWeight: 800, color: COLORS.textMuted, letterSpacing: 0.3 }}>{d.label.toUpperCase()}</span>}
+              <FilterControl def={d} value={values[d.id]} onChange={(v) => set(d.id, v)} />
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 12.5 }}>
+        <span style={{ color: COLORS.textMuted, fontWeight: 600, marginRight: 4 }}>{count} {noun}</span>
+        {active.map((d) => (
+          <button key={d.id} type="button" onClick={() => clearOne(d)} className="pill" style={{ border: "none", background: "#FBF1E6", color: COLORS.navy, borderRadius: 999, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            {filterChipText(d, values[d.id])} ×
+          </button>
+        ))}
+        {(active.length > 0 || (values.q || "").trim()) && <button type="button" onClick={reset} style={{ border: "none", background: "none", color: COLORS.danger, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Clear all</button>}
+        <span style={{ flex: 1 }} />
+        {views.map((v, i) => (
+          <span key={i} className="pill" style={{ display: "inline-flex", alignItems: "center", gap: 4, background: COLORS.creamDark, borderRadius: 999, padding: "3px 4px 3px 10px" }}>
+            <button type="button" onClick={() => setAll(v.values)} style={{ border: "none", background: "none", cursor: "pointer", fontWeight: 700, color: COLORS.navy, fontSize: 12, padding: 0 }}>★ {v.name}</button>
+            <button type="button" aria-label={`Remove ${v.name}`} onClick={() => saveViews(views.filter((_, j) => j !== i))} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted, fontSize: 12 }}>×</button>
+          </span>
+        ))}
+        {naming === null ? (
+          (active.length > 0 || (values.q || "").trim()) && <button type="button" onClick={() => setNaming("")} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>☆ Save this view</button>
+        ) : (
+          <span style={{ display: "inline-flex", gap: 4 }}>
+            <input autoFocus aria-label="View name" value={naming} onChange={(e) => setNaming(e.target.value)} placeholder="Name, e.g. My overdue" style={{ ...fbCtl, minHeight: 30, padding: "4px 8px", width: 170 }}
+              onKeyDown={(e) => { if (e.key === "Enter" && naming.trim()) { saveViews([...views, { name: naming.trim(), values }]); setNaming(null); } if (e.key === "Escape") setNaming(null); }} />
+            <button type="button" onClick={() => { if (naming.trim()) { saveViews([...views, { name: naming.trim(), values }]); setNaming(null); } }} style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "0 12px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Save</button>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+const opt = (list, idKey = "id", labelKey = "label") => list.map((x) => (typeof x === "string" ? { id: x, label: x } : { id: x[idKey], label: x[labelKey] }));
+
+const CLIENT_FILTERS_INITIAL = { q: "", stage: "", assignedTo: "", source: "", interest: "", projectId: "", budget: { min: "", max: "" }, added: { p: "" }, lastUpdate: { p: "" }, quiet: "", nextAt: { p: "" }, meeting: { p: "" }, overdue: false, needsFollowUp: false, sent: "", closedReason: "" };
+function ClientsList({ clients, users, projects, units, clientUnitLinks, clientProjectLinks = [], activity, visibleSalesIds, currentUserId, isManager, onOpenClient, onOpenUnit }) {
   const [view, setView] = useState("active"); // "active" | "closed"
+  const [fv, setF, resetF, setAllF] = useFilters("clients", CLIENT_FILTERS_INITIAL);
 
   const visible = clients.filter((c) => visibleSalesIds.includes(c.assignedTo));
   // Not-qualified / closed clients are hidden from the normal list — sales don't see them at all,
@@ -3138,15 +3855,28 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, activit
   const closedVisible = visible.filter((c) => c.stage === "closed" || c.stage === "not_qualified");
   const base = !isManager ? activeVisible : view === "closed" ? closedVisible : activeVisible;
 
+  const sentIds = useMemo(() => new Set(activity.filter((a) => a.action === "unit_sent").map((a) => a.clientId)), [activity]);
   const filtered = base.filter((c) => {
-    if (filters.stage && c.stage !== filters.stage) return false;
-    if (filters.assignedTo && c.assignedTo !== filters.assignedTo) return false;
-    if (filters.source && c.source !== filters.source) return false;
-    if (filters.interest && c.interest !== filters.interest) return false;
-    if (filters.needsFollowUp && clientNotifications(c, activity).length === 0) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!c.name.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
+    if (fv.stage && c.stage !== fv.stage) return false;
+    if (fv.assignedTo && c.assignedTo !== fv.assignedTo) return false;
+    if (fv.source && c.source !== fv.source) return false;
+    if (fv.interest && (c.interest || "buy") !== fv.interest) return false;
+    if (fv.projectId && !clientProjectLinks.some((l) => l.client_id === c.id && l.project_id === fv.projectId)) return false;
+    if (!inRange(c.budget, fv.budget)) return false;
+    if (!inDate(c.createdAt, fv.added)) return false;
+    const last = clientLastActivityAt(c, activity);
+    if (!inDate(last, fv.lastUpdate)) return false;
+    if (fv.quiet && Date.now() - new Date(last).getTime() < Number(fv.quiet) * MS_DAY) return false;
+    if (!inDate(c.nextActionDone ? null : c.nextActionAt, fv.nextAt)) return false;
+    if (!inDate(c.meetingAt, fv.meeting)) return false;
+    if (fv.overdue && !(c.nextActionAt && !c.nextActionDone && new Date(c.nextActionAt) < new Date())) return false;
+    if (fv.needsFollowUp && clientNotifications(c, activity).length === 0) return false;
+    if (fv.sent === "yes" && !sentIds.has(c.id)) return false;
+    if (fv.sent === "no" && sentIds.has(c.id)) return false;
+    if (fv.closedReason && c.closedReason !== fv.closedReason) return false;
+    if ((fv.q || "").trim()) {
+      const q = fv.q.trim().toLowerCase(), d = q.replace(/\D/g, "");
+      if (!(c.name.toLowerCase().includes(q) || (d.length >= 3 && String(c.phone).replace(/\D/g, "").includes(d)) || (c.notes || "").toLowerCase().includes(q))) return false;
     }
     return true;
   }).sort((a, b) => new Date(clientLastActivityAt(b, activity)) - new Date(clientLastActivityAt(a, activity)));
@@ -3187,36 +3917,26 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, activit
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <input style={{ ...inputStyle, maxWidth: 220 }} placeholder="Search name or phone..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        {view === "active" && (
-          <select style={{ ...inputStyle, maxWidth: 170, appearance: "none" }} value={filters.stage} onChange={(e) => setFilters((f) => ({ ...f, stage: e.target.value }))}>
-            <option value="">All stages</option>
-            {selectableStages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-        )}
-        <select style={{ ...inputStyle, maxWidth: 170, appearance: "none" }} value={filters.assignedTo} onChange={(e) => setFilters((f) => ({ ...f, assignedTo: e.target.value }))}>
-          <option value="">All sales</option>
-          {assignableUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-        </select>
-        <select style={{ ...inputStyle, maxWidth: 170, appearance: "none" }} value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}>
-          <option value="">All sources</option>
-          {SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-        </select>
-        <select style={{ ...inputStyle, maxWidth: 150, appearance: "none" }} value={filters.interest} onChange={(e) => setFilters((f) => ({ ...f, interest: e.target.value }))}>
-          <option value="">Buy & rent</option>
-          <option value="buy">Buyers</option>
-          <option value="rent">Renters</option>
-        </select>
-        {view === "active" && (
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: COLORS.text }}>
-            <input type="checkbox" checked={filters.needsFollowUp} onChange={(e) => setFilters((f) => ({ ...f, needsFollowUp: e.target.checked }))} />
-            Needs follow-up
-          </label>
-        )}
-      </div>
-
-      <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{filtered.length} client{filtered.length !== 1 ? "s" : ""} · most recent activity first</div>
+      <FilterBar id="clients" values={fv} set={setF} reset={resetF} setAll={setAllF} count={filtered.length} noun={filtered.length === 1 ? "client" : "clients"}
+        searchPlaceholder="Search name, phone or notes…"
+        defs={[
+          { id: "stage", label: "Stage", type: "select", primary: true, options: selectableStages.map((st) => ({ id: st.id, label: st.label })), hidden: view !== "active" },
+          { id: "assignedTo", label: "Sales", type: "select", primary: true, all: "All sales", options: assignableUsers.length > 1 ? opt(assignableUsers, "id", "name") : [] },
+          { id: "lastUpdate", label: "Last update", type: "date", primary: true },
+          { id: "interest", label: "Looking to", type: "select", all: "Buy and rent", options: [{ id: "buy", label: "Buy" }, { id: "rent", label: "Rent" }] },
+          { id: "source", label: "Source", type: "select", options: SOURCES.map((x) => ({ id: x.id, label: x.label })) },
+          { id: "projectId", label: "Wanted project", type: "select", options: opt(projects.filter((pr) => clientProjectLinks.some((l) => l.project_id === pr.id)), "id", "name") },
+          { id: "budget", label: "Budget", type: "range", money: true },
+          { id: "added", label: "Added", type: "date" },
+          { id: "nextAt", label: "Next follow-up", type: "date" },
+          { id: "meeting", label: "Meeting date", type: "date" },
+          { id: "quiet", label: "No update for", type: "select", all: "No update for: any", options: [{ id: "3", label: "3+ days" }, { id: "7", label: "7+ days" }, { id: "14", label: "14+ days" }, { id: "30", label: "30+ days" }] },
+          { id: "sent", label: "Units sent", type: "select", all: "Units sent: any", options: [{ id: "yes", label: "Sent units" }, { id: "no", label: "No units sent yet" }] },
+          { id: "closedReason", label: "Closed reason", type: "select", options: CLOSE_REASONS.map((r) => ({ id: r.id, label: r.label })), hidden: view !== "closed" },
+          { id: "overdue", label: "Follow-up overdue", type: "toggle", hidden: view !== "active" },
+          { id: "needsFollowUp", label: "Needs attention", type: "toggle", hidden: view !== "active" },
+        ]}
+      />
 
       {filtered.length === 0 ? (
         <div style={{ fontSize: 13, color: COLORS.textMuted, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20, textAlign: "center" }}>No clients here.</div>
@@ -3324,6 +4044,107 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
   );
 }
 
+// ---------- Attendance report: present / late / absent per person ----------
+const DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]; // Sunday → Thursday (Friday and Saturday off)
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function lateCutoff(settings) {
+  const [h, m] = String(settings?.late_after || "11:00").split(":").map(Number);
+  return { h: isNaN(h) ? 11 : h, m: isNaN(m) ? 0 : m, label: `${String(isNaN(h) ? 11 : h).padStart(2, "0")}:${String(isNaN(m) ? 0 : m).padStart(2, "0")}` };
+}
+function workDaysOf(settings) { return Array.isArray(settings?.work_days) && settings.work_days.length ? settings.work_days.map(Number) : DEFAULT_WORK_DAYS; }
+function attendanceStats(attendance, userId, range, settings) {
+  const cut = lateCutoff(settings), wd = workDaysOf(settings);
+  const firstByDay = {};
+  const mineAll = attendance.filter((a) => a.userId === userId);
+  const firstEver = mineAll.reduce((m, a) => (!m || new Date(a.checkedInAt) < m ? new Date(a.checkedInAt) : m), null);
+  const startKey = firstEver ? dateKey(firstEver.toISOString()) : null; // missed days count only after their first check-in
+  mineAll.forEach((a) => {
+    const d = new Date(a.checkedInAt), k = dateKey(a.checkedInAt);
+    if (d < range[0] || d >= range[1]) return;
+    if (!firstByDay[k] || d < new Date(firstByDay[k])) firstByDay[k] = a.checkedInAt;
+  });
+  const now = new Date();
+  const days = [];
+  for (let d = new Date(range[0]); d < range[1] && d <= now; d = new Date(d.getTime() + MS_DAY)) {
+    const k = dateKey(d.toISOString().slice(0, 10) + "T12:00:00");
+    const isWork = wd.includes(d.getDay());
+    const inAt = firstByDay[k] || null;
+    const t = inAt ? new Date(inAt) : null;
+    const late = t ? t.getHours() * 60 + t.getMinutes() > cut.h * 60 + cut.m : false;
+    const todayBeforeCut = k === todayKey() && now.getHours() * 60 + now.getMinutes() <= cut.h * 60 + cut.m;
+    if (!isWork && !inAt) continue;
+    if (!inAt && (!startKey || k < startKey)) continue;
+    days.push({ k, d: new Date(d), inAt, late, absent: isWork && !inAt && !todayBeforeCut, offDay: !isWork });
+  }
+  const present = days.filter((x) => x.inAt);
+  const mins = present.map((x) => { const t = new Date(x.inAt); return t.getHours() * 60 + t.getMinutes(); });
+  const avg = mins.length ? Math.round(mins.reduce((a, b) => a + b, 0) / mins.length) : null;
+  return {
+    days, present: present.length, late: present.filter((x) => x.late).length, onTime: present.filter((x) => !x.late).length,
+    absent: days.filter((x) => x.absent).length, workDays: days.filter((x) => !x.offDay).length,
+    avg: avg === null ? "—" : `${String(Math.floor(avg / 60)).padStart(2, "0")}:${String(avg % 60).padStart(2, "0")}`,
+  };
+}
+function AttendanceReport({ attendance, people, settings, title = "Attendance", fixedPersonId, storageKey = "attendance" }) {
+  const [fv, setF, resetF, setAllF] = useFilters(storageKey, { when: { p: "month" }, person: "", show: "" });
+  const [openId, setOpenId] = useState(fixedPersonId || null);
+  const cut = lateCutoff(settings);
+  const range = dateRangeOf(fv.when) || [new Date(2024, 0, 1), new Date(Date.now() + MS_DAY)];
+  const list = (fixedPersonId ? people.filter((u) => u.id === fixedPersonId) : people.filter((u) => !fv.person || u.id === fv.person))
+    .map((u) => ({ u, st: attendanceStats(attendance, u.id, range, settings) }))
+    .filter((r) => !fv.show || (fv.show === "late" ? r.st.late > 0 : fv.show === "absent" ? r.st.absent > 0 : r.st.late === 0 && r.st.absent === 0))
+    .sort((a, b) => b.st.late - a.st.late || b.st.absent - a.st.absent || a.u.name.localeCompare(b.u.name));
+  const tot = list.reduce((s, r) => ({ present: s.present + r.st.present, late: s.late + r.st.late, absent: s.absent + r.st.absent }), { present: 0, late: 0, absent: 0 });
+  const single = fixedPersonId || list.length === 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>{title}</div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted }}>Late = check-in after {cut.label} · days off: {DAY_NAMES.filter((_, i) => !workDaysOf(settings).includes(i)).join(", ")}</div>
+      </div>
+      <FilterBar id={storageKey} values={fv} set={setF} reset={resetF} setAll={setAllF} count={list.length} noun={list.length === 1 ? "person" : "people"}
+        defs={[
+          { id: "when", label: "Period", type: "date", primary: true },
+          { id: "person", label: "Person", type: "select", primary: true, all: "Everyone", options: fixedPersonId || people.length < 2 ? [] : opt(people, "id", "name") },
+          { id: "show", label: "Show", type: "select", primary: true, all: "Everyone", hidden: !!fixedPersonId || people.length < 2, options: [{ id: "late", label: "Came late" }, { id: "absent", label: "Missed days" }, { id: "perfect", label: "Always on time" }] },
+        ]} />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <FinStat label="Days present" value={tot.present} />
+        <FinStat label={`Late (after ${cut.label})`} value={tot.late} tone={tot.late ? "danger" : undefined} />
+        <FinStat label="Missed work days" value={tot.absent} tone={tot.absent ? "danger" : undefined} />
+      </div>
+      {list.map(({ u, st }) => {
+        const open = single || openId === u.id;
+        return (
+          <div key={u.id} className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, overflow: "hidden" }}>
+            <button onClick={() => setOpenId(open && !single ? null : u.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", border: "none", background: "none", cursor: single ? "default" : "pointer", textAlign: "left", flexWrap: "wrap" }}>
+              <div className="avatar" style={{ width: 34, height: 34 }}>{initials(u.name)}</div>
+              <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 14 }}>{u.name}</div>
+                <div style={{ fontSize: 12, color: COLORS.textMuted }}>Average check-in {st.avg}</div>
+              </div>
+              {[["Present", st.present, COLORS.navy], ["On time", st.onTime, COLORS.success], ["Late", st.late, st.late ? COLORS.danger : COLORS.textMuted], ["Missed", st.absent, st.absent ? COLORS.danger : COLORS.textMuted]].map(([l, v, c]) => (
+                <div key={l} style={{ textAlign: "center", minWidth: 58 }}><div style={{ fontWeight: 800, fontSize: 18, color: c }}>{v}</div><div style={{ fontSize: 11, color: COLORS.textMuted }}>{l}</div></div>
+              ))}
+            </button>
+            {open && (
+              <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
+                {st.days.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>No work days in this period.</div>}
+                {[...st.days].reverse().map((x) => (
+                  <div key={x.k} style={{ borderRadius: 10, padding: "6px 8px", fontSize: 12, background: x.absent ? "#FCEBEB" : x.late ? "#FBF1E6" : x.inAt ? "#E6F4EA" : COLORS.cream, color: x.absent ? COLORS.danger : COLORS.text }}>
+                    <div style={{ fontWeight: 700 }}>{DAY_NAMES[x.d.getDay()]} {x.d.getDate()}/{x.d.getMonth() + 1}</div>
+                    <div>{x.inAt ? `${new Date(x.inAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}${x.late ? " · late" : ""}${x.offDay ? " · day off" : ""}` : x.absent ? "Missed" : "—"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // A small inline panel listing clients, used by both the Dashboard and Reports drilldowns.
 function MiniClientList({ title, clientList, users, onOpenClient, onClose }) {
   return (
@@ -3367,7 +4188,7 @@ function StatTile({ label, count, onClick, active }) {
   );
 }
 
-function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, attendance }) {
+function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, attendance, attendanceSettings }) {
   const [metric, setMetric] = useState(null); // "meetings" | "stage" | "delayed" | "long_term" | "checked_in" | "not_checked_in"
   const [stageFilter, setStageFilter] = useState("");
   const [salesFilter, setSalesFilter] = useState("");
@@ -3462,7 +4283,7 @@ function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, at
       )}
 
       <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textMuted, margin: "16px 0 8px" }}>Attendance log — everyone</div>
-      <AttendanceLog attendance={attendance.filter((a) => visibleSalesIds.includes(a.userId))} users={users} showPerson />
+      <div style={{ marginTop: 14 }}><AttendanceReport attendance={attendance} people={users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role))} settings={attendanceSettings} title="Team attendance" storageKey="attendance:dash" /></div>
     </div>
   );
 }
@@ -3490,7 +4311,7 @@ function MiniUnitList({ title, unitList, onOpenUnit, onClose }) {
   );
 }
 
-function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenClient, onOpenUnit, attendance }) {
+function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenClient, onOpenUnit, attendance, attendanceSettings }) {
   const [personId, setPersonId] = useState("");
   const [metric, setMetric] = useState(null);
   const [stageFilter, setStageFilter] = useState("");
@@ -3589,7 +4410,7 @@ function ReportsTab({ clients, activity, users, units, visibleSalesIds, onOpenCl
       )}
 
       <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.textMuted, margin: "16px 0 8px" }}>Attendance</div>
-      <AttendanceLog attendance={attendance.filter((a) => a.userId === personId)} users={users} showPerson={false} defaultDays={30} />
+      <div style={{ marginTop: 14 }}><AttendanceReport attendance={attendance} people={users} settings={attendanceSettings} fixedPersonId={personId} title="Attendance" storageKey="attendance:person" /></div>
     </div>
   );
 }
@@ -3904,12 +4725,35 @@ const TX_KIND_LABEL = {
   adjustment: "Adjustment",
 };
 
+// Numbers roll up when they first appear (e.g. "312,500" counts up from 0)
+function CountUp({ value }) {
+  const str = String(value ?? "");
+  const m = str.match(/^([^0-9-]*)(-?[0-9][0-9,]*\.?[0-9]*)(.*)$/);
+  const target = m ? Number(m[2].replace(/,/g, "")) : NaN;
+  const [shown, setShown] = useState(isNaN(target) ? str : `${m[1]}0${m[3]}`);
+  useEffect(() => {
+    if (isNaN(target) || typeof window === "undefined" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setShown(str); return; }
+    const dec = (m[2].split(".")[1] || "").length;
+    let raf, t0;
+    const step = (t) => {
+      if (!t0) t0 = t;
+      const p = Math.min(1, (t - t0) / 700), e = 1 - Math.pow(1 - p, 3);
+      const v = target * e;
+      setShown(p >= 1 ? str : `${m[1]}${v.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec })}${m[3]}`);
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [str]); // eslint-disable-line
+  return <>{shown}</>;
+}
+
 function FinStat({ label, value, sub, tone, onClick }) {
   const color = tone === "danger" ? COLORS.danger : tone === "success" ? COLORS.success : COLORS.navy;
   return (
     <div onClick={onClick} style={{ ...finCard, padding: "12px 14px", minWidth: 170, flex: "1 1 170px", cursor: onClick ? "pointer" : "default" }}>
       <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 19, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: 19, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}><CountUp value={value} /></div>
       {sub && <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 3 }}>{sub}</div>}
     </div>
   );
@@ -4084,6 +4928,39 @@ function SideTeamEditor({ title, team, setTeam, people, lockFirst }) {
 }
 
 // ---------- Sold units ----------
+function HoldList({ units, projects, getProjectInfo, onRelease, onOpen }) {
+  const [fv, setF, resetF, setAllF] = useFilters("units:hold", { q: "", projectId: "", reason: "", since: { p: "" } });
+  const reasons = [...new Set(units.map((u) => u.holdReason).filter(Boolean))].sort();
+  const list = units.filter((u) => (!fv.projectId || u.projectId === fv.projectId) && (!fv.reason || u.holdReason === fv.reason) && inDate(u.updatedAt || u.createdAt, fv.since)
+    && (!(fv.q || "").trim() || [u.unitNumber, u.type, getProjectInfo(u).name, u.holdReason].some((x) => String(x || "").toLowerCase().includes(fv.q.trim().toLowerCase()))));
+  return (
+    <>
+      <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy, marginBottom: 12 }}>Units on hold</div>
+      <FilterBar id="units:hold" values={fv} set={setF} reset={resetF} setAll={setAllF} count={list.length} noun="units on hold" searchPlaceholder="Search unit, project, reason…"
+        defs={[
+          { id: "reason", label: "Reason", type: "select", primary: true, options: opt(reasons) },
+          { id: "projectId", label: "Project", type: "select", primary: true, options: opt(projects.filter((p) => units.some((u) => u.projectId === p.id)), "id", "name") },
+          { id: "since", label: "On hold since", type: "date", primary: true },
+        ]} />
+      {list.length === 0 ? <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{units.length ? "No units match these filters." : "No units on hold."}</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {list.map((u) => (
+            <div key={u.id} className="card lift" style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, padding: 12, alignItems: "center" }}>
+              <img src={u.photos[0]} alt="" onClick={() => onOpen(u)} style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 10, cursor: "pointer", background: COLORS.creamDark }} />
+              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => onOpen(u)}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy }}>{u.type} · {u.unitNumber}</div>
+                <div style={{ fontSize: 12, color: COLORS.textMuted }}>{getProjectInfo(u).destination} · {getProjectInfo(u).name}</div>
+                <div style={{ fontSize: 12, color: COLORS.danger, marginTop: 4 }}>Reason: {u.holdReason}{u.updatedAt ? ` · since ${formatDate(u.updatedAt)}` : ""}</div>
+              </div>
+              <button onClick={() => onRelease(u)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Reactivate</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function SoldDetailsModal({ unit, mode, onSave, onClose }) {
   // mode: "outside" = the owner sold it without us · "edit" = fix the sold details
   const [f, setF] = useState({
@@ -4136,41 +5013,37 @@ function SoldDetailsModal({ unit, mode, onSave, onClose }) {
 }
 
 function SoldUnits({ units, projects, getProjectInfo, canSeeOwner, getHandledBy, canEditUnit, onOpen, onEdit, onReactivate }) {
-  const [q, setQ] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [via, setVia] = useState("");
-  const sold = units.filter((u) => u.status === "sold")
-    .filter((u) => !projectId || u.projectId === projectId)
-    .filter((u) => !via || (u.soldVia || "outside") === via)
+  const [fv, setF, resetF, setAllF] = useFilters("units:sold", { q: "", projectId: "", via: "", soldAt: { p: "" }, price: { min: "", max: "" }, type: "" });
+  const all = units.filter((u) => u.status === "sold");
+  const sold = all
+    .filter((u) => !fv.projectId || u.projectId === fv.projectId)
+    .filter((u) => !fv.type || u.type === fv.type)
+    .filter((u) => !fv.via || (u.soldVia || "outside") === fv.via)
+    .filter((u) => inDate(u.soldAt || u.updatedAt, fv.soldAt) && inRange(u.soldPrice, fv.price))
     .filter((u) => {
-      if (!q.trim()) return true;
-      const t = q.trim().toLowerCase();
+      if (!(fv.q || "").trim()) return true;
+      const t = fv.q.trim().toLowerCase();
       const info = getProjectInfo(u);
-      return [u.unitNumber, u.type, info.name, info.destination, u.newOwnerName, u.newOwnerPhone, u.ownerName].some((x) => String(x || "").toLowerCase().includes(t));
+      return [u.unitNumber, u.type, info.name, info.destination, u.newOwnerName, u.newOwnerPhone, u.ownerName, u.soldNote].some((x) => String(x || "").toLowerCase().includes(t));
     })
     .sort((a, b) => new Date(b.soldAt || b.updatedAt || 0) - new Date(a.soldAt || a.updatedAt || 0));
-  const usedProjects = projects.filter((p) => units.some((u) => u.status === "sold" && u.projectId === p.id));
-  const all = units.filter((u) => u.status === "sold");
+  const usedProjects = projects.filter((p) => all.some((u) => u.projectId === p.id));
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
         <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>Sold units</div>
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{all.length} sold · {all.filter((u) => u.soldVia === "us").length} through us</div>
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <input style={{ ...inputStyle, flex: "1 1 220px" }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search unit, project, new owner…" />
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ ...inputStyle, flex: "0 1 200px", appearance: "none" }}>
-          <option value="">All projects</option>
-          {usedProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <div className="seg" style={{ display: "flex", gap: 4, background: COLORS.creamDark, padding: 4, borderRadius: 999 }}>
-          {[["", "All"], ["us", "Through us"], ["outside", "Without us"]].map(([id, label]) => (
-            <button key={id || "all"} onClick={() => setVia(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: via === id ? "#fff" : "transparent", color: via === id ? COLORS.navy : COLORS.textMuted }}>{label}</button>
-          ))}
-        </div>
-      </div>
+      <FilterBar id="units:sold" values={fv} set={setF} reset={resetF} setAll={setAllF} count={sold.length} noun="sold units" searchPlaceholder="Search unit, project, new owner…"
+        defs={[
+          { id: "via", label: "Sold", type: "select", primary: true, all: "Through us or not", options: [{ id: "us", label: "Through us" }, { id: "outside", label: "Without us" }] },
+          { id: "soldAt", label: "Sold on", type: "date", primary: true },
+          { id: "projectId", label: "Project", type: "select", primary: true, options: opt(usedProjects, "id", "name") },
+          { id: "type", label: "Type", type: "select", options: opt([...new Set(all.map((u) => u.type))].filter(Boolean).sort()) },
+          { id: "price", label: "Sold price", type: "range", money: true },
+        ]} />
       {sold.length === 0 ? (
-        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 24, color: COLORS.textMuted, fontSize: 14 }}>No sold units{q || projectId || via ? " match these filters" : " yet"}.</div>
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 24, color: COLORS.textMuted, fontSize: 14 }}>{all.length ? "No sold units match these filters." : "No sold units yet."}</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
           {sold.map((u) => {
@@ -4518,7 +5391,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
           {isRent ? (
             <>
               <Field label="Monthly rent (EGP)" required>
-                <input type="number" min="0" style={inputStyle} value={rentMonthly} onChange={(e) => { touched.current.rent = true; setRentMonthly(e.target.value); }} />
+                <MoneyInput value={rentMonthly} onChange={(v) => { touched.current.rent = true; setRentMonthly(v); }} />
               </Field>
               <Field label="Lease length (months)" required>
                 <input type="number" min="1" style={inputStyle} value={leaseMonths} onChange={(e) => setLeaseMonths(e.target.value)} />
@@ -4526,7 +5399,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
             </>
           ) : (
             <Field label="Sale price (EGP)" required>
-              <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => { touched.current.price = true; setSalePrice(e.target.value); }} />
+              <MoneyInput value={salePrice} onChange={(v) => { touched.current.price = true; setSalePrice(v); }} />
             </Field>
           )}
           <Field label={isRent ? "Reservation date" : "Promise of sale date"} required>
@@ -4558,12 +5431,12 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
           {hasBuyer && (
             <Field label={`Commission from the ${partyName(dealType, "buyer")} (EGP)`} required>
-              <input type="number" min="0" style={inputStyle} value={commBuyer} onChange={(e) => { touched.current.buyer = true; setCommBuyer(e.target.value); }} />
+              <MoneyInput value={commBuyer} onChange={(v) => { touched.current.buyer = true; setCommBuyer(v); }} />
             </Field>
           )}
           {hasSeller && (
             <Field label={`Commission from the ${partyName(dealType, "seller")} (EGP)`} required>
-              <input type="number" min="0" style={inputStyle} value={commSeller} onChange={(e) => { touched.current.seller = true; setCommSeller(e.target.value); }} />
+              <MoneyInput value={commSeller} onChange={(v) => { touched.current.seller = true; setCommSeller(v); }} />
             </Field>
           )}
         </div>
@@ -4793,6 +5666,7 @@ function ApprovalCard({ deal, ctx }) {
             p_as_done: asDone, p_amount_buyer: asDone ? collectedNow.buyer : null, p_amount_seller: asDone ? collectedNow.seller : null,
             p_transfer_date: asDone ? collectedAt : null,
           }, t), { full: true });
+          celebrate("happy", `Deal approved · ${ctx.dealTitle ? ctx.dealTitle(deal) : ""}`);
         })}>{busy ? "Working…" : asDone ? "Approve as Done" : "Approve as Reserved"}</button>
       </div>
     </div>
@@ -4804,23 +5678,25 @@ function ApprovalCard({ deal, ctx }) {
 // =====================================================================
 function FinDeals({ ctx }) {
   const { fin, isAdmin, profile, calc, userName, dealTitle, onNewDeal } = ctx;
-  const [status, setStatus] = useState("all");
-  const [quarter, setQuarter] = useState("all");
-  const [person, setPerson] = useState("");
-  const [dealKind, setDealKind] = useState("");
-  const [q, setQ] = useState("");
-  const [openId, setOpenId] = useState(null);
+  const [fv, setF, resetF, setAllF] = useFilters("deals", { q: "", status: "", when: { p: "" }, person: "", kind: "", sides: "", commission: { min: "", max: "" }, price: { min: "", max: "" }, collection: "", submitted: { p: "" }, createdBy: "" });
+  const [openId, setOpenId] = useState(ctx.deepDealId || null);
+  useEffect(() => { if (ctx.deepDealId) setOpenId(ctx.deepDealId); }, [ctx.deepNonce]); // eslint-disable-line
 
   const agentsByDeal = useMemo(() => groupBy(fin.dealAgents, (a) => a.deal_id), [fin.dealAgents]);
   const linesByDeal = useMemo(() => groupBy(calc.lines, (l) => l.dealId), [calc.lines]);
   const qKeys = [...new Set(fin.deals.map((d) => quarterKeyOf(dateInputToIso(dealShownDate(d)))))];
 
+  const collState = (d) => { const c = num(calc.collectedByDeal[d.id]), t = num(d.commission_total); return c <= 0 ? "none" : c + 0.5 < t ? "part" : "full"; };
   const rows = fin.deals
-    .filter((d) => status === "all" || d.status === status || (status === "open" && (d.status === "pending" || d.status === "returned")))
-    .filter((d) => quarter === "all" || quarterKeyOf(dateInputToIso(dealShownDate(d))) === quarter)
-    .filter((d) => !person || (agentsByDeal[d.id] || []).some((a) => a.agent_id === person))
-    .filter((d) => !dealKind || (dealKind === "rent" ? isRentDeal(d) : !isRentDeal(d)))
-    .filter((d) => !q || dealTitle(d).toLowerCase().includes(q.toLowerCase()))
+    .filter((d) => !fv.status || d.status === fv.status || (fv.status === "open" && (d.status === "pending" || d.status === "returned")))
+    .filter((d) => inDate(dealShownDate(d), fv.when) && inDate(d.created_at, fv.submitted))
+    .filter((d) => !fv.person || (agentsByDeal[d.id] || []).some((a) => a.agent_id === fv.person))
+    .filter((d) => !fv.createdBy || d.created_by === fv.createdBy)
+    .filter((d) => !fv.kind || (fv.kind === "rent" ? isRentDeal(d) : !isRentDeal(d)))
+    .filter((d) => !fv.sides || d.sides === fv.sides)
+    .filter((d) => inRange(d.commission_total, fv.commission) && inRange(d.sale_price, fv.price))
+    .filter((d) => !fv.collection || collState(d) === fv.collection)
+    .filter((d) => !(fv.q || "").trim() || `${dealTitle(d)} ${d.notes || ""} ${d.buyer_name || ""}`.toLowerCase().includes(fv.q.trim().toLowerCase()))
     .sort((a, b) => (dealShownDate(b) || "").localeCompare(dealShownDate(a) || "") || new Date(b.created_at) - new Date(a.created_at));
 
   const sumLines = (d, key, onlyMe) => (linesByDeal[d.id] || []).filter((l) => !onlyMe || l.beneficiaryId === profile.id).reduce((s, l) => s + l[key], 0);
@@ -4842,16 +5718,19 @@ function FinDeals({ ctx }) {
       <FinTitle right={<button style={btnPrimary} onClick={() => onNewDeal({})}>+ New deal</button>}>
         {isAdmin ? "Deals & commissions" : "Deals"}
       </FinTitle>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        <PeriodPicker value={status} onChange={setStatus} options={[
-          { id: "all", label: "All statuses" }, { id: "approved", label: "Done deals" }, { id: "reserved", label: "Reserved (not done yet)" }, { id: "open", label: "Waiting for approval" },
-          { id: "rejected", label: "Rejected" }, { id: "cancelled", label: "Cancelled" },
+      <FilterBar id="deals" values={fv} set={setF} reset={resetF} setAll={setAllF} count={rows.length} noun={rows.length === 1 ? "deal" : "deals"} searchPlaceholder="Search unit, client, buyer, notes…"
+        defs={[
+          { id: "status", label: "Status", type: "select", primary: true, all: "All statuses", options: [{ id: "approved", label: "Done deals" }, { id: "reserved", label: "Reserved (not done yet)" }, { id: "open", label: "Waiting for approval" }, { id: "rejected", label: "Rejected" }, { id: "cancelled", label: "Cancelled" }] },
+          { id: "when", label: "Deal date", type: "date", primary: true },
+          { id: "person", label: "Sales", type: "select", primary: true, all: "Everyone", options: people.map((u) => ({ id: u.id, label: u.name })) },
+          { id: "kind", label: "Sale or rent", type: "select", all: "Sales and rent", options: [{ id: "sale", label: "Sales" }, { id: "rent", label: "Rent" }] },
+          { id: "sides", label: "We represent", type: "select", all: "Any side", options: [{ id: "buyer", label: "Buyer / tenant" }, { id: "seller", label: "Seller / landlord" }, { id: "both", label: "Both" }] },
+          { id: "collection", label: "Commission collected", type: "select", all: "Collected: any", options: [{ id: "none", label: "Nothing collected" }, { id: "part", label: "Partly collected" }, { id: "full", label: "Fully collected" }] },
+          { id: "commission", label: "Commission", type: "range", money: true },
+          { id: "price", label: "Deal value", type: "range", money: true },
+          { id: "submitted", label: "Submitted", type: "date" },
+          { id: "createdBy", label: "Submitted by", type: "select", all: "Anyone", options: ctx.users.filter((u) => fin.deals.some((d) => d.created_by === u.id)).map((u) => ({ id: u.id, label: u.name })) },
         ]} />
-        <PeriodPicker value={dealKind} onChange={setDealKind} options={[{ id: "", label: "Sales & rent" }, { id: "sale", label: "Sales" }, { id: "rent", label: "Rent" }]} />
-        <PeriodPicker value={quarter} onChange={setQuarter} options={[{ id: "all", label: "All quarters" }, ...quarterOptions(qKeys)]} />
-        <PeriodPicker value={person} onChange={setPerson} options={[{ id: "", label: "Everyone" }, ...people.map((u) => ({ id: u.id, label: u.name }))]} />
-        <input style={{ ...inputStyle, width: 200, padding: "7px 10px", fontSize: 13 }} placeholder="Search unit / client…" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <FinStat label="Deals" value={rows.length} />
         <FinStat label="Total commission" value={egp(totals.commission)} sub={`Collected ${egp(totals.collected)}`} />
@@ -5173,6 +6052,7 @@ function MarkDoneModal({ deal, ctx, onClose }) {
               p_deal: deal.id, p_account: accountId || null, p_amount_buyer: v.buyer, p_amount_seller: v.seller, p_collected_at: dateInputToIso(date), p_transfer_date: date,
             }, t), { full: true });
             onClose();
+            celebrate("happy", "Deal done 🏁");
           })}>{busy ? "Saving…" : "Mark as done"}</button>
         </div>
       </div>
@@ -5430,7 +6310,10 @@ function FinExpenses({ ctx }) {
     .filter((s) => s.user && s.user.role !== "pending");
   const recurring = fin.recurring.filter((r) => !r.archived || fin.txns.some((t) => t.recurring_id === r.id && t.period === month));
   const monthTx = fin.txns.filter((t) => t.period === month);
-  const others = fin.txns.filter((t) => t.kind === "expense" && !t.recurring_id && monthKeyOf(t.occurred_at) === month)
+  const [xf, setX, resetX, setAllX] = useFilters("expenses:other", { q: "", when: { p: "" }, category: "", account: "", amount: { min: "", max: "" } });
+  const others = fin.txns.filter((t) => t.kind === "expense" && !t.recurring_id && (xf.when?.p ? inDate(t.occurred_at, xf.when) : monthKeyOf(t.occurred_at) === month))
+    .filter((t) => (!xf.category || t.category_id === xf.category) && (!xf.account || t.account_id === xf.account) && inRange(t.amount, xf.amount)
+      && (!(xf.q || "").trim() || `${t.description || ""} ${fin.categories.find((c) => c.id === t.category_id)?.name || ""}`.toLowerCase().includes(xf.q.trim().toLowerCase())))
     .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
 
   const fixedTotal = round2(salaryRows.reduce((s, r) => s + num(r.monthly_salary), 0) + recurring.filter((r) => !r.archived).reduce((s, r) => s + num(r.default_amount), 0));
@@ -5499,7 +6382,15 @@ function FinExpenses({ ctx }) {
       )}
 
       <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Other expenses</div>
-      {others.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13 }}>None this month.</div> : (
+      <FilterBar id="expenses:other" values={xf} set={setX} reset={resetX} setAll={setAllX} count={others.length} noun={`expenses · ${egp(otherTotal)}`} searchPlaceholder="Search description or category…"
+        defs={[
+          { id: "when", label: "Period", type: "date", primary: true },
+          { id: "category", label: "Category", type: "select", primary: true, options: fin.categories.map((c) => ({ id: c.id, label: c.name })) },
+          { id: "account", label: "Account", type: "select", primary: true, options: fin.accounts.map((a) => ({ id: a.id, label: a.name })) },
+          { id: "amount", label: "Amount", type: "range", money: true },
+        ]} />
+      {!xf.when?.p && <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: -6, marginBottom: 8 }}>Showing {monthLabel(month)}. Pick a period to see any dates.</div>}
+      {others.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13 }}>No expenses match.</div> : (
         <TableWrap>
           <thead><tr><th style={thStyle}>Date</th><th style={thStyle}>Category</th><th style={thStyle}>Description</th><th style={thStyle}>Account</th><th style={thNum}>Amount</th><th style={thStyle} /></tr></thead>
           <tbody>
@@ -5656,16 +6547,12 @@ function periodRange(preset, from, to) {
 
 function FinTreasury({ ctx }) {
   const { fin, balances, userName, accountName, dealTitleById } = ctx;
-  const [preset, setPreset] = useState("month");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [account, setAccount] = useState("");
-  const [kind, setKind] = useState("");
-  const [category, setCategory] = useState("");
-  const [person, setPerson] = useState("");
+  const [fv, setF, resetF, setAllF] = useFilters("treasury", { q: "", when: { p: "month" }, account: "", kind: "", category: "", person: "", amount: { min: "", max: "" }, direction: "" });
+  const { account, kind, category, person } = fv;
   const [modal, setModal] = useState(null);
   const delAction = useAction();
-  const range = periodRange(preset, from, to);
+  const rr = dateRangeOf(fv.when) || [new Date(2000, 0, 1), new Date(2100, 0, 1)];
+  const range = { from: rr[0], to: rr[1] };
   const removeTx = (t) => delAction.run(async () => {
     const what = `${TX_KIND_LABEL[t.kind]} of ${egpFull(t.amount)} on ${formatDate(t.occurred_at)}`;
     const linked = t.kind === "transfer" && t.transfer_group ? fin.txns.filter((x) => x.transfer_group === t.transfer_group) : [t];
@@ -5675,7 +6562,7 @@ function FinTreasury({ ctx }) {
   const catName = (id) => fin.categories.find((c) => c.id === id)?.name || "";
 
   const byAccount = (t) => !account || t.account_id === account;
-  const extraFilters = !!(kind || category || person);
+  const extraFilters = !!(kind || category || person || fv.direction || filterIsSet({ type: "range" }, fv.amount) || (fv.q || "").trim());
   const ordered = [...fin.txns].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at) || new Date(a.created_at) - new Date(b.created_at));
   const signed = (t) => (t.direction === "in" ? 1 : -1) * num(t.amount);
   const opening = round2(ordered.filter((t) => byAccount(t) && new Date(t.occurred_at) < range.from).reduce((s, t) => s + signed(t), 0));
@@ -5688,6 +6575,9 @@ function FinTreasury({ ctx }) {
     if (kind && t.kind !== kind) return;
     if (category && t.category_id !== category) return;
     if (person && t.beneficiary_id !== person) return;
+    if (fv.direction && t.direction !== fv.direction) return;
+    if (!inRange(t.amount, fv.amount)) return;
+    if ((fv.q || "").trim() && !`${t.description || ""} ${userName ? userName(t.beneficiary_id) : ""} ${dealTitleById ? dealTitleById(t.deal_id) || "" : ""}`.toLowerCase().includes(fv.q.trim().toLowerCase())) return;
     rows.push({ ...t, before: round2(running - signed(t)), after: running });
   });
   const totalIn = round2(rows.filter((r) => r.direction === "in").reduce((s, r) => s + num(r.amount), 0));
@@ -5737,23 +6627,17 @@ function FinTreasury({ ctx }) {
       </div>
 
       <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Statement</div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
-        <PeriodPicker value={preset} onChange={setPreset} options={[
-          { id: "today", label: "Today" }, { id: "week", label: "This week" }, { id: "month", label: "This month" },
-          { id: "lastmonth", label: "Last month" }, { id: "quarter", label: "This quarter" }, { id: "year", label: "This year" }, { id: "custom", label: "Custom dates" },
+      <FilterBar id="treasury" values={fv} set={setF} reset={resetF} setAll={setAllF} count={rows.length} noun="movements" searchPlaceholder="Search description, person, deal…"
+        right={<><button style={btnGhost} onClick={exportCsv}>Export Excel (CSV)</button><button style={btnGhost} onClick={() => window.print()}>Print / PDF</button></>}
+        defs={[
+          { id: "when", label: "Period", type: "date", primary: true },
+          { id: "account", label: "Account", type: "select", primary: true, options: fin.accounts.map((a) => ({ id: a.id, label: a.name })) },
+          { id: "kind", label: "Type", type: "select", primary: true, options: Object.entries(TX_KIND_LABEL).map(([id, label]) => ({ id, label })) },
+          { id: "direction", label: "In / out", type: "select", all: "Money in and out", options: [{ id: "in", label: "Money in" }, { id: "out", label: "Money out" }] },
+          { id: "category", label: "Category", type: "select", options: fin.categories.map((c) => ({ id: c.id, label: c.name })) },
+          { id: "person", label: "Person", type: "select", all: "Anyone", options: peopleOptions.map((u) => ({ id: u.id, label: u.name })) },
+          { id: "amount", label: "Amount", type: "range", money: true },
         ]} />
-        {preset === "custom" && <>
-          <input type="date" style={{ ...inputStyle, width: 150, padding: "6px 8px", fontSize: 13 }} value={from} onChange={(e) => setFrom(e.target.value)} />
-          <span style={{ fontSize: 12, color: COLORS.textMuted }}>to</span>
-          <input type="date" style={{ ...inputStyle, width: 150, padding: "6px 8px", fontSize: 13 }} value={to} onChange={(e) => setTo(e.target.value)} />
-        </>}
-        <PeriodPicker value={account} onChange={setAccount} options={[{ id: "", label: "All accounts" }, ...fin.accounts.map((a) => ({ id: a.id, label: a.name }))]} />
-        <PeriodPicker value={kind} onChange={setKind} options={[{ id: "", label: "All types" }, ...Object.entries(TX_KIND_LABEL).map(([id, label]) => ({ id, label }))]} />
-        <PeriodPicker value={category} onChange={setCategory} options={[{ id: "", label: "All categories" }, ...fin.categories.map((c) => ({ id: c.id, label: c.name }))]} />
-        <PeriodPicker value={person} onChange={setPerson} options={[{ id: "", label: "Anyone" }, ...peopleOptions.map((u) => ({ id: u.id, label: u.name }))]} />
-        <button style={btnGhost} onClick={exportCsv}>Export Excel (CSV)</button>
-        <button style={btnGhost} onClick={() => window.print()}>Print / PDF</button>
-      </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <FinStat label="Opening balance" value={egp(opening)} />
@@ -5766,7 +6650,7 @@ function FinTreasury({ ctx }) {
           {Object.entries(byKind).map(([k, v]) => `${TX_KIND_LABEL[k]}: ${v > 0 ? "+" : ""}${egp(v)}`).join("  ·  ")}
         </div>
       )}
-      {opening !== 0 && preset !== "custom" && (
+      {opening !== 0 && true && (
         <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>
           Opening balance = everything before this period. Choose "This year" or "Custom dates" to see those movements one by one.
         </div>
@@ -6042,6 +6926,40 @@ function CharitySettings({ ctx }) {
   );
 }
 
+function AttendanceSettings({ ctx }) {
+  const { fin, act } = ctx;
+  const [late, setLate] = useState(lateCutoff(fin.settings).label);
+  const [days, setDays] = useState(workDaysOf(fin.settings));
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  return (
+    <div style={finCard}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Attendance</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>Check-in after this time counts as late. The reminder goes out 5 minutes before, on work days.</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 13, width: 70 }}>Late after</span>
+        <input type="time" style={{ ...inputStyle, width: 120, padding: "6px 8px" }} value={late} onChange={(e) => setLate(e.target.value)} />
+      </div>
+      <div role="group" aria-label="Work days" style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
+        {DAY_NAMES.map((d, i) => { const on = days.includes(i); return (
+          <button key={d} type="button" onClick={() => setDays((x) => (on ? x.filter((y) => y !== i) : [...x, i].sort()))} style={{ border: `1px solid ${on ? COLORS.navy : COLORS.border}`, background: on ? COLORS.navy : "#fff", color: on ? "#fff" : COLORS.textMuted, borderRadius: 999, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{d}</button>
+        ); })}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+          setSaved(false);
+          if (!/^\d{2}:\d{2}$/.test(late)) throw new Error("Choose a time.");
+          if (!days.length) throw new Error("Choose at least one work day.");
+          await act((t) => db.update("finance_settings", 1, { late_after: late, work_days: days, updated_at: new Date().toISOString() }, t));
+          setSaved(true);
+        })}>Save</button>
+        {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
+      </div>
+      <FinError text={error} />
+    </div>
+  );
+}
+
 function DealDefaultsSettings({ ctx }) {
   const { fin, act } = ctx;
   const st = fin.settings || {};
@@ -6115,6 +7033,12 @@ function FinSettings({ ctx }) {
         <CharitySettings ctx={ctx} />
 
         <DealDefaultsSettings ctx={ctx} />
+
+        <AttendanceSettings ctx={ctx} />
+
+        <WaTemplatesSettings ctx={ctx} />
+
+        <CelebrationSettings ctx={ctx} uploadMedia={ctx.uploadMedia} />
 
         <NamedListEditor title="Accounts (treasuries)" items={fin.accounts}
           onAdd={(name) => act((t) => db.insert("finance_accounts", { name }, t))}
@@ -6269,9 +7193,10 @@ function MyEarnings({ ctx }) {
 // =====================================================================
 // ---------- FINANCE: the section itself ----------
 // =====================================================================
-function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal }) {
+function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal, deepLink, uploadMedia }) {
   const isAdmin = isFinanceAdmin(profile);
-  const [tab, setTab] = useState(isAdmin ? "overview" : "earnings");
+  const [tab, setTab] = useState(deepLink?.tab || (deepLink?.dealId ? "deals" : isAdmin ? "overview" : "earnings"));
+  useEffect(() => { if (deepLink) setTab(deepLink.tab || "deals"); }, [deepLink]);
   const thresholds = (fin.settings?.tier_thresholds || [0, 70, 100]).map(num);
   const targetsMap = useMemo(() => Object.fromEntries(fin.targets.map((t) => [t.user_id, num(t.quarterly_target)])), [fin.targets]);
   const calc = useMemo(() => computeFinance({
@@ -6298,7 +7223,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
   };
   const people = users.filter((u) => u.role !== "pending").sort((a, b) => a.name.localeCompare(b.name));
   const charityPct = num(fin.settings?.charity_pct);
-  const ctx = { fin, users, profile, isAdmin, calc, thresholds, charityPct, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
+  const ctx = { uploadMedia, deepDealId: deepLink?.dealId, deepNonce: deepLink?.n, fin, users, profile, isAdmin, calc, thresholds, charityPct, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
 
   if (fin.error) {
     return (
@@ -6308,7 +7233,12 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
       </div>
     );
   }
-  if (!fin.loaded) return <div style={{ color: COLORS.textMuted, fontSize: 14 }}>Loading finance…</div>;
+  if (!fin.loaded) return (
+    <div aria-label="Loading finance" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ flex: "1 1 170px", height: 74 }} />)}</div>
+      <div className="skeleton" style={{ height: 220 }} />
+    </div>
+  );
 
   const pendingCount = fin.deals.filter((d) => d.status === "pending").length;
   const tabs = isAdmin
@@ -6372,6 +7302,32 @@ export default function App() {
   const [tab, setTab] = useState("home");
   const [section, setSection] = useState("clients");
   const [openUnit, setOpenUnit] = useState(null);
+  // ---- links from phone notifications: ?open=client:<id> | deal:<id> | unit:<id> | approvals | attendance | today ----
+  const [finDeep, setFinDeep] = useState(null);
+  const [pendingUnitId, setPendingUnitId] = useState(null);
+  const openLink = (value) => {
+    if (!value) return;
+    const [kind, id] = String(value).split(":");
+    if (kind === "client" && id) { setSection("clients"); setClientsTab("all"); setOpenClientId(id); }
+    else if (kind === "deal" && id) { setSection("finance"); setFinDeep({ tab: "deals", dealId: id, n: Date.now() }); }
+    else if (kind === "approvals") { setSection("finance"); setFinDeep({ tab: "approvals", n: Date.now() }); }
+    else if (kind === "unit" && id) { setSection("units"); setPendingUnitId(id); }
+    else if (kind === "attendance") { setSection("profile"); setTab("attendance"); }
+    else if (kind === "today") { setSection("clients"); setClientsTab("today"); setOpenClientId(null); }
+  };
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      const o = u.searchParams.get("open");
+      if (o) { openLink(o); u.searchParams.delete("open"); window.history.replaceState(null, "", u.pathname + (u.search || "") + u.hash); }
+    } catch (e) {}
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+    const onMsg = (e) => { if (e.data && e.data.type === "open") { try { openLink(new URL(e.data.url).searchParams.get("open")); } catch (err) {} } };
+    navigator.serviceWorker.addEventListener("message", onMsg);
+    return () => navigator.serviceWorker.removeEventListener("message", onMsg);
+  }, []); // eslint-disable-line
+  useEffect(() => { if (pendingUnitId) { const u = units.find((x) => x.id === pendingUnitId); if (u) { setOpenUnit(u); setPendingUnitId(null); } } }, [pendingUnitId, units]);
   const [editingUnit, setEditingUnit] = useState(null);
   const [viewedUserId, setViewedUserId] = useState(null);
   const [holdTarget, setHoldTarget] = useState(null);
@@ -6446,6 +7402,7 @@ export default function App() {
     setProfile(me || null);
     loadFinance(t);
     loadDuplicates(t);
+    loadLeaderboard(t);
   };
 
   // Finance loads separately so a problem there never blocks the rest of the CRM
@@ -6505,7 +7462,7 @@ export default function App() {
     setDealModal(null);
     await loadFinance(t);
     if (approveNow) { await refreshUnits(); await refreshClients(); }
-    if (!isFinanceAdmin(profile)) window.alert("Deal sent for approval ✓");
+    celebrate("happy", isFinanceAdmin(profile) ? (approveNow ? "Deal saved and approved" : "Deal saved") : "Deal sent for approval ✓");
   };
 
   const fetchAll = async (currentSession) => {
@@ -6597,7 +7554,36 @@ export default function App() {
     setClientProjectLinks(cProjRows || []);
     setClientUnitLinks(cUnitRows || []);
     loadDuplicates(t);
+    loadLeaderboard(t);
   };
+
+  // ---- my deal got approved while I was away → celebrate once ----
+  useEffect(() => {
+    if (!fin.loaded || !profile || isFinanceAdmin(profile)) return;
+    const key = `origin_celebrated:${profile.id}`;
+    const mine = fin.deals.filter((d) => ["reserved", "approved"].includes(d.status) && (d.created_by === profile.id || fin.dealAgents.some((a) => a.deal_id === d.id && a.agent_id === profile.id)));
+    let seen = null; try { seen = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
+    const ids = mine.map((d) => `${d.id}:${d.status}`);
+    if (seen) { const fresh = mine.filter((d) => !seen.includes(`${d.id}:${d.status}`)); if (fresh.length) celebrate("happy", fresh.length === 1 ? `Your deal was ${fresh[0].status === "approved" ? "closed as done" : "approved"}: ${fresh[0].unit_label || fresh[0].client_label || ""}` : `${fresh.length} of your deals were approved`); }
+    try { localStorage.setItem(key, JSON.stringify(ids)); } catch (e) {}
+  }, [fin.loaded, fin.deals]); // eslint-disable-line
+
+  // ---- leaderboard (this month) + my quarter target ----
+  const [leaderboard, setLeaderboard] = useState([]);
+  const loadLeaderboard = async (t) => {
+    try {
+      const now = new Date();
+      const rows = await db.rpc("leaderboard", { p_from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), p_to: new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString() }, t);
+      setLeaderboard(Array.isArray(rows) ? rows : []);
+    } catch (e) { setLeaderboard([]); }
+  };
+  const myTarget = useMemo(() => {
+    const tRow = (fin.targets || []).find((x) => x.user_id === profile?.id);
+    if (!fin.loaded || !tRow || !num(tRow.quarterly_target)) return null;
+    const c = computeFinance({ deals: fin.deals, dealAgents: fin.dealAgents, dealRates: fin.dealRates, txns: fin.txns, targets: { [profile.id]: num(tRow.quarterly_target) }, thresholds: (fin.settings?.tier_thresholds || [0, 70, 100]).map(num) });
+    const q = currentQuarterKey();
+    return { achieved: c.achievement(profile.id, q), target: num(tRow.quarterly_target), pct: c.achievementPct(profile.id, q) };
+  }, [fin, profile?.id]); // eslint-disable-line
 
   // ---- duplicate numbers ----
   const [duplicates, setDuplicates] = useState([]);
@@ -6732,7 +7718,21 @@ export default function App() {
 
   // Tapping Call / WhatsApp is logged automatically (once per 10 minutes per client)
   const lastContactRef = useRef({});
+  const lastCallRef = useRef(null);
+  const [callPrompt, setCallPrompt] = useState(null); // client id to ask "how did the call go?"
+  useEffect(() => {
+    const back = () => {
+      const c = lastCallRef.current;
+      if (!c || document.visibilityState === "hidden") return;
+      const gone = Date.now() - c.at;
+      if (gone > 4000 && gone < 3 * 3600 * 1000) { setCallPrompt(c.clientId); lastCallRef.current = null; }
+    };
+    document.addEventListener("visibilitychange", back);
+    window.addEventListener("focus", back);
+    return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
+  }, []);
   const logContact = async (client, kind) => {
+    if (kind === "call" && client && client.id) lastCallRef.current = { clientId: client.id, at: Date.now() };
     const key = `${client.id}|${kind}`;
     if (Date.now() - (lastContactRef.current[key] || 0) < 10 * 60 * 1000) return;
     lastContactRef.current[key] = Date.now();
@@ -6783,6 +7783,7 @@ export default function App() {
     setCloseTarget(null);
     setOpenClientId(null);
     await refreshClients();
+    celebrate("sad", `${client.name} · ${reason === "other" ? note || "closed" : CLOSE_REASON_LABEL[reason] || "closed"}`);
   };
 
   const restoreClient = async (client, { newStage, note }) => {
@@ -6930,6 +7931,7 @@ export default function App() {
 
   const confirmHold = async (reason) => {
     await db.update("units", holdTarget.id, { status: "hold", hold_reason: reason }, await getValidToken());
+    celebrate("sad", `${holdTarget.type} ${holdTarget.unitNumber} is on hold · ${reason}`);
     setHoldTarget(null);
     await refreshUnits();
   };
@@ -6937,6 +7939,7 @@ export default function App() {
   const saveSoldDetails = async (unit, patch) => {
     await db.update("units", unit.id, patch, await getValidToken());
     await refreshUnits();
+    if (unit.status !== "sold" && patch.sold_via === "outside") celebrate("sad", `${unit.type} ${unit.unitNumber} was sold without us`);
   };
   const backToAvailable = async (unit) => {
     if (!window.confirm(`Put ${unit.type} ${unit.unitNumber} back in the available units?`)) return;
@@ -7076,7 +8079,7 @@ export default function App() {
     { id: "hold", label: "On hold", icon: PauseCircle },
     { id: "sold", label: "Sold", icon: CheckCircle },
   ];
-  const PROFILE_SUBNAV = [{ id: "profile", label: "My profile", icon: UserRound }];
+  const PROFILE_SUBNAV = [{ id: "profile", label: "My profile", icon: UserRound }, { id: "attendance", label: "Attendance", icon: Clock }];
   if (profile.role === "admin" || profile.role === "ceo") {
     PROFILE_SUBNAV.push({ id: "dashboard", label: "Dashboard", icon: LayoutGrid });
     PROFILE_SUBNAV.push({ id: "reports", label: "Reports", icon: Users });
@@ -7096,6 +8099,8 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <div className="orbs" aria-hidden="true"><i /><i /><i /></div>
+      <CelebrationOverlay profile={profile} settings={fin.settings} />
       {/* Top bar */}
       <div className="topbar">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 16px" }}>
@@ -7129,6 +8134,7 @@ export default function App() {
                 <div style={{ color: COLORS.gold, fontSize: 11.5, fontWeight: 600 }}>{ROLE_LABEL[profile.role]}</div>
               </div>
             </div>
+            <button className="theme-btn" title="Light / dark" aria-label="Switch light or dark mode" onClick={() => { const d = document.documentElement.classList.toggle("dark"); try { localStorage.setItem("origin_theme", d ? "dark" : "light"); } catch (e) {} }}>🌓</button>
             <button onClick={signOut} title="Sign out" style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 600 }}>
               <LogOut size={14} /><span className="hide-sm">Sign out</span>
             </button>
@@ -7235,71 +8241,15 @@ export default function App() {
         )}
 
         {section === "units" && tab === "my" && (
-          <>
-            <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>
-              {profile.role === "sales_agent" ? "My units" : "My team's units"}
-            </div>
-            {myUnits.length === 0 ? (
-              <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No units assigned yet.</div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
-                {myUnits.map((u) => <UnitCard key={u.id} unit={u} projectInfo={getProjectInfo(u)} canSeeOwner={canSeeOwner(u)} handledBy={getHandledBy(u)} onOpen={setOpenUnit} onViewProfile={setViewedUserId} />)}
-              </div>
-            )}
-          </>
+          <UnitsBrowser id="my" title={profile.role === "sales_agent" ? "My units" : "My team's units"} empty="No units assigned yet."
+            units={units.filter((u) => u.salesIds.some((sid) => visibleSalesIds.includes(sid)) && u.status !== "pending_delete")} showStatus
+            projects={projects} developers={developers} users={users} getProjectInfo={getProjectInfo} canSeeOwner={canSeeOwner} getHandledBy={getHandledBy} onOpen={setOpenUnit} onViewProfile={setViewedUserId} />
         )}
 
         {section === "units" && tab === "all" && (
-          <>
-            <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>All units</div>
-            <div style={{ background: "#fff", padding: 16, borderRadius: 14, border: `1px solid ${COLORS.border}`, marginBottom: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, marginBottom: 14 }}>
-                <Select value={filters.destination} onChange={(v) => setFilters((f) => ({ ...f, destination: v, projectId: "" }))} options={DESTINATIONS} placeholder="Destination" />
-                <select value={filters.developerId} onChange={(e) => setFilters((f) => ({ ...f, developerId: e.target.value, projectId: "" }))} style={{ ...inputStyle, appearance: "none" }}>
-                  <option value="">Developer</option>
-                  {developers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <select value={filters.projectId} onChange={(e) => setFilters((f) => ({ ...f, projectId: e.target.value }))} style={{ ...inputStyle, appearance: "none" }}>
-                  <option value="">Project</option>
-                  {projects
-                    .filter((p) => (!filters.destination || p.destination === filters.destination) && (!filters.developerId || p.developerId === filters.developerId))
-                    .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <select value={filters.listing} onChange={(e) => setFilters((f) => ({ ...f, listing: e.target.value }))} style={{ ...inputStyle, appearance: "none" }}>
-                  <option value="">Sale & rent</option>
-                  <option value="sale">For sale</option>
-                  <option value="rent">For rent</option>
-                </select>
-                <Select value={filters.type} onChange={(v) => setFilters((f) => ({ ...f, type: v }))} options={TYPES} placeholder="Type" />
-                <Select value={filters.finishing} onChange={(v) => setFilters((f) => ({ ...f, finishing: v }))} options={FINISHING} placeholder="Finishing" />
-                <Select value={filters.deliveryDate} onChange={(v) => setFilters((f) => ({ ...f, deliveryDate: v }))} options={DELIVERY} placeholder="Delivery date" />
-                <input style={inputStyle} placeholder="Unit number" value={filters.unitNumber} onChange={(e) => setFilters((f) => ({ ...f, unitNumber: e.target.value }))} />
-                <input style={inputStyle} placeholder="Phase" value={filters.phase} onChange={(e) => setFilters((f) => ({ ...f, phase: e.target.value }))} />
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
-                <RangeField label={filters.listing === "rent" ? "Monthly rent (EGP)" : "Total price (EGP)"} minValue={filters.priceMin} maxValue={filters.priceMax}
-                  onMinChange={(v) => setFilters((f) => ({ ...f, priceMin: v }))} onMaxChange={(v) => setFilters((f) => ({ ...f, priceMax: v }))} />
-                <RangeField label="Floor" minValue={filters.floorMin} maxValue={filters.floorMax}
-                  onMinChange={(v) => setFilters((f) => ({ ...f, floorMin: v }))} onMaxChange={(v) => setFilters((f) => ({ ...f, floorMax: v }))} />
-                <RangeField label="Land area (sqm)" minValue={filters.landAreaMin} maxValue={filters.landAreaMax}
-                  onMinChange={(v) => setFilters((f) => ({ ...f, landAreaMin: v }))} onMaxChange={(v) => setFilters((f) => ({ ...f, landAreaMax: v }))} />
-                <RangeField label="BUA (sqm)" minValue={filters.buaMin} maxValue={filters.buaMax}
-                  onMinChange={(v) => setFilters((f) => ({ ...f, buaMin: v }))} onMaxChange={(v) => setFilters((f) => ({ ...f, buaMax: v }))} />
-                <RangeField label="Extra area (sqm)" minValue={filters.extraAreaMin} maxValue={filters.extraAreaMax}
-                  onMinChange={(v) => setFilters((f) => ({ ...f, extraAreaMin: v }))} onMaxChange={(v) => setFilters((f) => ({ ...f, extraAreaMax: v }))} />
-              </div>
-              <button
-                onClick={() => setFilters({ destination: "", developerId: "", projectId: "", type: "", finishing: "", deliveryDate: "", floorMin: "", floorMax: "", landAreaMin: "", landAreaMax: "", buaMin: "", buaMax: "", extraAreaMin: "", extraAreaMax: "", priceMin: "", priceMax: "", unitNumber: "", phase: "" })}
-                style={{ marginTop: 14, border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, color: COLORS.textMuted }}
-              >
-                Clear all filters
-              </button>
-            </div>
-            <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>{filteredUnits.length} units found</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
-              {filteredUnits.map((u) => <UnitCard key={u.id} unit={u} projectInfo={getProjectInfo(u)} canSeeOwner={canSeeOwner(u)} handledBy={getHandledBy(u)} onOpen={setOpenUnit} onViewProfile={setViewedUserId} />)}
-            </div>
-          </>
+          <UnitsBrowser id="all" title="Available units" empty="No available units yet."
+            units={units.filter((u) => u.status === "active")}
+            projects={projects} developers={developers} users={users} getProjectInfo={getProjectInfo} canSeeOwner={canSeeOwner} getHandledBy={getHandledBy} onOpen={setOpenUnit} onViewProfile={setViewedUserId} />
         )}
 
         {section === "units" && tab === "add" && (
@@ -7313,6 +8263,8 @@ export default function App() {
               projects={projects}
               editingUnit={editingUnit}
               onDoneEditing={() => setEditingUnit(null)}
+              units={units}
+              onOpenUnit={setOpenUnit}
             />
           </>
         )}
@@ -7326,28 +8278,7 @@ export default function App() {
         )}
 
         {section === "units" && tab === "hold" && (
-          <>
-            <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Units on hold</div>
-            {holdUnits.length === 0 ? (
-              <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No units on hold.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {holdUnits.map((u) => (
-                  <div key={u.id} style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 12 }}>
-                    <img src={u.photos[0]} alt="" style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 6 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy }}>{u.type} · {u.unitNumber}</div>
-                      <div style={{ fontSize: 12, color: COLORS.textMuted }}>{getProjectInfo(u).destination} · {getProjectInfo(u).name}</div>
-                      <div style={{ fontSize: 12, color: COLORS.danger, marginTop: 4 }}>Reason: {u.holdReason}</div>
-                    </div>
-                    <button onClick={() => releaseHold(u)} style={{ alignSelf: "center", border: `1px solid ${COLORS.border}`, background: "#fff", padding: "7px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
-                      Reactivate
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+          <HoldList units={holdUnits} projects={projects} getProjectInfo={getProjectInfo} onRelease={releaseHold} onOpen={setOpenUnit} />
         )}
 
         {section === "clients" && (
@@ -7359,6 +8290,8 @@ export default function App() {
                 const linkedUnitIds = clientUnitLinks.filter((l) => l.client_id === client.id).map((l) => l.unit_id);
                 return (
                   <ClientProfile
+                    waTemplates={fin.settings?.wa_templates}
+                    salesName={(users.find((u) => u.id === client.assignedTo) || profile).name}
                     client={client}
                     activity={clientActivity}
                     assignedUser={users.find((u) => u.id === client.assignedTo)}
@@ -7425,6 +8358,15 @@ export default function App() {
                     onQuickReply={quickReply}
                     onContact={logContact}
                     onCloseLead={(c) => setCloseTarget(c)}
+                    heroExtra={<HeroExtras streak={streakDays(clientActivity, profile.id, workDaysOf(fin.settings))} target={myTarget} />}
+                    topSlot={<>
+                      <NotificationsCard profile={profile} compact getToken={getValidToken} />
+                      {isFinanceAdmin(profile) && <MorningBrief clients={clients} activity={clientActivity} fin={fin} attendance={attendance} users={users} visibleSalesIds={visibleSalesIds} settings={fin.settings} onOpen={openLink} />}
+                    </>}
+                    bottomSlot={<>
+                      <PastBuyers units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} onContact={() => {}} />
+                      <Leaderboard rows={leaderboard} profileId={profile.id} />
+                    </>}
                   />
                 )}
                 {clientsTab === "team" && profile.role !== "sales_agent" && (
@@ -7437,6 +8379,7 @@ export default function App() {
                   <DuplicateRequests requests={duplicates} clients={clients} users={users} onDecide={decideDuplicate} onOpenClient={(c) => setOpenClientId(c.id)} />
                 )}
                 {clientsTab === "all" && <ClientsList
+                  clientProjectLinks={clientProjectLinks}
                   clients={clients}
                   users={users}
                   projects={projects}
@@ -7474,6 +8417,21 @@ export default function App() {
               </div>
             )}
 
+            {callPrompt && (() => {
+              const c = clients.find((x) => x.id === callPrompt);
+              if (!c) return null;
+              return (
+                <FinModal title={`How did the call with ${c.name} go?`} onClose={() => setCallPrompt(null)} width={520}>
+                  <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>One tap saves the update and sets the next follow-up.</div>
+                  <QuickReplyBar client={c} activity={clientActivity}
+                    onQuickReply={async (cl, plan) => { await quickReply(cl, plan); setCallPrompt(null); }}
+                    onCloseLead={() => { setCallPrompt(null); setCloseTarget(c); }} />
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                    <button onClick={() => setCallPrompt(null)} style={{ border: "none", background: "none", color: COLORS.textMuted, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Skip</button>
+                  </div>
+                </FinModal>
+              );
+            })()}
             {stageChangeTarget && (
               <StageChangeModal
                 client={stageChangeTarget}
@@ -7515,6 +8473,8 @@ export default function App() {
             getProjectInfo={getProjectInfo}
             onNewDeal={(initial) => setDealModal({ initial })}
             onEditDeal={(deal) => setDealModal({ editing: { deal, agents: fin.dealAgents.filter((a) => a.deal_id === deal.id) } })}
+            deepLink={finDeep}
+            uploadMedia={async (f) => storage.upload("unit-photos", `celebrations/${Date.now()}-${f.name.replace(/[^A-Za-z0-9._-]/g, "_")}`, f, await getValidToken())}
           />
         )}
 
@@ -7526,6 +8486,7 @@ export default function App() {
             visibleSalesIds={visibleSalesIds}
             onOpenClient={(c) => { setSection("clients"); setOpenClientId(c.id); }}
             attendance={attendance}
+            attendanceSettings={fin.settings}
           />
         )}
 
@@ -7539,7 +8500,14 @@ export default function App() {
             onOpenClient={(c) => { setSection("clients"); setOpenClientId(c.id); }}
             onOpenUnit={(u) => setOpenUnit(u)}
             attendance={attendance}
+            attendanceSettings={fin.settings}
           />
+        )}
+
+        {section === "profile" && tab === "attendance" && (
+          <AttendanceReport attendance={attendance} settings={fin.settings}
+            people={profile.role === "sales_agent" ? [profile] : users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role))}
+            title={profile.role === "sales_agent" ? "My attendance" : "Attendance"} storageKey="attendance:tab" />
         )}
 
         {section === "profile" && tab === "profile" && (
