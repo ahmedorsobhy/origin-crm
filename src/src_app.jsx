@@ -75,8 +75,25 @@ const db = {
   },
 };
 
+// Phone photos are 3–6 MB; shrink to max 1600px JPEG (~250 KB) so the free 1 GB lasts for thousands of photos
+async function shrinkImage(file, maxSide = 1600, quality = 0.82) {
+  try {
+    if (!file || !/^image\/(jpeg|jpg|png|webp|heic|heif)/i.test(file.type || "") || file.size < 400 * 1024) return file;
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", quality));
+    return blob && blob.size < file.size ? blob : file;
+  } catch (e) { return file; } // if the browser can't read it, upload the original
+}
+
 const storage = {
-  upload: async (bucket, path, file, accessToken) => {
+  upload: async (bucket, path, rawFile, accessToken) => {
+    const file = await shrinkImage(rawFile);
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
       method: "POST",
       headers: {
