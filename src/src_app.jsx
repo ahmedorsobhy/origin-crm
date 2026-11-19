@@ -240,6 +240,13 @@ function money(n) {
   if (!n && n !== 0) return "—";
   return Number(n).toLocaleString("en-US") + " EGP";
 }
+// Units can be listed for sale, for rent, or both
+const LISTING_LABEL = { sale: "For sale", rent: "For rent", both: "Sale & rent" };
+const FURNISHING = ["Furnished", "Semi-furnished", "Unfurnished"];
+const isForSale = (u) => (u.listingType || "sale") !== "rent";
+const isForRent = (u) => u.listingType === "rent" || u.listingType === "both";
+const rentMoney = (n) => (n || n === 0 ? `${Number(n).toLocaleString("en-US")} EGP / month` : "—");
+const unitPriceText = (u) => [isForSale(u) ? money(u.totalPrice) : null, isForRent(u) ? rentMoney(u.rentPrice) : null].filter(Boolean).join(" · ");
 function formatDate(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -277,9 +284,14 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
         <img src={unit.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         <div style={{ position: "absolute", top: 8, left: 8 }}>
           <Badge tone={unit.status === "hold" ? "hold" : unit.status === "pending_delete" ? "pending" : "active"}>
-            {unit.status === "hold" ? "On hold" : unit.status === "pending_delete" ? "Deletion pending" : "Available"}
+            {unit.status === "hold" ? (unit.holdReason === "Rented" ? "Rented" : "On hold") : unit.status === "pending_delete" ? "Deletion pending" : "Available"}
           </Badge>
         </div>
+        {isForRent(unit) && (
+          <div style={{ position: "absolute", top: 8, right: 8 }}>
+            <Badge tone="neutral">{LISTING_LABEL[unit.listingType]}</Badge>
+          </div>
+        )}
       </div>
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -293,7 +305,8 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
           <Ruler size={13} /> {unit.bua} sqm BUA · Floor {floorLabel(unit.floor)}
         </div>
         <div style={{ fontWeight: 600, fontSize: 15, color: COLORS.gold, marginTop: 2 }}>
-          {money(unit.totalPrice)}
+          {isForSale(unit) && <div>{money(unit.totalPrice)}</div>}
+          {isForRent(unit) && <div>{rentMoney(unit.rentPrice)}</div>}
         </div>
         {handledBy && (
           <div
@@ -332,7 +345,8 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
     const lines = [
       `${unit.type} - ${unit.unitNumber}`,
       `${projectInfo.name}, ${projectInfo.destination}`,
-      money(unit.totalPrice),
+      ...(isForSale(unit) ? [`For sale: ${money(unit.totalPrice)}`] : []),
+      ...(isForRent(unit) ? [`For rent: ${rentMoney(unit.rentPrice)}${unit.furnished ? ` (${unit.furnished})` : ""}`] : []),
       "",
       unit.description,
       "",
@@ -346,10 +360,15 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
     ["Type", unit.type], ["Floor", floorLabel(unit.floor)], ["Finishing", unit.finishing],
     ["Land area", unit.landArea ? `${unit.landArea} sqm` : "—"], ["BUA", `${unit.bua} sqm`],
     ["Extra area", unit.extraArea ? `${unit.extraArea} sqm` : "—"],
-    ["Downpayment", money(unit.downpayment)], ["Remaining", money(unit.remaining)],
-    ["Remaining Maintenance", money(unit.remainingMaintenance)], ["Remaining Club payment", money(unit.remainingClubPayment)],
-    ["Extras (price)", money(unit.extrasPrice)],
-    ["Total price", money(unit.totalPrice)], ["Delivery", unit.deliveryDate],
+    ["Listed for", LISTING_LABEL[unit.listingType || "sale"]],
+    ...(isForSale(unit) ? [
+      ["Downpayment", money(unit.downpayment)], ["Remaining", money(unit.remaining)],
+      ["Remaining Maintenance", money(unit.remainingMaintenance)], ["Remaining Club payment", money(unit.remainingClubPayment)],
+      ["Extras (price)", money(unit.extrasPrice)],
+      ["Total price", money(unit.totalPrice)],
+    ] : []),
+    ...(isForRent(unit) ? [["Monthly rent", rentMoney(unit.rentPrice)], ["Furnishing", unit.furnished || "—"]] : []),
+    ["Delivery", unit.deliveryDate],
     ["Unit number", unit.unitNumber],
     ["Added", formatDate(unit.createdAt)], ["Last updated", formatDate(unit.updatedAt)],
   ];
@@ -469,11 +488,19 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
           {unit.status === "sold" && (
             <div style={{ marginTop: 14 }}><Badge tone="active">Sold</Badge></div>
           )}
+          {unit.status === "hold" && unit.holdReason === "Rented" && (
+            <div style={{ marginTop: 14 }}><Badge tone="active">Rented</Badge></div>
+          )}
           {unit.status !== "pending_delete" && (
             <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: 8 }}>
-              {onMarkSold && unit.status === "active" && (
-                <button onClick={() => onMarkSold(unit)} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+              {onMarkSold && unit.status === "active" && isForSale(unit) && (
+                <button onClick={() => onMarkSold(unit, "sale")} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                   Mark as sold
+                </button>
+              )}
+              {onMarkSold && unit.status === "active" && isForRent(unit) && (
+                <button onClick={() => onMarkSold(unit, "rent")} style={{ border: "none", background: COLORS.success, color: "#fff", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                  Mark as rented
                 </button>
               )}
               {canEdit && (
@@ -522,6 +549,7 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
     extraArea: "", floor: "", finishing: "", downpayment: "", remaining: "",
     remainingMaintenance: "", remainingClubPayment: "", extrasPrice: "",
     totalPrice: "", deliveryDate: "", unitNumber: "", ownerName: "", ownerNumber: "", description: "",
+    listingType: "sale", rentPrice: "", furnished: "",
   };
   const buildFromUnit = (unit) => {
     const project = projects.find((p) => p.id === unit.projectId);
@@ -546,6 +574,9 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
       ownerName: unit.ownerName,
       ownerNumber: unit.ownerNumber,
       description: unit.description || "",
+      listingType: unit.listingType || "sale",
+      rentPrice: unit.rentPrice ?? "",
+      furnished: unit.furnished || "",
     };
   };
 
@@ -572,7 +603,10 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
   const availableProjects = projects.filter((p) => !form.developerId || p.developerId === form.developerId);
   const selectedProject = projects.find((p) => p.id === form.projectId);
 
-  const requiredFields = ["developerId", "projectId", "type", "floor", "finishing", "deliveryDate", "unitNumber", "ownerName", "ownerNumber", "totalPrice", "description"];
+  const forSale = form.listingType !== "rent";
+  const forRent = form.listingType !== "sale";
+  const requiredFields = ["developerId", "projectId", "type", "floor", "finishing", "deliveryDate", "unitNumber", "ownerName", "ownerNumber", "description",
+    ...(forSale ? ["totalPrice"] : []), ...(forRent ? ["rentPrice"] : [])];
 
   const submit = async () => {
     const missing = requiredFields.filter((k) => !form[k]);
@@ -612,6 +646,18 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
 
   return (
     <div style={{ maxWidth: 680 }}>
+      <div role="group" aria-label="Listing" style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.text, marginBottom: 6 }}>Listed for <span style={{ color: COLORS.danger }}>*</span></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[["sale", "Sale"], ["rent", "Rent"], ["both", "Sale & rent"]].map(([id, label]) => (
+            <button key={id} type="button" onClick={() => set("listingType")(id)} style={{
+              flex: 1, padding: "9px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+              border: `1px solid ${form.listingType === id ? COLORS.navy : COLORS.border}`,
+              background: form.listingType === id ? COLORS.navy : "#fff", color: form.listingType === id ? "#fff" : COLORS.text,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
         <Field label="Developer" required>
           <select value={form.developerId} onChange={(e) => set("developerId")(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
@@ -641,12 +687,22 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
         <Field label="BUA (sqm)"><input style={inputStyle} type="number" value={form.bua} onChange={(e) => set("bua")(e.target.value)} placeholder="0" /></Field>
         <Field label="Extra area (sqm)"><input style={inputStyle} type="number" value={form.extraArea} onChange={(e) => set("extraArea")(e.target.value)} placeholder="0" /></Field>
         <Field label="Delivery date" required><Select value={form.deliveryDate} onChange={set("deliveryDate")} options={DELIVERY} /></Field>
+        {forSale && (
+          <>
         <Field label="Downpayment"><input style={inputStyle} type="number" value={form.downpayment} onChange={(e) => set("downpayment")(e.target.value)} placeholder="0" /></Field>
         <Field label="Remaining"><input style={inputStyle} type="number" value={form.remaining} onChange={(e) => set("remaining")(e.target.value)} placeholder="0" /></Field>
         <Field label="Remaining Maintenance"><input style={inputStyle} type="number" value={form.remainingMaintenance} onChange={(e) => set("remainingMaintenance")(e.target.value)} placeholder="0" /></Field>
         <Field label="Remaining Club payment"><input style={inputStyle} type="number" value={form.remainingClubPayment} onChange={(e) => set("remainingClubPayment")(e.target.value)} placeholder="0" /></Field>
         <Field label="Extras (price)"><input style={inputStyle} type="number" value={form.extrasPrice} onChange={(e) => set("extrasPrice")(e.target.value)} placeholder="0" /></Field>
         <Field label="Total price" required><input style={inputStyle} type="number" value={form.totalPrice} onChange={(e) => set("totalPrice")(e.target.value)} placeholder="0" /></Field>
+          </>
+        )}
+        {forRent && (
+          <>
+            <Field label="Monthly rent (EGP)" required><input style={inputStyle} type="number" value={form.rentPrice} onChange={(e) => set("rentPrice")(e.target.value)} placeholder="0" /></Field>
+            <Field label="Furnishing"><Select value={form.furnished} onChange={set("furnished")} options={FURNISHING} /></Field>
+          </>
+        )}
         <Field label="Unit number" required><input style={inputStyle} value={form.unitNumber} onChange={(e) => set("unitNumber")(e.target.value)} placeholder="e.g. OT-304" /></Field>
         <Field label="Owner name" required><input style={inputStyle} value={form.ownerName} onChange={(e) => set("ownerName")(e.target.value)} placeholder="Full name" /></Field>
         <Field label="Owner phone" required><input style={inputStyle} value={form.ownerNumber} onChange={(e) => set("ownerNumber")(e.target.value)} placeholder="01xxxxxxxxx" /></Field>
@@ -1287,6 +1343,9 @@ function mapUnit(row, salesIds) {
     remainingClubPayment: row.remaining_club_payment,
     extrasPrice: row.extras_price,
     totalPrice: row.total_price,
+    listingType: row.listing_type || "sale",
+    rentPrice: row.rent_price,
+    furnished: row.furnished || "",
     deliveryDate: row.delivery_date,
     unitNumber: row.unit_number,
     ownerName: row.owner_name,
@@ -1316,7 +1375,10 @@ function unitToDbRow(unit, createdBy) {
     remaining_maintenance: unit.remainingMaintenance === "" ? null : unit.remainingMaintenance,
     remaining_club_payment: unit.remainingClubPayment === "" ? null : unit.remainingClubPayment,
     extras_price: unit.extrasPrice === "" ? null : unit.extrasPrice,
-    total_price: Number(unit.totalPrice),
+    total_price: unit.listingType === "rent" ? null : Number(unit.totalPrice),
+    listing_type: unit.listingType || "sale",
+    rent_price: unit.listingType === "sale" || unit.rentPrice === "" ? null : Number(unit.rentPrice),
+    furnished: unit.listingType === "sale" ? null : unit.furnished || null,
     delivery_date: unit.deliveryDate,
     unit_number: unit.unitNumber,
     owner_name: unit.ownerName,
@@ -1343,7 +1405,10 @@ function unitEditToDbRow(form) {
     remaining_maintenance: form.remainingMaintenance === "" ? null : form.remainingMaintenance,
     remaining_club_payment: form.remainingClubPayment === "" ? null : form.remainingClubPayment,
     extras_price: form.extrasPrice === "" ? null : form.extrasPrice,
-    total_price: Number(form.totalPrice),
+    total_price: form.listingType === "rent" ? null : Number(form.totalPrice),
+    listing_type: form.listingType || "sale",
+    rent_price: form.listingType === "sale" || form.rentPrice === "" ? null : Number(form.rentPrice),
+    furnished: form.listingType === "sale" ? null : form.furnished || null,
     delivery_date: form.deliveryDate,
     unit_number: form.unitNumber,
     owner_name: form.ownerName,
@@ -1447,6 +1512,7 @@ function mapClient(row) {
     source: row.source || "",
     referralName: row.referral_name || "",
     budget: row.budget,
+    interest: row.interest || "buy",
     notes: row.notes || "",
     stage: row.stage,
     previousStage: row.previous_stage,
@@ -1472,6 +1538,7 @@ function clientToDbRow(form, createdBy) {
     source: form.source || null,
     referral_name: form.source === "colleague_referral" ? (form.referralName || null) : null,
     budget: form.budget === "" ? null : form.budget,
+    interest: form.interest || "buy",
     notes: form.notes || null,
     stage: form.stage || "new_lead",
     assigned_to: form.assignedTo,
@@ -1664,7 +1731,7 @@ function LabeledSelect({ value, onChange, options, placeholder }) {
 }
 
 function AddClientForm({ onAdd, currentUser, assignableUsers }) {
-  const blank = { name: "", phone: "", email: "", source: "", referralName: "", budget: "", notes: "", assignedTo: "", stage: "new_lead", feedback: "" };
+  const blank = { name: "", phone: "", email: "", source: "", referralName: "", budget: "", interest: "buy", notes: "", assignedTo: "", stage: "new_lead", feedback: "" };
   const [form, setForm] = useState(blank);
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
   const [error, setError] = useState("");
@@ -1692,7 +1759,19 @@ function AddClientForm({ onAdd, currentUser, assignableUsers }) {
       <Field label="Client name" required><input style={inputStyle} value={form.name} onChange={(e) => set("name")(e.target.value)} /></Field>
       <Field label="Phone" required><input style={inputStyle} value={form.phone} onChange={(e) => set("phone")(e.target.value)} /></Field>
       <Field label="Email"><input style={inputStyle} value={form.email} onChange={(e) => set("email")(e.target.value)} /></Field>
-      <Field label="Budget"><input style={inputStyle} type="number" value={form.budget} onChange={(e) => set("budget")(e.target.value)} /></Field>
+      <div role="group" aria-label="Looking to">
+        <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.text, marginBottom: 6 }}>Looking to <span style={{ color: COLORS.danger }}>*</span></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[["buy", "Buy"], ["rent", "Rent"]].map(([id, label]) => (
+            <button key={id} type="button" onClick={() => set("interest")(id)} style={{
+              flex: 1, padding: "9px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+              border: `1px solid ${form.interest === id ? COLORS.navy : COLORS.border}`,
+              background: form.interest === id ? COLORS.navy : "#fff", color: form.interest === id ? "#fff" : COLORS.text,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <Field label={form.interest === "rent" ? "Budget (monthly rent, EGP)" : "Budget"}><input style={inputStyle} type="number" value={form.budget} onChange={(e) => set("budget")(e.target.value)} /></Field>
       <Field label="Source"><LabeledSelect value={form.source} onChange={set("source")} options={SOURCES} placeholder="Select source..." /></Field>
       {form.source === "colleague_referral" && (
         <Field label="Colleague's name" required><input style={inputStyle} value={form.referralName} onChange={(e) => set("referralName")(e.target.value)} /></Field>
@@ -1918,6 +1997,7 @@ function ClientCard({ client, assignedUser, onOpen, notifCount, lastActivityAt }
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         <ClientStageBadge stage={client.stage} />
         {client.qualified && <Badge tone="active">Qualified</Badge>}
+        {client.interest === "rent" && <Badge tone="neutral">Rent</Badge>}
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: COLORS.textMuted, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
@@ -1928,7 +2008,7 @@ function ClientCard({ client, assignedUser, onOpen, notifCount, lastActivityAt }
   );
 }
 
-function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold }) {
+function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest }) {
   const [unitPickerOpen, setUnitPickerOpen] = useState(false);
   const timeline = activity.filter((a) => a.clientId === client.id).sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
 
@@ -1959,7 +2039,16 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, fontSize: 12.5, color: COLORS.text }}>
-          {client.budget != null && client.budget !== "" && <div><b>Budget:</b> {money(client.budget)}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <b>Looking to:</b>
+            {canManage && onChangeInterest ? (
+              <select value={client.interest} onChange={(e) => onChangeInterest(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "3px 8px", fontSize: 12.5, appearance: "none" }}>
+                <option value="buy">Buy</option>
+                <option value="rent">Rent</option>
+              </select>
+            ) : (client.interest === "rent" ? "Rent" : "Buy")}
+          </div>
+          {client.budget != null && client.budget !== "" && <div><b>Budget:</b> {client.interest === "rent" ? rentMoney(client.budget) : money(client.budget)}</div>}
           {client.source && <div><b>Source:</b> {SOURCE_LABEL[client.source]}{client.source === "colleague_referral" && client.referralName ? ` — ${client.referralName}` : ""}</div>}
           {assignedUser && <div><b>Sales:</b> {assignedUser.name} ({assignedUser.phone})</div>}
           <div><b>Added:</b> {formatDate(client.createdAt)}</div>
@@ -1975,7 +2064,7 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
             <>
               <button onClick={onChangeStage} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Change stage</button>
               {canManage && onMarkSold && client.stage !== "deal_done" && (
-                <button onClick={onMarkSold} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Mark as sold</button>
+                <button onClick={onMarkSold} style={{ background: COLORS.success, color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>{client.interest === "rent" ? "Mark as rented" : "Mark as sold"}</button>
               )}
               <button onClick={onAddFeedback} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Add feedback</button>
               {canManage && <button onClick={() => setUnitPickerOpen(true)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.text, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 12.5 }}>Link units</button>}
@@ -2144,7 +2233,7 @@ function ClientRow({ client, assignedUser, linkedUnits, notifCount, lastActivity
 }
 
 function ClientsList({ clients, users, projects, units, clientUnitLinks, activity, visibleSalesIds, currentUserId, isManager, onOpenClient, onOpenUnit }) {
-  const [filters, setFilters] = useState({ stage: "", assignedTo: "", projectId: "", source: "", needsFollowUp: false });
+  const [filters, setFilters] = useState({ stage: "", assignedTo: "", projectId: "", source: "", interest: "", needsFollowUp: false });
   const [search, setSearch] = useState("");
   const [view, setView] = useState("active"); // "active" | "not_qualified" | "closed"
 
@@ -2160,6 +2249,7 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, activit
     if (filters.stage && c.stage !== filters.stage) return false;
     if (filters.assignedTo && c.assignedTo !== filters.assignedTo) return false;
     if (filters.source && c.source !== filters.source) return false;
+    if (filters.interest && c.interest !== filters.interest) return false;
     if (filters.needsFollowUp && clientNotifications(c, activity).length === 0) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -2220,6 +2310,11 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, activit
         <select style={{ ...inputStyle, maxWidth: 170, appearance: "none" }} value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}>
           <option value="">All sources</option>
           {SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+        <select style={{ ...inputStyle, maxWidth: 150, appearance: "none" }} value={filters.interest} onChange={(e) => setFilters((f) => ({ ...f, interest: e.target.value }))}>
+          <option value="">Buy & rent</option>
+          <option value="buy">Buyers</option>
+          <option value="rent">Renters</option>
         </select>
         {view === "active" && (
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: COLORS.text }}>
@@ -2718,6 +2813,10 @@ function groupBy(list, keyFn) {
 // ---- Deal sides: Origin can represent the buyer, the seller, or both.
 // Each side has its own commission and its own team (shares add up to 100 per side).
 const SIDE_LABEL = { buyer: "Buyer side", seller: "Seller side" };
+// Rent deals: buyer side = tenant, seller side = landlord. Same commission scheme as sales.
+const isRentDeal = (d) => !!d && d.deal_type === "rent";
+const partyName = (dealType, side) => (dealType === "rent" ? (side === "buyer" ? "tenant" : "landlord") : side);
+const sideLabelFor = (dealType, side) => (dealType === "rent" ? (side === "buyer" ? "Tenant side" : "Landlord side") : SIDE_LABEL[side]);
 const dealSides = (d) => (d && d.sides === "both" ? ["buyer", "seller"] : [d && d.sides === "seller" ? "seller" : "buyer"]);
 const sideCommission = (d, side) => {
   const b = num(d.commission_buyer), sl = num(d.commission_seller);
@@ -2886,6 +2985,15 @@ function isoToDateInput(iso) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+const dealStatusInfo = (d) => {
+  const base = DEAL_STATUS[d && d.status] || DEAL_STATUS.pending;
+  if (d && d.status === "reserved" && isRentDeal(d)) return { ...base, label: "Reserved · rental" };
+  if (d && d.status === "approved" && isRentDeal(d)) return { ...base, label: "Done · rented" };
+  return base;
+};
+const dealPriceText = (d) => (isRentDeal(d)
+  ? `${egp(d.rent_monthly)} EGP / month × ${num(d.lease_months)} months`
+  : egpFull(d.sale_price));
 const dealShownDate = (d) => (d.status === "approved" && d.transfer_date ? d.transfer_date : d.deal_date);
 const DEAL_STATUS = {
   pending: { label: "Waiting for approval", tone: "pending" },
@@ -3088,6 +3196,10 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const [unitId, setUnitId] = useState(ed?.unit_id || initial?.unitId || "");
   const [clientId, setClientId] = useState(ed?.client_id || initial?.clientId || "");
   const [salePrice, setSalePrice] = useState(ed ? String(ed.sale_price) : "");
+  const [dealType, setDealType] = useState(ed?.deal_type || initial?.dealType || "sale");
+  const isRent = dealType === "rent";
+  const [rentMonthly, setRentMonthly] = useState(ed?.rent_monthly != null ? String(ed.rent_monthly) : "");
+  const [leaseMonths, setLeaseMonths] = useState(ed?.lease_months != null ? String(ed.lease_months) : "12");
   const [sides, setSides] = useState(ed?.sides || "buyer");
   const [commBuyer, setCommBuyer] = useState(ed ? String(sideCommission(ed, "buyer") || "") : "");
   const [commSeller, setCommSeller] = useState(ed ? String(sideCommission(ed, "seller") || "") : "");
@@ -3116,24 +3228,28 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
 
   const people = users.filter((u) => u.role !== "pending");
   const unitOptions = units
-    .filter((u) => u.status === "active" || u.id === unitId)
+    .filter((u) => ((u.status === "active" && (isRent ? isForRent(u) : isForSale(u))) || u.id === unitId))
     .map((u) => ({ id: u.id, label: `${u.type} · ${u.unitNumber} · ${getProjectInfo(u).name}` }));
   const clientOptions = clients
     .filter((c) => (isAdmin || visibleSalesIds.includes(c.assignedTo)) && (c.stage !== "closed" || c.id === clientId))
-    .map((c) => ({ id: c.id, label: `${c.name} · ${c.phone}` }));
+    .map((c) => ({ id: c.id, label: `${c.name} · ${c.phone}${c.interest === "rent" ? " · rent" : ""}` }));
+  const contractValue = num(rentMonthly) * num(leaseMonths);
   const hasBuyer = sides !== "seller";
   const hasSeller = sides !== "buyer";
   const total = (hasBuyer ? num(commBuyer) : 0) + (hasSeller ? num(commSeller) : 0);
 
   const submit = () => run(async () => {
     if (!unitId && !clientId) throw new Error("Choose the unit or the client of this deal.");
-    if (num(salePrice) <= 0) throw new Error("Enter the sale price.");
-    if (hasBuyer && num(commBuyer) <= 0) throw new Error("Enter the commission from the buyer.");
-    if (hasSeller && num(commSeller) <= 0) throw new Error("Enter the commission from the seller.");
+    if (isRent) {
+      if (num(rentMonthly) <= 0) throw new Error("Enter the monthly rent.");
+      if (num(leaseMonths) <= 0) throw new Error("Enter the lease length in months.");
+    } else if (num(salePrice) <= 0) throw new Error("Enter the sale price.");
+    if (hasBuyer && num(commBuyer) <= 0) throw new Error(`Enter the commission from the ${partyName(dealType, "buyer")}.`);
+    if (hasSeller && num(commSeller) <= 0) throw new Error(`Enter the commission from the ${partyName(dealType, "seller")}.`);
     const rows = [];
     for (const [side, team, on] of [["buyer", buyerTeam, hasBuyer], ["seller", sellerTeam, hasSeller]]) {
       if (!on) continue;
-      const label = SIDE_LABEL[side];
+      const label = sideLabelFor(dealType, side);
       if (team.some((a) => !a.agentId)) throw new Error(`${label}: choose the person for every row.`);
       if (new Set(team.map((a) => a.agentId)).size !== team.length) throw new Error(`${label}: the same person is listed twice.`);
       if (team.some((a) => num(a.split) <= 0)) throw new Error(`${label}: every share must be more than 0%.`);
@@ -3158,7 +3274,10 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         client_id: clientId || null,
         unit_label: unit ? `${unit.type} · ${unit.unitNumber} · ${getProjectInfo(unit).name}` : null,
         client_label: client ? client.name : null,
-        sale_price: num(salePrice),
+        deal_type: dealType,
+        sale_price: isRent ? contractValue : num(salePrice),
+        rent_monthly: isRent ? num(rentMonthly) : null,
+        lease_months: isRent ? Math.round(num(leaseMonths)) : null,
         sides,
         commission_buyer: hasBuyer ? num(commBuyer) : 0,
         commission_seller: hasSeller ? num(commSeller) : 0,
@@ -3185,8 +3304,16 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   );
 
   return (
-    <FinModal title={editing ? "Edit deal" : "Mark as sold — promise of sale"} onClose={onClose} width={640}>
+    <FinModal title={editing ? "Edit deal" : isRent ? "Mark as rented — reservation" : "Mark as sold — promise of sale"} onClose={onClose} width={640}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div role="group" aria-label="Deal type" style={{ display: "flex", gap: 8 }}>
+          {[["sale", "Sale"], ["rent", "Rent"]].map(([id, label]) => (
+            <button key={id} type="button" onClick={() => { setDealType(id); if (unitId && !units.some((u) => u.id === unitId && (id === "rent" ? isForRent(u) : isForSale(u)))) setUnitId(""); }} style={{
+              flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700,
+              border: `1px solid ${dealType === id ? COLORS.gold : COLORS.border}`, background: dealType === id ? COLORS.gold : "#fff", color: dealType === id ? "#fff" : COLORS.text,
+            }}>{label}</button>
+          ))}
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
           <Field label="Unit">
             <select value={unitId} onChange={(e) => setUnitId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
@@ -3200,10 +3327,21 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
               {clientOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </Field>
-          <Field label="Sale price (EGP)" required>
-            <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
-          </Field>
-          <Field label="Promise of sale date" required>
+          {isRent ? (
+            <>
+              <Field label="Monthly rent (EGP)" required>
+                <input type="number" min="0" style={inputStyle} value={rentMonthly} onChange={(e) => setRentMonthly(e.target.value)} />
+              </Field>
+              <Field label="Lease length (months)" required>
+                <input type="number" min="1" style={inputStyle} value={leaseMonths} onChange={(e) => setLeaseMonths(e.target.value)} />
+              </Field>
+            </>
+          ) : (
+            <Field label="Sale price (EGP)" required>
+              <input type="number" min="0" style={inputStyle} value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
+            </Field>
+          )}
+          <Field label={isRent ? "Reservation date" : "Promise of sale date"} required>
             <input type="date" style={inputStyle} value={dealDate} onChange={(e) => setDealDate(e.target.value)} />
           </Field>
         </div>
@@ -3211,25 +3349,32 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         <div role="group" aria-label="We represent">
           <div style={{ fontSize: 12.5, fontWeight: 600, color: COLORS.text, marginBottom: 6 }}>We represent <span style={{ color: COLORS.danger }}>*</span></div>
           <div style={{ display: "flex", gap: 8 }}>
-            {sideBtn("buyer", "Buyer")}{sideBtn("seller", "Seller")}{sideBtn("both", "Buyer & Seller")}
+            {isRent
+              ? <>{sideBtn("buyer", "Tenant")}{sideBtn("seller", "Landlord")}{sideBtn("both", "Tenant & Landlord")}</>
+              : <>{sideBtn("buyer", "Buyer")}{sideBtn("seller", "Seller")}{sideBtn("both", "Buyer & Seller")}</>}
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
           {hasBuyer && (
-            <Field label="Commission from the buyer (EGP)" required>
+            <Field label={`Commission from the ${partyName(dealType, "buyer")} (EGP)`} required>
               <input type="number" min="0" style={inputStyle} value={commBuyer} onChange={(e) => setCommBuyer(e.target.value)} />
             </Field>
           )}
           {hasSeller && (
-            <Field label="Commission from the seller (EGP)" required>
+            <Field label={`Commission from the ${partyName(dealType, "seller")} (EGP)`} required>
               <input type="number" min="0" style={inputStyle} value={commSeller} onChange={(e) => setCommSeller(e.target.value)} />
             </Field>
           )}
         </div>
-        {sides === "both" && <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: -6 }}>Total expected commission: <b>{egpFull(total)}</b></div>}
+        {(sides === "both" || isRent) && (
+          <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: -6 }}>
+            {isRent && contractValue > 0 && <>Contract value: <b>{egpFull(contractValue)}</b>{sides === "both" ? " · " : ""}</>}
+            {sides === "both" && <>Total expected commission: <b>{egpFull(total)}</b></>}
+          </div>
+        )}
 
-        {hasBuyer && <SideTeamEditor title="Buyer side team" team={buyerTeam} setTeam={setBuyerTeam} people={people} lockFirst={!isAdmin && !editing && sides === "buyer"} />}
-        {hasSeller && <SideTeamEditor title="Seller side team" team={sellerTeam} setTeam={setSellerTeam} people={people} lockFirst={!isAdmin && !editing && sides === "seller"} />}
+        {hasBuyer && <SideTeamEditor title={`${sideLabelFor(dealType, "buyer")} team`} team={buyerTeam} setTeam={setBuyerTeam} people={people} lockFirst={!isAdmin && !editing && sides === "buyer"} />}
+        {hasSeller && <SideTeamEditor title={`${sideLabelFor(dealType, "seller")} team`} team={sellerTeam} setTeam={setSellerTeam} people={people} lockFirst={!isAdmin && !editing && sides === "seller"} />}
 
         <Field label="Notes">
           <textarea style={{ ...inputStyle, minHeight: 60 }} value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -3243,19 +3388,19 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
             </label>
             {approveNow && (
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Reserved — promise of sale (no money yet)</label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={asDone} onChange={() => setAsDone(true)} /> Done — transfer done, commission collected</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Reserved — {isRent ? "reservation" : "promise of sale"} (no money yet)</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={asDone} onChange={() => setAsDone(true)} /> Done — {isRent ? "lease signed" : "transfer done"}, commission collected</label>
               </div>
             )}
             {approveNow && asDone && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
                 {hasBuyer && (
-                  <Field label="Collected from buyer">
+                  <Field label={`Collected from ${partyName(dealType, "buyer")}`}>
                     <input type="number" min="0" style={inputStyle} value={collBuyer ?? commBuyer} onChange={(e) => setCollBuyer(e.target.value)} />
                   </Field>
                 )}
                 {hasSeller && (
-                  <Field label="Collected from seller">
+                  <Field label={`Collected from ${partyName(dealType, "seller")}`}>
                     <input type="number" min="0" style={inputStyle} value={collSeller ?? commSeller} onChange={(e) => setCollSeller(e.target.value)} />
                   </Field>
                 )}
@@ -3264,7 +3409,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
                     {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </Field>
-                <Field label="Money in / transfer date">
+                <Field label={isRent ? "Money in / lease date" : "Money in / transfer date"}>
                   <input type="date" style={inputStyle} value={transferDate} onChange={(e) => setTransferDate(e.target.value)} />
                 </Field>
               </div>
@@ -3313,7 +3458,7 @@ function DealTeams({ deal, agents, userName, showCommission = true }) {
         const sum = round2(team.reduce((x, a) => x + num(a.split_pct), 0));
         return (
           <div key={side}>
-            <b>{SIDE_LABEL[side]}</b>{showCommission ? ` · ${egp(sideCommission(deal, side))} EGP` : ""}:{" "}
+            <b>{sideLabelFor(deal.deal_type, side)}</b>{showCommission ? ` · ${egp(sideCommission(deal, side))} EGP` : ""}:{" "}
             {team.map((a) => `${userName(a.agent_id)} (${num(a.split_pct)}%)`).join(" · ") || "—"}
             {team.length > 0 && Math.abs(sum - 100) > 0.001 && <span style={{ color: COLORS.danger }}> — shares add up to {sum}%</span>}
           </div>
@@ -3326,7 +3471,7 @@ function DealTeams({ deal, agents, userName, showCommission = true }) {
 // Amount collected per side (defaults to that side's commission)
 function SideAmountFields({ deal, values, setValues }) {
   return dealSides(deal).map((side) => (
-    <Field key={side} label={`Collected from ${side} (EGP)`}>
+    <Field key={side} label={`Collected from ${partyName(deal.deal_type, side)} (EGP)`}>
       <input type="number" min="0" style={inputStyle} value={values[side] ?? String(sideCommission(deal, side))}
         onChange={(e) => setValues((v) => ({ ...v, [side]: e.target.value }))} />
     </Field>
@@ -3363,12 +3508,12 @@ function ApprovalCard({ deal, ctx }) {
             Submitted by {userName(deal.created_by)} · {formatDate(deal.created_at)}
           </div>
         </div>
-        <Badge tone={(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).tone}>{(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).label}</Badge>
+        <Badge tone={dealStatusInfo(deal).tone}>{dealStatusInfo(deal).label}</Badge>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, fontSize: 12.5 }}>
-        <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
+        <div><b>{isRentDeal(deal) ? "Rent" : "Sale price"}:</b> {dealPriceText(deal)}</div>
         <div><b>Expected commission:</b> {egpFull(deal.commission_total)}</div>
-        <div><b>Promise of sale:</b> {deal.deal_date}</div>
+        <div><b>{isRentDeal(deal) ? "Reservation" : "Promise of sale"}:</b> {deal.deal_date}</div>
       </div>
       <DealTeams deal={deal} agents={agents} userName={userName} />
       {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 8 }}>{deal.notes}</div>}
@@ -3405,8 +3550,8 @@ function ApprovalCard({ deal, ctx }) {
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Approve as <b>Reserved</b> (promise of sale, no money yet)</label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={asDone} onChange={() => setAsDone(true)} /> Approve as <b>Done</b> (transfer done, commission collected)</label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Approve as <b>Reserved</b> ({isRentDeal(deal) ? "reservation" : "promise of sale"}, no money yet)</label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={asDone} onChange={() => setAsDone(true)} /> Approve as <b>Done</b> ({isRentDeal(deal) ? "lease signed" : "transfer done"}, commission collected)</label>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
         {asDone && (
@@ -3417,7 +3562,7 @@ function ApprovalCard({ deal, ctx }) {
                 {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </Field>
-            <Field label="Money in / transfer date">
+            <Field label={isRentDeal(deal) ? "Money in / lease date" : "Money in / transfer date"}>
               <input type="date" style={inputStyle} value={collectedAt} onChange={(e) => setCollectedAt(e.target.value)} />
             </Field>
           </>
@@ -3460,6 +3605,7 @@ function FinDeals({ ctx }) {
   const [status, setStatus] = useState("all");
   const [quarter, setQuarter] = useState("all");
   const [person, setPerson] = useState("");
+  const [dealKind, setDealKind] = useState("");
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState(null);
 
@@ -3471,6 +3617,7 @@ function FinDeals({ ctx }) {
     .filter((d) => status === "all" || d.status === status || (status === "open" && (d.status === "pending" || d.status === "returned")))
     .filter((d) => quarter === "all" || quarterKeyOf(dateInputToIso(dealShownDate(d))) === quarter)
     .filter((d) => !person || (agentsByDeal[d.id] || []).some((a) => a.agent_id === person))
+    .filter((d) => !dealKind || (dealKind === "rent" ? isRentDeal(d) : !isRentDeal(d)))
     .filter((d) => !q || dealTitle(d).toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => (dealShownDate(b) || "").localeCompare(dealShownDate(a) || "") || new Date(b.created_at) - new Date(a.created_at));
 
@@ -3495,9 +3642,10 @@ function FinDeals({ ctx }) {
       </FinTitle>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         <PeriodPicker value={status} onChange={setStatus} options={[
-          { id: "all", label: "All statuses" }, { id: "approved", label: "Done deals" }, { id: "reserved", label: "Reserved (promise of sale)" }, { id: "open", label: "Waiting for approval" },
+          { id: "all", label: "All statuses" }, { id: "approved", label: "Done deals" }, { id: "reserved", label: "Reserved (not done yet)" }, { id: "open", label: "Waiting for approval" },
           { id: "rejected", label: "Rejected" }, { id: "cancelled", label: "Cancelled" },
         ]} />
+        <PeriodPicker value={dealKind} onChange={setDealKind} options={[{ id: "", label: "Sales & rent" }, { id: "sale", label: "Sales" }, { id: "rent", label: "Rent" }]} />
         <PeriodPicker value={quarter} onChange={setQuarter} options={[{ id: "all", label: "All quarters" }, ...quarterOptions(qKeys)]} />
         <PeriodPicker value={person} onChange={setPerson} options={[{ id: "", label: "Everyone" }, ...people.map((u) => ({ id: u.id, label: u.name }))]} />
         <input style={{ ...inputStyle, width: 200, padding: "7px 10px", fontSize: 13 }} placeholder="Search unit / client…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -3528,10 +3676,10 @@ function FinDeals({ ctx }) {
               const rem = round2(ent - paid);
               return (
                 <tr key={d.id} onClick={() => setOpenId(d.id)} style={{ cursor: "pointer" }}>
-                  <td style={tdStyle} title={d.status === "approved" ? "Money in / transfer date" : "Promise of sale date"}>{dealShownDate(d)}</td>
+                  <td style={tdStyle} title={d.status === "approved" ? "Money in date" : isRentDeal(d) ? "Reservation date" : "Promise of sale date"}>{dealShownDate(d)}</td>
                   <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 180 }}>{dealTitle(d)}</td>
                   <td style={{ ...tdStyle, whiteSpace: "normal" }}>{(agentsByDeal[d.id] || []).map((a) => `${userName(a.agent_id)}${d.sides === "both" ? ` (${agentSide(a) === "buyer" ? "B" : "S"})` : ""}`).join(", ")}<div style={{ fontSize: 11, color: COLORS.textMuted }}>{d.sides === "both" ? "Buyer & seller" : d.sides === "seller" ? "Seller side" : "Buyer side"}</div></td>
-                  <td style={tdStyle}><Badge tone={(DEAL_STATUS[d.status] || DEAL_STATUS.pending).tone}>{(DEAL_STATUS[d.status] || DEAL_STATUS.pending).label}</Badge></td>
+                  <td style={tdStyle}><Badge tone={dealStatusInfo(d).tone}>{dealStatusInfo(d).label}</Badge></td>
                   <td style={tdNum}>{egp(d.commission_total)}</td>
                   <td style={tdNum}>{egp(calc.collectedByDeal[d.id] || 0)}</td>
                   <td style={tdNum}>{egp(ent)}</td>
@@ -3570,12 +3718,12 @@ function DealDetail({ deal, ctx, onBack }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 17, color: COLORS.navy }}>{dealTitle(deal)}</div>
-            <div style={{ fontSize: 12, color: COLORS.textMuted }}>Promise of sale {deal.deal_date}{deal.transfer_date ? ` · money in / transfer ${deal.transfer_date}` : ""} · added by {userName(deal.created_by)}</div>
+            <div style={{ fontSize: 12, color: COLORS.textMuted }}>{isRentDeal(deal) ? "Rent deal · reservation" : "Promise of sale"} {deal.deal_date}{deal.transfer_date ? ` · money in ${deal.transfer_date}` : ""} · added by {userName(deal.created_by)}</div>
           </div>
-          <Badge tone={(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).tone}>{(DEAL_STATUS[deal.status] || DEAL_STATUS.pending).label}</Badge>
+          <Badge tone={dealStatusInfo(deal).tone}>{dealStatusInfo(deal).label}</Badge>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, fontSize: 12.5 }}>
-          <div><b>Sale price:</b> {egpFull(deal.sale_price)}</div>
+          <div><b>{isRentDeal(deal) ? "Rent" : "Sale price"}:</b> {dealPriceText(deal)}</div>
           <div><b>{deal.status === "approved" ? "Total commission" : "Expected commission"}:</b> {egpFull(deal.commission_total)}</div>
           {deal.status === "approved" && <div><b>Collected:</b> {egpFull(collected)}</div>}
           {deal.status === "approved" && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
@@ -3668,7 +3816,7 @@ function DealDetail({ deal, ctx, onBack }) {
               {[...collections, ...payouts].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at)).map((t) => (
                 <tr key={t.id}>
                   <td style={tdStyle}>{formatDate(t.occurred_at)}</td>
-                  <td style={tdStyle}>{t.kind === "commission_in" ? `Collected from ${t.side || "client"}` : t.kind === "transfer" ? "Moved to Floos Rabna (automatic)" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind === "payout" ? ` · ${t.description}` : ""}</td>
+                  <td style={tdStyle}>{t.kind === "commission_in" ? `Collected from ${t.side ? partyName(deal.deal_type, t.side) : "client"}` : t.kind === "transfer" ? "Moved to Floos Rabna (automatic)" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind === "payout" ? ` · ${t.description}` : ""}</td>
                   <td style={tdStyle}>{isAdmin ? accountName(t.account_id) : "—"}</td>
                   <td style={tdNum}>{t.direction === "in" ? egp(t.amount) : ""}</td>
                   <td style={tdNum}>{t.direction === "out" ? egp(t.amount) : ""}</td>
@@ -3800,10 +3948,10 @@ function MarkDoneModal({ deal, ctx, onClose }) {
   const [date, setDate] = useState(todayInput());
   const { busy, error, run } = useAction();
   return (
-    <FinModal title="Mark as done — transfer done & commission collected" onClose={onClose} width={460}>
+    <FinModal title={isRentDeal(deal) ? "Mark as done — lease signed & commission collected" : "Mark as done — transfer done & commission collected"} onClose={onClose} width={460}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>
-          From now on this deal counts toward targets and commissions (in the quarter of the date below), the unit is marked sold and the client moves to Deal Is Done.
+          From now on this deal counts toward targets and commissions (in the quarter of the date below), the unit is marked {isRentDeal(deal) ? "rented (on hold until you reactivate it)" : "sold"} and the client moves to Deal Is Done.
         </div>
         <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} />
         <Field label="Received into">
@@ -3811,7 +3959,7 @@ function MarkDoneModal({ deal, ctx, onClose }) {
             {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </Field>
-        <Field label="Money in / transfer date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label={isRentDeal(deal) ? "Money in / lease date" : "Money in / transfer date"}><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <FinError text={error} />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button style={btnGhost} onClick={onClose}>Cancel</button>
@@ -3844,8 +3992,8 @@ function CollectionModal({ deal, ctx, collected, onClose }) {
         {dealSides(deal).length > 1 && (
           <Field label="Collected from">
             <select value={side} onChange={(e) => setSide(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-              <option value="buyer">The buyer (buyer side team)</option>
-              <option value="seller">The seller (seller side team)</option>
+              <option value="buyer">The {partyName(deal.deal_type, "buyer")} ({sideLabelFor(deal.deal_type, "buyer").toLowerCase()} team)</option>
+              <option value="seller">The {partyName(deal.deal_type, "seller")} ({sideLabelFor(deal.deal_type, "seller").toLowerCase()} team)</option>
             </select>
           </Field>
         )}
@@ -3956,7 +4104,7 @@ function FinOverview({ ctx, goTab }) {
         <FinStat label="Money in all accounts" value={egp(totalBalance)} sub="EGP" onClick={() => goTab("treasury")} />
         <FinStat label="Waiting for approval" value={pending} tone={pending ? "danger" : undefined} onClick={() => goTab("approvals")} />
         <FinStat label="Commissions owed to team" value={egp(owed)} tone={owed > 0.5 ? "danger" : undefined} sub={overpaid > 0.5 ? `${egp(overpaid)} overpaid to recover` : undefined} onClick={() => goTab("deals")} />
-        <FinStat label="Reserved deals (promise of sale)" value={reserved.length} sub={`Expected commission ${egp(reservedExpected)}${toCollect > 0.5 ? ` · ${egp(toCollect)} still to collect on done deals` : ""}`} onClick={() => goTab("deals")} />
+        <FinStat label="Reserved deals (sales & rent)" value={reserved.length} sub={`Expected commission ${egp(reservedExpected)}${toCollect > 0.5 ? ` · ${egp(toCollect)} still to collect on done deals` : ""}`} onClick={() => goTab("deals")} />
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <FinStat label="Commissions in (this month)" value={egp(monthIn)} tone="success" sub={`This quarter ${egp(quarterIn)}`} />
@@ -4896,7 +5044,8 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
     if (!d) return "—";
     const unit = units.find((u) => u.id === d.unit_id);
     const unitText = unit ? `${unit.type} · ${unit.unitNumber} · ${getProjectInfo(unit).name}` : d.unit_label;
-    return [unitText, d.client_label].filter(Boolean).join(" — ") || "Deal";
+    const title = [unitText, d.client_label].filter(Boolean).join(" — ") || "Deal";
+    return isRentDeal(d) ? `Rent · ${title}` : title;
   };
   const dealTitleById = (id) => dealTitle(fin.deals.find((d) => d.id === id));
   const addCategory = async (name) => {
@@ -4994,7 +5143,7 @@ export default function App() {
   const [filters, setFilters] = useState({
     destination: "", developerId: "", projectId: "", type: "", finishing: "", deliveryDate: "",
     floorMin: "", floorMax: "", landAreaMin: "", landAreaMax: "", buaMin: "", buaMax: "",
-    extraAreaMin: "", extraAreaMax: "", priceMin: "", priceMax: "", unitNumber: "", phase: "",
+    extraAreaMin: "", extraAreaMax: "", priceMin: "", priceMax: "", unitNumber: "", phase: "", listing: "",
   });
 
   const token = session?.access_token;
@@ -5348,8 +5497,12 @@ export default function App() {
     if (filters.buaMax && Number(u.bua || 0) > Number(filters.buaMax)) return false;
     if (filters.extraAreaMin && Number(u.extraArea || 0) < Number(filters.extraAreaMin)) return false;
     if (filters.extraAreaMax && Number(u.extraArea || 0) > Number(filters.extraAreaMax)) return false;
-    if (filters.priceMin && Number(u.totalPrice) < Number(filters.priceMin)) return false;
-    if (filters.priceMax && Number(u.totalPrice) > Number(filters.priceMax)) return false;
+    if (filters.listing === "sale" && !isForSale(u)) return false;
+    if (filters.listing === "rent" && !isForRent(u)) return false;
+    // price range = monthly rent when looking at rentals, sale price otherwise
+    const priceOf = filters.listing === "rent" ? Number(u.rentPrice || 0) : Number(u.totalPrice || 0);
+    if (filters.priceMin && priceOf < Number(filters.priceMin)) return false;
+    if (filters.priceMax && priceOf > Number(filters.priceMax)) return false;
     if (filters.unitNumber && !u.unitNumber.toLowerCase().includes(filters.unitNumber.toLowerCase())) return false;
     if (filters.phase && !(u.phase || "").toLowerCase().includes(filters.phase.toLowerCase())) return false;
     return true;
@@ -5725,6 +5878,11 @@ export default function App() {
                     .filter((p) => (!filters.destination || p.destination === filters.destination) && (!filters.developerId || p.developerId === filters.developerId))
                     .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
+                <select value={filters.listing} onChange={(e) => setFilters((f) => ({ ...f, listing: e.target.value }))} style={{ ...inputStyle, appearance: "none" }}>
+                  <option value="">Sale & rent</option>
+                  <option value="sale">For sale</option>
+                  <option value="rent">For rent</option>
+                </select>
                 <Select value={filters.type} onChange={(v) => setFilters((f) => ({ ...f, type: v }))} options={TYPES} placeholder="Type" />
                 <Select value={filters.finishing} onChange={(v) => setFilters((f) => ({ ...f, finishing: v }))} options={FINISHING} placeholder="Finishing" />
                 <Select value={filters.deliveryDate} onChange={(v) => setFilters((f) => ({ ...f, deliveryDate: v }))} options={DELIVERY} placeholder="Delivery date" />
@@ -5732,7 +5890,7 @@ export default function App() {
                 <input style={inputStyle} placeholder="Phase" value={filters.phase} onChange={(e) => setFilters((f) => ({ ...f, phase: e.target.value }))} />
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
-                <RangeField label="Total price (EGP)" minValue={filters.priceMin} maxValue={filters.priceMax}
+                <RangeField label={filters.listing === "rent" ? "Monthly rent (EGP)" : "Total price (EGP)"} minValue={filters.priceMin} maxValue={filters.priceMax}
                   onMinChange={(v) => setFilters((f) => ({ ...f, priceMin: v }))} onMaxChange={(v) => setFilters((f) => ({ ...f, priceMax: v }))} />
                 <RangeField label="Floor" minValue={filters.floorMin} maxValue={filters.floorMax}
                   onMinChange={(v) => setFilters((f) => ({ ...f, floorMin: v }))} onMaxChange={(v) => setFilters((f) => ({ ...f, floorMax: v }))} />
@@ -5822,7 +5980,14 @@ export default function App() {
                     onRestore={() => setRestoreTarget(client)}
                     onOpenUnit={(u) => setOpenUnit(u)}
                     onToggleUnitLink={(uid) => toggleClientUnitLink(client, uid)}
-                    onMarkSold={() => setDealModal({ initial: { clientId: client.id, unitId: linkedUnitIds.length === 1 ? linkedUnitIds[0] : "" } })}
+                    onMarkSold={() => setDealModal({ initial: { clientId: client.id, unitId: linkedUnitIds.length === 1 ? linkedUnitIds[0] : "", dealType: client.interest === "rent" ? "rent" : "sale" } })}
+                    onChangeInterest={async (interest) => {
+                      try {
+                        const t = await getValidToken();
+                        await db.update("clients", client.id, { interest }, t);
+                        await refreshClients();
+                      } catch (e) { window.alert(e.message || "Could not update"); }
+                    }}
                   />
                 );
               })()
@@ -6028,7 +6193,7 @@ export default function App() {
             onReassign={reassignUnit}
             canEdit={profile.role === "admin" || openUnit.salesIds.includes(profile.id)}
             onEditRequest={(u) => { setOpenUnit(null); setEditingUnit(u); setTab("add"); }}
-            onMarkSold={(u) => { setOpenUnit(null); setDealModal({ initial: { unitId: u.id } }); }}
+            onMarkSold={(u, dealType) => { setOpenUnit(null); setDealModal({ initial: { unitId: u.id, dealType } }); }}
             onRequestDelete={
               profile.role !== "admin" && openUnit.salesIds.some((id) => visibleSalesIds.includes(id))
                 ? requestDelete
