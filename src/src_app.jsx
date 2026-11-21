@@ -1626,6 +1626,15 @@ function mapDeveloper(row) {
 function mapProject(row) {
   return { id: row.id, name: row.name, developerId: row.developer_id, destination: row.destination };
 }
+// Owner contacts live in the protected unit_owners table — you only get the rows you're allowed to see.
+function withOwners(unitsRows, ownerRows) {
+  const by = {};
+  (ownerRows || []).forEach((o) => { by[o.unit_id] = o; });
+  return (unitsRows || []).map((r) => {
+    const o = by[r.id];
+    return o ? { ...r, owner_name: o.owner_name ?? r.owner_name, owner_number: o.owner_number ?? r.owner_number, new_owner_name: o.new_owner_name ?? r.new_owner_name, new_owner_phone: o.new_owner_phone ?? r.new_owner_phone } : r;
+  });
+}
 function mapUnit(row, salesIds) {
   return {
     id: row.id,
@@ -4197,7 +4206,7 @@ function LateLeadSettings({ ctx }) {
     </div>
   );
 }
-const BACKUP_TABLES = ["profiles", "developers", "projects", "units", "unit_sales", "clients", "client_activity", "client_units", "client_projects", "lead_duplicates", "deals", "deal_agents", "deal_rates",
+const BACKUP_TABLES = ["profiles", "developers", "projects", "units", "unit_owners", "unit_sales", "clients", "client_activity", "client_units", "client_projects", "lead_duplicates", "deals", "deal_agents", "deal_rates",
   "finance_transactions", "finance_accounts", "expense_categories", "recurring_expenses", "staff_targets", "staff_salaries", "commission_rates", "finance_settings",
   "attendance", "cold_sheets", "cold_leads", "cold_activity", "campaign_spend", "share_links", "finance_audit"];
 function saveBlob(blob, name) {
@@ -8472,18 +8481,20 @@ export default function App() {
   // --- Load all data once we have a session ---
   const fetchAllRaw = async (currentSession) => {
     const t = currentSession.access_token;
-    const [profilesRows, devsRows, projsRows, unitsRows, salesRows, clientsRows, activityRows, cProjRows, cUnitRows, attendanceRows] = await Promise.all([
+    const [profilesRows, devsRows, projsRows, unitsRaw, salesRows, clientsRows, activityRows, cProjRows, cUnitRows, attendanceRows, ownerRows] = await Promise.all([
       db.select("profiles", "", t),
       db.select("developers", "&order=name", t),
       db.select("projects", "&order=name", t),
-      db.select("units", "&order=created_at.desc", t),
+      db.selectAll("units", "&order=created_at.desc", t),
       db.select("unit_sales", "", t),
       db.selectAll("clients", "&order=updated_at.desc", t),
       db.selectAll("client_activity", "&order=changed_at.desc", t),
       db.select("client_projects", "", t),
       db.select("client_units", "", t),
       db.select("attendance", "&order=checked_in_at.desc", t),
+      db.selectAll("unit_owners", "", t).catch(() => []),
     ]);
+    const unitsRows = withOwners(unitsRaw, ownerRows);
     const profiles = (profilesRows || []).map(mapProfile);
     setUsers(profiles);
     setDevelopers((devsRows || []).map(mapDeveloper));
@@ -8635,10 +8646,13 @@ export default function App() {
     setProjects((projsRows || []).map(mapProject));
   };
   const refreshUnits = async () => {
-    const [unitsRows, salesRows] = await Promise.all([
-      db.select("units", "&order=created_at.desc", await getValidToken()),
-      db.select("unit_sales", "", await getValidToken()),
+    const t = await getValidToken();
+    const [unitsRaw, salesRows, ownerRows] = await Promise.all([
+      db.selectAll("units", "&order=created_at.desc", t),
+      db.select("unit_sales", "", t),
+      db.selectAll("unit_owners", "", t).catch(() => []),
     ]);
+    const unitsRows = withOwners(unitsRaw, ownerRows);
     const salesByUnit = {};
     (salesRows || []).forEach((row) => {
       if (!salesByUnit[row.unit_id]) salesByUnit[row.unit_id] = [];
