@@ -46,10 +46,11 @@ with fn as (
       and not exists (select 1 from pg_policies where schemaname = 'storage' and policyname = 'authenticated upload unit photos' and with_check not like '%is_approved%')),
   ('28 Deals (done) and reservations counted apart', exists (select 1 from col where c = 'deals.reserved_at') and exists (select 1 from col where c = 'deals.done_at')
       and exists (select 1 from pg_trigger where tgname = 'trg_deals_stamp_dates') and exists (select 1 from fn where proname = 'sales_ranking' and prosrc like '%reserved_at%')),
-  ('29 Money at reservation, refunds, editable dates', exists (select 1 from pg_constraint where conname = 'finance_transactions_kind_check' and pg_get_constraintdef(oid) like '%refund%')
+  ('29 Money at reservation, refunds, editable dates, Floos Rabna on done', exists (select 1 from pg_constraint where conname = 'finance_transactions_kind_check' and pg_get_constraintdef(oid) like '%refund%')
       and exists (select 1 from pg_proc where proname = 'cancel_deal' and pronargs = 5)
       and exists (select 1 from pg_proc where proname = 'complete_deal' and prosrc like '%v_paid_b%')
-      and exists (select 1 from pg_proc where proname = 'deals_stamp_dates' and prosrc like '%transfer_date%')),
+      and exists (select 1 from pg_proc where proname = 'deals_stamp_dates' and prosrc like '%transfer_date%')
+      and exists (select 1 from pg_trigger where tgname = 'trg_deal_done_charity')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;

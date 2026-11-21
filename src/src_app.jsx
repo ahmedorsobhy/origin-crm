@@ -5504,7 +5504,7 @@ function sideAmounts(d, amount, side) {
 }
 const agentSide = (a) => a.side || "buyer";
 
-function computeFinance({ deals, dealAgents, dealRates, txns, targets, thresholds }) {
+function computeFinance({ deals, dealAgents, dealRates, txns, targets, thresholds, charityPct = 0 }) {
   const approved = new Set(deals.filter((d) => d.status === "approved").map((d) => d.id));
   // money collected on reservations counts toward targets (in the quarter it came in); payouts wait for the transfer
   const counted = new Set(deals.filter((d) => d.status === "approved" || d.status === "reserved").map((d) => d.id));
@@ -5544,7 +5544,7 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
   };
 
   collections.forEach((c) => {
-    if (!approved.has(c.deal_id)) return;
+    if (!counted.has(c.deal_id)) return; // reserved deals too: sales can be paid from what came in
     const q = quarterKeyOf(c.occurred_at);
     const bySide = sideAmounts(dealById[c.deal_id], c.amount, c.side);
     (agentsByDeal[c.deal_id] || []).forEach((a) => {
@@ -5579,15 +5579,21 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
   txns.filter((t) => t.kind === "transfer" && t.direction === "out" && t.source_tx_id && t.deal_id).forEach((t) => {
     charityByDeal[t.deal_id] = round2((charityByDeal[t.deal_id] || 0) + num(t.amount));
   });
+  // Reserved deals: Floos Rabna is set aside on paper and moves only when the deal is done
+  const charityPendingByDeal = {};
+  deals.filter((d) => d.status === "reserved").forEach((d) => {
+    const pend = round2(num(collectedByDeal[d.id]) * num(charityPct) / 100 - num(charityByDeal[d.id]));
+    if (pend > 0) { charityPendingByDeal[d.id] = pend; charityByDeal[d.id] = round2(num(charityByDeal[d.id]) + pend); }
+  });
 
   const companyShareByDeal = {};
   Object.keys(collectedByDeal).forEach((dealId) => {
-    if (!approved.has(dealId)) return;
+    if (!counted.has(dealId)) return;
     const distributed = out.filter((l) => l.dealId === dealId).reduce((s, l) => s + l.entitled, 0);
     companyShareByDeal[dealId] = round2(collectedByDeal[dealId] - distributed - (charityByDeal[dealId] || 0));
   });
 
-  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal, charityByDeal };
+  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal, charityByDeal, charityPendingByDeal };
 }
 
 // Preview of a pending deal's split using the CURRENT plans (before rates get frozen)
@@ -6602,7 +6608,7 @@ function ApprovalCard({ deal, ctx }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
         {!asDone && (
           <>
-            <div style={{ gridColumn: "1 / -1", fontSize: 12.5, color: COLORS.textMuted }}>Money collected with the reservation (leave 0 if none). It counts toward targets now; sales commission is paid after the transfer.</div>
+            <div style={{ gridColumn: "1 / -1", fontSize: 12.5, color: COLORS.textMuted }}>Money collected with the reservation (leave 0 if none). It counts toward targets now, and you can pay sales their share of it from the deal page. Floos Rabna moves when the deal is done.</div>
             <SideAmountFields deal={deal} values={resAmounts} setValues={setResAmounts} defaults={zero} />
             {Object.values(sideValues(deal, resAmounts, zero)).some((v) => v > 0) && (
               <>
@@ -6840,7 +6846,7 @@ function DealDetail({ deal, ctx, onBack }) {
           {(deal.status === "approved" || deal.status === "reserved") && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
         </div>
         {(deal.status === "approved" || deal.status === "reserved") && <DealDates deal={deal} isAdmin={isAdmin} act={act} />}
-        {deal.status === "reserved" && collected > 0 && <div style={{ fontSize: 12, color: COLORS.textMuted }}>Money collected on the reservation counts toward targets now. Sales commission is paid once the transfer is done.</div>}
+        {deal.status === "reserved" && collected > 0 && <div style={{ fontSize: 12, color: COLORS.textMuted }}>Money collected on the reservation counts toward targets. Each person's share of it can be cashed out now (all or part); the rest comes with the transfer. Floos Rabna ({egpFull(num(calc.charityPendingByDeal?.[deal.id]))}) moves when the deal is done.</div>}
         <DealTeams deal={deal} agents={agents} userName={userName} />
         {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 10 }}>{deal.notes}</div>}
         {deal.review_note && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Review note:</b> {deal.review_note}</div>}
@@ -6863,6 +6869,7 @@ function DealDetail({ deal, ctx, onBack }) {
             <>
               <button style={btnGhost} onClick={() => setModal("collect")}>+ Add collection</button>
               <button style={btnDanger} onClick={() => setModal("cancel")}>Cancel deal</button>
+              {lines.some((l) => l.remaining > 0.5) && <button style={btnGhost} onClick={() => setModal("cashout")}>Cash out</button>}
               <button style={btnSuccess} onClick={() => setModal("done")}>Mark as done</button>
             </>
           )}
@@ -6878,9 +6885,9 @@ function DealDetail({ deal, ctx, onBack }) {
         <FinError text={error} />
       </div>
 
-      {deal.status === "approved" && (
+      {(deal.status === "approved" || (deal.status === "reserved" && collected > 0)) && (
         <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>{isAdmin ? "Commission split" : "My share"}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>{isAdmin ? "Commission split" : "My share"}{deal.status === "reserved" ? " · from the money collected so far" : ""}</div>
           <TableWrap>
             <thead><tr>
               <th style={thStyle}>Person</th><th style={thStyle}>Rate applied</th>
@@ -6904,7 +6911,7 @@ function DealDetail({ deal, ctx, onBack }) {
               ))}
               {isAdmin && num(calc.charityByDeal[deal.id]) > 0 && (
                 <tr>
-                  <td style={tdStyle} colSpan={2}>Floos Rabna</td>
+                  <td style={tdStyle} colSpan={2}>Floos Rabna{deal.status === "reserved" ? " · moves when the deal is done" : ""}</td>
                   <td style={tdNum}>{egp(calc.charityByDeal[deal.id])}</td>
                   <td style={tdStyle} colSpan={3} />
                 </tr>
@@ -8442,7 +8449,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
   const thresholds = (fin.settings?.tier_thresholds || [0, 70, 100]).map(num);
   const targetsMap = useMemo(() => Object.fromEntries(fin.targets.map((t) => [t.user_id, num(t.quarterly_target)])), [fin.targets]);
   const calc = useMemo(() => computeFinance({
-    deals: fin.deals, dealAgents: fin.dealAgents, dealRates: fin.dealRates, txns: fin.txns, targets: targetsMap, thresholds,
+    deals: fin.deals, dealAgents: fin.dealAgents, dealRates: fin.dealRates, txns: fin.txns, targets: targetsMap, thresholds, charityPct: num(fin.settings?.charity_pct),
   }), [fin, targetsMap]); // eslint-disable-line
   const balances = useMemo(() => accountBalances(fin.accounts, fin.txns), [fin.accounts, fin.txns]);
   const userName = (id) => users.find((u) => u.id === id)?.name || "—";

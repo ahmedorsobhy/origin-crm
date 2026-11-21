@@ -151,4 +151,37 @@ update public.deals
 update public.deals set reserved_at = least(reserved_at, done_at) where status = 'approved' and reserved_at > done_at;
 
 
+-- 6) Floos Rabna: on a reserved deal it is set aside on paper only; it moves when the deal is done
+create or replace function public.charity_trg() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.kind = 'commission_in' then
+    if new.deal_id is not null and exists (select 1 from public.deals d where d.id = new.deal_id and d.status <> 'approved') then
+      return null; -- reserved: wait for the transfer
+    end if;
+    perform public.charity_for_collection(new);
+  end if;
+  return null;
+end $$;
+revoke execute on function public.charity_trg() from public, anon, authenticated;
+
+create or replace function public.deal_done_charity() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare c public.finance_transactions;
+begin
+  if new.status = 'approved' and old.status is distinct from 'approved' then
+    for c in select t.* from public.finance_transactions t
+              where t.deal_id = new.id and t.kind = 'commission_in'
+                and not exists (select 1 from public.finance_transactions x where x.source_tx_id = t.id)
+    loop
+      perform public.charity_for_collection(c);
+    end loop;
+  end if;
+  return null;
+end $$;
+revoke execute on function public.deal_done_charity() from public, anon, authenticated;
+drop trigger if exists trg_deal_done_charity on public.deals;
+create trigger trg_deal_done_charity after update of status on public.deals
+  for each row execute function public.deal_done_charity();
+
 select 'Reservations with money installed ✓' as result;
