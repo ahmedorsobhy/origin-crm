@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Origin Real Estate</title>
+<meta name="theme-color" content="#0E1830" />
+<link rel="icon" type="image/png" href="icon-192.png" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" />
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #17264A; background: #EEF0F5; min-height: 100vh; }
+  .orbs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .orbs i { position: absolute; width: 62vmax; height: 62vmax; border-radius: 50%; }
+  .orbs i:nth-child(1) { top: -22vmax; left: -18vmax; background: radial-gradient(circle, rgba(226,201,150,.75), rgba(226,201,150,0) 62%); animation: a 26s ease-in-out infinite alternate; }
+  .orbs i:nth-child(2) { bottom: -28vmax; right: -22vmax; background: radial-gradient(circle, rgba(160,186,238,.7), rgba(160,186,238,0) 62%); animation: b 32s ease-in-out infinite alternate; }
+  @keyframes a { to { transform: translate(18vmax, 12vmax) scale(1.15); } } @keyframes b { to { transform: translate(-16vmax, -14vmax); } }
+  .wrap { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 16px 14px 120px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 0 0 22px 22px; background: linear-gradient(120deg, rgba(14,24,48,.9), rgba(36,57,107,.86)); color: #fff; position: sticky; top: 0; z-index: 5; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+  header img { height: 28px; background: #fff; border-radius: 8px; padding: 3px 8px; }
+  .glass { background: rgba(255,255,255,.66); backdrop-filter: blur(14px) saturate(165%); -webkit-backdrop-filter: blur(14px) saturate(165%); border: 1px solid rgba(255,255,255,.75); border-radius: 22px; box-shadow: 0 10px 30px rgba(23,38,74,.08); }
+  .card { overflow: hidden; margin-top: 14px; animation: up .45s ease backwards; }
+  @keyframes up { from { opacity: 0; transform: translateY(12px); } }
+  .photos { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 4px; background: #EDE7DA; }
+  .photos img { width: 100%; flex: 0 0 100%; height: 260px; object-fit: cover; scroll-snap-align: center; }
+  .body { padding: 14px 16px 16px; }
+  h1 { font-size: 19px; margin: 0; } .sub { color: #69707D; font-size: 13.5px; margin-top: 2px; }
+  .price { font-size: 22px; font-weight: 800; color: #B8965A; margin: 10px 0 6px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; } .facts span { background: rgba(237,231,218,.8); border-radius: 999px; padding: 5px 11px; font-size: 12.5px; font-weight: 600; }
+  .desc { white-space: pre-line; font-size: 14px; line-height: 1.6; color: #2b3550; }
+  .btn { border: none; border-radius: 999px; padding: 12px 18px; font-weight: 800; font-size: 14.5px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+  .like { background: #fff; color: #C0462F; border: 2px solid #F3C9C0; } .like.on { background: #C0462F; color: #fff; border-color: #C0462F; }
+  .bar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 6; max-width: 736px; margin: 0 auto; display: flex; gap: 10px; align-items: center; padding: 10px 12px; }
+  .wa { background: #25D366; color: #fff; flex: 1; justify-content: center; } .call { background: #17264A; color: #fff; }
+  .muted { color: #69707D; font-size: 13px; text-align: center; padding: 40px 10px; }
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 800; padding: 3px 10px; border-radius: 999px; background: #FBF1E6; color: #B8965A; }
+</style>
+</head>
+<body>
+<div class="orbs"><i></i><i></i></div>
+<header><img src="icon-192.png" alt="Origin Real Estate" style="height:30px" /><span id="hello" style="font-weight:700;font-size:14px"></span></header>
+<div class="wrap" id="app"><div class="muted">Loading…</div></div>
+<div class="bar glass" id="bar" style="display:none"></div>
+<script>
+const SB = "https://sinfiowpvosyfgopmfka.supabase.co", KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpbmZpb3dwdm9zeWZnb3BtZmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NjU2MDYsImV4cCI6MjEwNDQ0MTYwNn0.Atv_b_hWN8zSF5GgDPgwFL1rO2xzrUthYX7w2InMM9U";
+const token = new URLSearchParams(location.search).get("t") || "";
+const rpc = (fn, args) => fetch(SB + "/rest/v1/rpc/" + fn, { method: "POST", headers: { apikey: KEY, Authorization: "Bearer " + KEY, "Content-Type": "application/json" }, body: JSON.stringify(args) }).then((r) => r.ok ? r.text().then((t) => t ? JSON.parse(t) : null) : Promise.reject(r.status));
+const money = (n) => Number(n).toLocaleString("en-US") + " EGP";
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const wa = (p) => { let d = String(p || "").replace(/\D/g, ""); if (d.startsWith("0")) d = "2" + d; return d; };
+(async () => {
+  const app = document.getElementById("app");
+  if (!token) { app.innerHTML = '<div class="muted">This link is not complete.</div>'; return; }
+  let data;
+  try { data = await rpc("public_share", { p_token: token }); } catch (e) { app.innerHTML = '<div class="muted">Could not load. Please try again.</div>'; return; }
+  if (!data) { app.innerHTML = '<div class="muted">This link is no longer available.</div>'; return; }
+  rpc("share_viewed", { p_token: token }).catch(() => {});
+  const liked = new Set(data.liked || []);
+  document.getElementById("hello").textContent = data.client ? "Hi " + data.client + " 👋" : "Origin Real Estate";
+  const list = data.kind === "list";
+  app.innerHTML = (list ? '<div style="margin-top:14px;font-weight:800;font-size:17px">Units picked for you</div><div class="sub">Tap ❤️ on the ones you like — ' + esc(data.sales && data.sales.name || "your advisor") + ' will call you.</div>' : "") +
+    data.units.map((u) => {
+      const rent = u.listing_type === "rent";
+      const facts = [u.bua ? u.bua + " m²" : "", u.land_area ? u.land_area + " m² land" : "", u.extra_area ? u.extra_area + " m² extra" : "", u.floor != null && u.floor !== "" ? (Number(u.floor) === 0 ? "Ground floor" : "Floor " + u.floor) : "", u.finishing, u.furnished, u.delivery_date ? "Delivery: " + u.delivery_date : ""].filter(Boolean);
+      return '<div class="glass card"><div class="photos">' + (u.photos || []).map((p) => '<img loading="lazy" src="' + esc(p) + '" alt="" />').join("") + '</div><div class="body">' +
+        (u.available ? "" : '<span class="tag">No longer available</span>') +
+        '<h1>' + esc(u.type) + (u.project ? " · " + esc(u.project) : "") + '</h1><div class="sub">' + esc([u.destination, u.phase].filter(Boolean).join(" · ")) + '</div>' +
+        '<div class="price">' + (rent ? (u.rent_price ? money(u.rent_price) + " / month" : "") : (u.total_price ? money(u.total_price) : "")) + '</div>' +
+        '<div class="facts">' + facts.map((f) => "<span>" + esc(f) + "</span>").join("") + '</div>' +
+        (u.description ? '<div class="desc">' + esc(u.description) + '</div>' : "") +
+        '<div style="margin-top:12px"><button class="btn like' + (liked.has(u.id) ? " on" : "") + '" data-id="' + u.id + '">' + (liked.has(u.id) ? "❤️ You're interested" : "🤍 I'm interested · مهتم") + '</button></div>' +
+        '</div></div>';
+    }).join("");
+  app.querySelectorAll(".like").forEach((b) => b.addEventListener("click", async () => {
+    if (b.classList.contains("on")) return;
+    b.classList.add("on"); b.textContent = "❤️ You're interested";
+    try { await rpc("share_like", { p_token: token, p_unit: b.dataset.id }); } catch (e) {}
+  }));
+  const s = data.sales || {};
+  if (s.phone) {
+    const bar = document.getElementById("bar"); bar.style.display = "flex";
+    bar.innerHTML = '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto"><div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#B8965A,#D9BC84);display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0">' + esc((s.name || "?").split(" ").map((w) => w[0]).slice(0, 2).join("")) + '</div><div style="min-width:0"><div style="font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(s.name || "") + '</div><div style="font-size:11.5px;color:#69707D">Origin Real Estate</div></div></div>' +
+      '<a class="btn call" href="tel:' + esc(s.phone) + '">📞</a><a class="btn wa" href="https://wa.me/' + wa(s.phone) + '?text=' + encodeURIComponent("Hi " + (s.name || "") + ", I saw the unit you sent and I'd like to know more.") + '" target="_blank">WhatsApp</a>';
+  }
+})();
+</script>
+</body>
+</html>
