@@ -148,20 +148,23 @@ update public.deals d set reserved_at = coalesce(
     case when d.status = 'reserved' then d.reviewed_at end,
     d.created_at)
  where d.reserved_at is null and d.status in ('reserved', 'approved');
-update public.deals set done_at = coalesce(reviewed_at, transfer_date::timestamptz, created_at)
- where done_at is null and status = 'approved';
+update public.deals set done_at = coalesce((transfer_date + time '12:00') at time zone 'Africa/Cairo', reviewed_at, created_at)
+ where status = 'approved';
 
 -- From now on the dates are stamped automatically and never move
 create or replace function public.deals_stamp_dates() returns trigger
 language plpgsql as $$
 begin
   if new.status in ('reserved', 'approved') and new.reserved_at is null then new.reserved_at := now(); end if;
-  if new.status = 'approved' and new.done_at is null then new.done_at := now(); end if;
+  if new.status = 'approved' then
+    if new.transfer_date is not null then new.done_at := (new.transfer_date + time '12:00') at time zone 'Africa/Cairo';
+    elsif new.done_at is null then new.done_at := now(); end if;
+  end if;
   if new.status in ('pending', 'returned', 'rejected') then new.reserved_at := null; new.done_at := null; end if;
   return new;
 end $$;
 drop trigger if exists trg_deals_stamp_dates on public.deals;
-create trigger trg_deals_stamp_dates before insert or update of status on public.deals
+create trigger trg_deals_stamp_dates before insert or update of status, transfer_date on public.deals
   for each row execute function public.deals_stamp_dates();
 
 -- Ranking: Deals (done) and Reservations — positions only
