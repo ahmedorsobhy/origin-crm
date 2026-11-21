@@ -2306,7 +2306,8 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
 
 // ---------- Sales ranking: deals and money show positions only ----------
 const RANK_BOARDS = [
-  { id: "deals", label: "Deals", icon: "🤝", rankOnly: true, key: "deals_rank" },
+  { id: "deals", label: "Deals done", icon: "🤝", rankOnly: true, key: "deals_rank" },
+  { id: "reservations", label: "Reservations", icon: "📝", rankOnly: true, key: "reservations_rank" },
   { id: "money", label: "Commission collected", icon: "💰", rankOnly: true, key: "money_rank" },
   { id: "calls", label: "Calls", icon: "📞", key: "calls" },
   { id: "cold", label: "Cold calls", icon: "🧊", key: "cold_calls" },
@@ -3903,7 +3904,8 @@ function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient,
       updates: mine.filter((a) => updateKinds.includes(a.action)).length,
       added: mine.filter((a) => a.action === "created").length,
       meetings: mine.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").length,
-      reserved: mine.filter((a) => a.action === "stage_change" && (a.newValue === "contracted" || a.newValue === "deal_done")).length,
+      reserved: mine.filter((a) => a.action === "stage_change" && (a.newValue === "contracted" || (a.newValue === "deal_done" && a.oldValue !== "contracted"))).length,
+      done: mine.filter((a) => a.action === "stage_change" && a.newValue === "deal_done").length,
       overdue, untouched, median, active: active.length,
     };
   }).sort((a, b) => (b.contacts + b.updates) - (a.contacts + a.updates));
@@ -3935,7 +3937,7 @@ function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient,
         <table style={{ borderCollapse: "collapse", width: "100%" }}>
           <thead><tr>
             <th style={thStyle}>Sales</th><th style={thNum}>Calls (cold / clients)</th><th style={thNum}>WhatsApp (cold / clients)</th><th style={thNum}>Owners selling</th><th style={thNum}>Updates</th><th style={thNum}>Added</th>
-            <th style={thNum}>Meetings</th><th style={thNum}>Reserved / done</th><th style={thNum}>First reply</th><th style={thNum}>Overdue</th><th style={thNum}>Not contacted</th><th style={thNum}>Active clients</th>
+            <th style={thNum}>Meetings</th><th style={thNum}>Reservations</th><th style={thNum}>Deals done</th><th style={thNum}>First reply</th><th style={thNum}>Overdue</th><th style={thNum}>Not contacted</th><th style={thNum}>Active clients</th>
           </tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -3944,7 +3946,7 @@ function TeamActivity({ clients, activity, users, visibleSalesIds, onOpenClient,
                 <td style={tdNum}><b>{r.calls}</b> <span style={{ color: COLORS.textMuted }}>({r.coldCalls} / {r.clientCalls})</span></td>
                 <td style={tdNum}><b>{r.wa}</b> <span style={{ color: COLORS.textMuted }}>({r.coldWa} / {r.clientWa})</span></td>
                 <td style={tdNum}>{r.coldSelling}</td><td style={tdNum}>{r.updates}</td><td style={tdNum}>{r.added}</td>
-                <td style={tdNum}>{r.meetings}</td><td style={tdNum}>{r.reserved}</td>
+                <td style={tdNum}>{r.meetings}</td><td style={tdNum}>{r.reserved}</td><td style={tdNum}>{r.done}</td>
                 <td style={{ ...tdNum, color: r.median !== null && r.median > 24 ? COLORS.danger : COLORS.text }} title="Median time from a lead being added to the first call / update">{fmtHours(r.median)}</td>
                 <td style={tdNum}>{r.overdue.length ? <button onClick={() => setDrill({ title: `${r.u.name} · overdue`, list: r.overdue })} style={{ border: "none", background: "none", color: COLORS.danger, fontWeight: 800, cursor: "pointer", fontSize: 12.5 }}>{r.overdue.length}</button> : 0}</td>
                 <td style={tdNum}>{r.untouched.length ? <button onClick={() => setDrill({ title: `${r.u.name} · not contacted`, list: r.untouched })} style={{ border: "none", background: "none", color: COLORS.danger, fontWeight: 800, cursor: "pointer", fontSize: 12.5 }}>{r.untouched.length}</button> : 0}</td>
@@ -6600,7 +6602,7 @@ function ApprovalCard({ deal, ctx }) {
             p_as_done: asDone, p_amount_buyer: asDone ? collectedNow.buyer : null, p_amount_seller: asDone ? collectedNow.seller : null,
             p_transfer_date: asDone ? collectedAt : null,
           }, t), { full: true });
-          celebrate("deal", `Deal approved · ${ctx.dealTitle ? ctx.dealTitle(deal) : ""}`);
+          celebrate(asDone ? "deal" : "milestone", `${asDone ? "Deal done 🏁" : "Reservation approved 📝"} · ${ctx.dealTitle ? ctx.dealTitle(deal) : ""}`);
         })}>{busy ? "Working…" : asDone ? "Approve as Done" : "Approve as Reserved"}</button>
       </div>
     </div>
@@ -7095,7 +7097,8 @@ const FUNNEL_STEPS = [
   { id: "interested", label: "Interested", idx: 1 },
   { id: "meeting", label: "Meeting", idx: 2 },
   { id: "negotiation", label: "Negotiation", idx: 3 },
-  { id: "deal", label: "Reserved / Done", idx: 4 },
+  { id: "reserved", label: "Reserved", idx: 4 },
+  { id: "done", label: "Deal done", idx: 5 },
 ];
 const STAGE_IDX = Object.fromEntries(PIPELINE_STAGES.map((s, i) => [s.id, i]));
 // How far a client ever got (the stage now, or the furthest stage it moved through)
@@ -7104,10 +7107,10 @@ function reachedIdx(client, actByClient) {
   if (client.stage === "closed" || client.stage === "not_responding" || client.stage === "long_term") best = STAGE_IDX[client.previousStage] ?? 0;
   if (client.meetingAt) best = Math.max(best, 2);
   (actByClient[client.id] || []).forEach((a) => { if (a.action === "stage_change" && STAGE_IDX[a.newValue] != null) best = Math.max(best, STAGE_IDX[a.newValue]); if (a.action === "stage_change" && STAGE_IDX[a.oldValue] != null) best = Math.max(best, STAGE_IDX[a.oldValue]); });
-  return Math.min(best, 4);
+  return Math.min(best, 5);
 }
 function funnelCounts(list, actByClient) {
-  const out = [0, 0, 0, 0, 0];
+  const out = [0, 0, 0, 0, 0, 0];
   list.forEach((c) => { const r = reachedIdx(c, actByClient); for (let i = 0; i <= r; i++) out[i]++; });
   return out;
 }
@@ -7124,7 +7127,7 @@ function FunnelBars({ counts }) {
         <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>
           <div style={{ width: 110, color: COLORS.textMuted }}>{s.label}</div>
           <div style={{ flex: 1, background: COLORS.creamDark, borderRadius: 8, height: 22, position: "relative", overflow: "hidden" }}>
-            <div style={{ width: `${Math.max(2, (counts[i] / top) * 100)}%`, height: "100%", background: i === 4 ? COLORS.gold : COLORS.navy, opacity: 1 - i * 0.12, borderRadius: 8, transition: "width .4s" }} />
+            <div style={{ width: `${Math.max(2, (counts[i] / top) * 100)}%`, height: "100%", background: i >= 4 ? COLORS.gold : COLORS.navy, opacity: 1 - i * 0.12, borderRadius: 8, transition: "width .4s" }} />
           </div>
           <div style={{ width: 92, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, color: COLORS.navy }}>
             {counts[i]}{i > 0 && counts[i - 1] ? <span style={{ fontWeight: 500, color: COLORS.textMuted }}> · {Math.round((counts[i] / counts[i - 1]) * 100)}%</span> : null}
@@ -7160,7 +7163,7 @@ function FunnelReport({ clients, activity, users, visibleSalesIds }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={thStyle}>{fv.by === "sales" ? "Sales" : fv.by === "campaign" ? "Campaign" : "Source"}</th>{FUNNEL_STEPS.map((s) => <th key={s.id} style={{ ...thStyle, textAlign: "right" }}>{s.label}</th>)}<th style={{ ...thStyle, textAlign: "right" }}>Lead → deal</th></tr></thead>
             <tbody>{rows.map((r) => (
-              <tr key={r.k}><td style={tdStyle}>{r.label}</td>{r.counts.map((n, i) => <td key={i} style={tdNum}>{n}</td>)}<td style={tdNum}>{r.counts[0] ? `${((r.counts[4] / r.counts[0]) * 100).toFixed(1)}%` : "—"}</td></tr>
+              <tr key={r.k}><td style={tdStyle}>{r.label}</td>{r.counts.map((n, i) => <td key={i} style={tdNum}>{n}</td>)}<td style={tdNum}>{r.counts[0] ? `${((r.counts[5] / r.counts[0]) * 100).toFixed(1)}%` : "—"}</td></tr>
             ))}</tbody>
           </table>
         </div>
@@ -7180,15 +7183,17 @@ function CampaignReport({ ctx }) {
   const spendIn = (camp) => round2(spend.filter((s) => s.campaign === camp && (!range || (new Date(`${s.month}T12:00:00`) >= new Date(range[0].getFullYear(), range[0].getMonth(), 1) && new Date(`${s.month}T12:00:00`) < range[1]))).reduce((a, s) => a + num(s.amount), 0));
   const leads = clients.filter((c) => c.campaign && inDate(c.createdAt, fv.added));
   const names = Array.from(new Set([...leads.map((c) => c.campaign), ...spend.map((s) => s.campaign)])).filter(Boolean);
-  const okDeals = fin.deals.filter((d) => ["approved", "reserved"].includes(d.status));
+  const doneDeals = fin.deals.filter((d) => d.status === "approved");
+  const resDeals = fin.deals.filter((d) => ["approved", "reserved"].includes(d.status));
   const rows = names.map((name) => {
     const l = leads.filter((c) => c.campaign === name);
     const counts = funnelCounts(l, actBy);
     const ids = new Set(l.map((c) => c.id));
-    const deals = okDeals.filter((d) => d.client_id && ids.has(d.client_id));
-    const commission = round2(deals.reduce((s, d) => s + num(d.commission_total), 0));
+    const deals = doneDeals.filter((d) => d.client_id && ids.has(d.client_id));
+    const reservations = resDeals.filter((d) => d.client_id && ids.has(d.client_id)).length;
+    const commission = round2(deals.reduce((s, d) => s + num(d.commission_collected || d.commission_total), 0));
     const cost = spendIn(name);
-    return { name, leads: l.length, meetings: counts[2], deals: Math.max(deals.length, counts[4]), commission, cost, cpl: l.length ? cost / l.length : 0, cpd: deals.length ? cost / deals.length : 0, roi: cost ? ((commission - cost) / cost) * 100 : null };
+    return { name, leads: l.length, meetings: counts[2], reservations: Math.max(reservations, counts[4]), deals: Math.max(deals.length, counts[5]), commission, cost, cpl: l.length ? cost / l.length : 0, cpd: deals.length ? cost / deals.length : 0, roi: cost ? ((commission - cost) / cost) * 100 : null };
   }).sort((a, b) => b.leads - a.leads);
   const save = async () => {
     setErr("");
@@ -7208,10 +7213,10 @@ function CampaignReport({ ctx }) {
       ) : (
         <div style={{ ...finCard, padding: 0, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>{["Campaign", "Leads", "Meetings", "Deals", "Spend", "Cost / lead", "Cost / deal", "Commission", "ROI"].map((h, i) => <th key={h} style={{ ...thStyle, textAlign: i ? "right" : "left" }}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Campaign", "Leads", "Meetings", "Reservations", "Deals done", "Spend", "Cost / lead", "Cost / deal", "Commission collected", "ROI"].map((h, i) => <th key={h} style={{ ...thStyle, textAlign: i ? "right" : "left" }}>{h}</th>)}</tr></thead>
             <tbody>{rows.map((r) => (
               <tr key={r.name}>
-                <td style={tdStyle}>{r.name}</td><td style={tdNum}>{r.leads}</td><td style={tdNum}>{r.meetings}</td><td style={tdNum}>{r.deals}</td>
+                <td style={tdStyle}>{r.name}</td><td style={tdNum}>{r.leads}</td><td style={tdNum}>{r.meetings}</td><td style={tdNum}>{r.reservations}</td><td style={tdNum}>{r.deals}</td>
                 <td style={tdNum}>{egp(r.cost)}</td><td style={tdNum}>{r.cpl ? egp(r.cpl) : "—"}</td><td style={tdNum}>{r.cpd ? egp(r.cpd) : "—"}</td>
                 <td style={tdNum}>{egp(r.commission)}</td>
                 <td style={{ ...tdNum, fontWeight: 700, color: r.roi == null ? COLORS.textMuted : r.roi >= 0 ? COLORS.success : COLORS.danger }}>{r.roi == null ? "—" : `${Math.round(r.roi)}%`}</td>
@@ -8693,7 +8698,7 @@ export default function App() {
     const mine = fin.deals.filter((d) => ["reserved", "approved"].includes(d.status) && (d.created_by === profile.id || fin.dealAgents.some((a) => a.deal_id === d.id && a.agent_id === profile.id)));
     let seen = null; try { seen = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
     const ids = mine.map((d) => `${d.id}:${d.status}`);
-    if (seen) { const fresh = mine.filter((d) => !seen.includes(`${d.id}:${d.status}`)); if (fresh.length) celebrate("deal", fresh.length === 1 ? `Your deal was ${fresh[0].status === "approved" ? "closed as done" : "approved"}: ${fresh[0].unit_label || fresh[0].client_label || ""}` : `${fresh.length} of your deals were approved`); }
+    if (seen) { const fresh = mine.filter((d) => !seen.includes(`${d.id}:${d.status}`)); if (fresh.length) { const done = fresh.filter((d) => d.status === "approved"); celebrate(done.length ? "deal" : "milestone", fresh.length === 1 ? (done.length ? `Deal done 🏁 ${fresh[0].unit_label || fresh[0].client_label || ""}` : `Reservation approved 📝 ${fresh[0].unit_label || fresh[0].client_label || ""}`) : done.length ? `${done.length} deal${done.length > 1 ? "s" : ""} done 🏁` : `${fresh.length} reservations approved 📝`); } }
     try { localStorage.setItem(key, JSON.stringify(ids)); } catch (e) {}
   }, [fin.loaded, fin.deals]); // eslint-disable-line
 

@@ -132,4 +132,84 @@ create trigger trg_activity_author before insert on public.client_activity
 drop policy if exists "insert" on public.lead_duplicates;
 create policy "insert" on public.lead_duplicates for insert with check (public.is_approved() and requested_by = auth.uid());
 
+-- =====================================================================
+-- 8) Deals vs reservations
+--    Deal        = done (transfer + commission), counted in the month it was closed
+--    Reservation = promise of sale / rental approved, counted in the month it was approved
+--    Cancelled ones count as neither.
+-- =====================================================================
+alter table public.deals add column if not exists reserved_at timestamptz;
+alter table public.deals add column if not exists done_at timestamptz;
+
+-- Fill in what's there today (reservation date from the finance history when it exists)
+update public.deals d set reserved_at = coalesce(
+    (select min(a.changed_at) from public.finance_audit a
+      where a.table_name = 'deals' and a.new_data->>'id' = d.id::text and a.new_data->>'status' = 'reserved'),
+    case when d.status = 'reserved' then d.reviewed_at end,
+    d.created_at)
+ where d.reserved_at is null and d.status in ('reserved', 'approved');
+update public.deals set done_at = coalesce(reviewed_at, transfer_date::timestamptz, created_at)
+ where done_at is null and status = 'approved';
+
+-- From now on the dates are stamped automatically and never move
+create or replace function public.deals_stamp_dates() returns trigger
+language plpgsql as $$
+begin
+  if new.status in ('reserved', 'approved') and new.reserved_at is null then new.reserved_at := now(); end if;
+  if new.status = 'approved' and new.done_at is null then new.done_at := now(); end if;
+  if new.status in ('pending', 'returned', 'rejected') then new.reserved_at := null; new.done_at := null; end if;
+  return new;
+end $$;
+drop trigger if exists trg_deals_stamp_dates on public.deals;
+create trigger trg_deals_stamp_dates before insert or update of status on public.deals
+  for each row execute function public.deals_stamp_dates();
+
+-- Ranking: Deals (done) and Reservations — positions only
+drop function if exists public.sales_ranking(timestamptz, timestamptz);
+create or replace function public.sales_ranking(p_from timestamptz, p_to timestamptz)
+returns table (user_id uuid, name text, avatar_url text, deals_rank int, money_rank int, calls int, cold_calls int, client_calls int,
+               whatsapp int, meetings int, units_added int, new_clients int, reply_minutes int, reservations_rank int)
+language sql stable security definer set search_path = public as $$
+  with s as (select id, name, avatar_url from public.profiles where role = 'sales_agent'),
+  d as (
+    select a.agent_id as uid, count(distinct dl.id) as n from public.deals dl join public.deal_agents a on a.deal_id = dl.id
+    where dl.status = 'approved' and dl.done_at >= p_from and dl.done_at < p_to
+    group by a.agent_id),
+  r as (
+    select a.agent_id as uid, count(distinct dl.id) as n from public.deals dl join public.deal_agents a on a.deal_id = dl.id
+    where dl.status in ('reserved', 'approved') and dl.reserved_at >= p_from and dl.reserved_at < p_to
+    group by a.agent_id),
+  m as (
+    select a.agent_id as uid, sum(t.amount * a.split_pct / 100.0) as amt
+    from public.finance_transactions t join public.deal_agents a on a.deal_id = t.deal_id and (t.side is null or a.side = t.side)
+    where t.kind = 'commission_in' and t.occurred_at >= p_from and t.occurred_at < p_to group by a.agent_id),
+  ca as (
+    select changed_by as uid, count(*) filter (where action = 'call') as calls, count(*) filter (where action in ('whatsapp', 'unit_sent')) as wa,
+           count(*) filter (where action = 'stage_change' and new_value = 'meeting_generated') as meetings
+    from public.client_activity where changed_at >= p_from and changed_at < p_to group by changed_by),
+  co as (
+    select user_id as uid, count(*) filter (where action = 'call') as calls, count(*) filter (where action = 'whatsapp') as wa
+    from public.cold_activity where created_at >= p_from and created_at < p_to group by user_id),
+  un as (select created_by as uid, count(*) as n from public.units where created_at >= p_from and created_at < p_to group by created_by),
+  cl as (select created_by as uid, count(*) as n from public.clients where created_at >= p_from and created_at < p_to group by created_by),
+  rp as (
+    select c.assigned_to as uid, percentile_cont(0.5) within group (order by extract(epoch from (f.first_at - c.created_at)) / 60) as mins
+    from public.clients c
+    join lateral (select min(x.changed_at) as first_at from public.client_activity x
+                  where x.client_id = c.id and x.action in ('call', 'whatsapp', 'unit_sent', 'quick_reply', 'note', 'stage_change')) f on f.first_at is not null
+    where c.created_at >= p_from and c.created_at < p_to and f.first_at >= c.created_at group by c.assigned_to)
+  select s.id, s.name, s.avatar_url,
+    case when coalesce(d.n, 0) > 0 then (rank() over (order by coalesce(d.n, 0) desc))::int end,
+    case when coalesce(m.amt, 0) > 0 then (rank() over (order by coalesce(m.amt, 0) desc))::int end,
+    (coalesce(ca.calls, 0) + coalesce(co.calls, 0))::int, coalesce(co.calls, 0)::int, coalesce(ca.calls, 0)::int,
+    (coalesce(ca.wa, 0) + coalesce(co.wa, 0))::int, coalesce(ca.meetings, 0)::int, coalesce(un.n, 0)::int, coalesce(cl.n, 0)::int,
+    round(rp.mins)::int,
+    case when coalesce(r.n, 0) > 0 then (rank() over (order by coalesce(r.n, 0) desc))::int end
+  from s left join d on d.uid = s.id left join r on r.uid = s.id left join m on m.uid = s.id left join ca on ca.uid = s.id left join co on co.uid = s.id
+    left join un on un.uid = s.id left join cl on cl.uid = s.id left join rp on rp.uid = s.id
+  where public.is_approved();
+$$;
+revoke execute on function public.sales_ranking(timestamptz, timestamptz) from public, anon;
+grant execute on function public.sales_ranking(timestamptz, timestamptz) to authenticated;
+
 select 'Security fix installed ✓' as result;
