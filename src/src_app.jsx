@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Home, User, LayoutGrid, PlusCircle, PauseCircle, LogOut, Users,
   Search, Building2, MapPin, Ruler, Layers, Wallet, Calendar,
-  Phone, UserRound, Image as ImageIcon, X, ChevronDown, Check, Lock, Trash2, Clock, Bell, MessageSquare, CheckCircle
+  Phone, UserRound, Image as ImageIcon, X, ChevronDown, Check, Lock, Trash2, Clock, Bell, MessageSquare, CheckCircle, FileText
 } from "lucide-react";
+import { PROMISE_TEMPLATE_B64 } from "./contract_template.js";
 
 const SUPABASE_URL = "https://sinfiowpvosyfgopmfka.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpbmZpb3dwdm9zeWZnb3BtZmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NjU2MDYsImV4cCI6MjEwNDQ0MTYwNn0.Atv_b_hWN8zSF5GgDPgwFL1rO2xzrUthYX7w2InMM9U";
@@ -591,9 +592,11 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
     ["Type", unit.type], ["Floor", floorLabel(unit.floor)], ["Finishing", unit.finishing],
     ["Land area", unit.landArea ? `${unit.landArea} sqm` : "—"], ["BUA", `${unit.bua} sqm`],
     ["Extra area", unit.extraArea ? `${unit.extraArea} sqm` : "—"],
+    ...(unit.bedrooms ? [["Bedrooms", unit.bedrooms]] : []), ...(unit.bathrooms ? [["Bathrooms", unit.bathrooms]] : []),
     ["Listed for", LISTING_LABEL[unit.listingType || "sale"]],
     ...(isForSale(unit) ? [
       ["Downpayment", money(unit.downpayment)], ["Remaining", money(unit.remaining)],
+      ...(num(unit.nextInstallment) ? [["Next installment", `${money(unit.nextInstallment)}${unit.nextInstallmentDate ? ` · ${formatDate(`${unit.nextInstallmentDate}T12:00:00`)}` : ""}`]] : []),
       ["Remaining Maintenance", money(unit.remainingMaintenance)], ["Remaining Club payment", money(unit.remainingClubPayment)],
       ["Extras (price)", money(unit.extrasPrice)],
       ["Total price", money(unit.totalPrice)],
@@ -793,18 +796,24 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
 
 // Ready-to-send description built from the unit's details
 function autoUnitDescription(form, project, developer) {
-  const n = (v) => Number(String(v || "").replace(/,/g, "")) || 0;
+  const n = (v) => Number(String(v ?? "").replace(/,/g, "")) || 0;
+  const f = (v) => n(v).toLocaleString("en-US");
+  const when = (d) => { if (!d) return ""; const x = new Date(`${d}T12:00:00`); return isNaN(x) ? "" : ` (${x.toLocaleString("en-US", { month: "short", year: "numeric" })})`; };
   const forSale = form.listingType !== "rent", forRent = form.listingType !== "sale";
-  const where = [project?.name, form.phase ? `Phase ${String(form.phase).replace(/^phase\s*/i, "")}` : "", project?.destination].filter(Boolean).join(", ");
-  const lines = [
-    `${form.type || "Unit"} for ${forSale && forRent ? "sale or rent" : forRent ? "rent" : "sale"}${where ? ` in ${where}` : ""}${developer?.name ? ` by ${developer.name}` : ""}.`,
-    [n(form.bua) ? `${n(form.bua)} m² BUA` : "", n(form.landArea) ? `${n(form.landArea)} m² land` : "", n(form.extraArea) ? `${n(form.extraArea)} m² extra (garden/roof)` : "",
-      form.floor !== "" && form.floor != null ? `${floorLabel(form.floor)} floor` : ""].filter(Boolean).join(" · "),
-    [form.finishing, form.furnished && forRent ? form.furnished : "", form.deliveryDate ? `Delivery: ${form.deliveryDate}` : ""].filter(Boolean).join(" · "),
-    forSale && n(form.totalPrice) ? `Price: ${money(n(form.totalPrice))}${n(form.downpayment) ? ` · Down payment ${money(n(form.downpayment))}` : ""}${n(form.remaining) ? ` · Remaining ${money(n(form.remaining))}` : ""}` : "",
-    forRent && n(form.rentPrice) ? `Rent: ${rentMoney(n(form.rentPrice))}` : "",
+  const blocks = [
+    [[project?.name, developer?.name].filter(Boolean).join(" - "),
+     `${form.type || "Unit"} for ${forSale && forRent ? "sale or rent" : forRent ? "rent" : "sale"}`,
+     [n(form.bua) ? `BUA ${f(form.bua)} Sqm` : "", n(form.landArea) ? `Land ${f(form.landArea)} Sqm` : ""].filter(Boolean).join(" - ")],
+    [n(form.bedrooms) ? `${n(form.bedrooms)} Bedrooms` : "", n(form.bathrooms) ? `${n(form.bathrooms)} Bathrooms` : ""],
+    [form.deliveryDate ? `Delivery ${form.deliveryDate}` : "", form.finishing ? `Finishing ${form.finishing}` : "", form.furnished && forRent ? form.furnished : ""],
+    forSale ? [n(form.downpayment) ? `DP ${f(form.downpayment)}` : "", n(form.remaining) ? `Remaining ${f(form.remaining)}` : "", n(form.totalPrice) ? `Total ${f(form.totalPrice)}` : "",
+      n(form.nextInstallment) ? `- Next installment ${f(form.nextInstallment)}${when(form.nextInstallmentDate)}` : ""] : [],
+    forSale ? [n(form.remainingMaintenance) ? `Remaining maintenance ${f(form.remainingMaintenance)}` : "", n(form.nextMaintenance) ? `- Next installment Maintenance ${f(form.nextMaintenance)}${when(form.nextMaintenanceDate)}` : ""] : [],
+    forSale ? [n(form.remainingClubPayment) ? `Remaining club ${f(form.remainingClubPayment)}` : "", n(form.nextClub) ? `- Next installment club ${f(form.nextClub)}${when(form.nextClubDate)}` : ""] : [],
+    forRent && n(form.rentPrice) ? [`Rent ${rentMoney(n(form.rentPrice))}`] : [],
+    forSale ? [`+Buyer Commission ${form.buyerCommissionPct === "" || form.buyerCommissionPct == null ? 1.5 : n(form.buyerCommissionPct)}%`, "+transfer fees"] : [],
   ];
-  return lines.filter(Boolean).join("\n");
+  return blocks.map((b) => b.filter(Boolean).join("\n")).filter(Boolean).join("\n\n");
 }
 const LAST_UNIT_KEY = "origin_last_unit_place";
 
@@ -815,6 +824,7 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
     remainingMaintenance: "", remainingClubPayment: "", extrasPrice: "",
     totalPrice: "", deliveryDate: "", unitNumber: "", ownerName: "", ownerNumber: "", description: "",
     listingType: "sale", rentPrice: "", furnished: "",
+    bedrooms: "", bathrooms: "", nextInstallment: "", nextInstallmentDate: "", nextMaintenance: "", nextMaintenanceDate: "", nextClub: "", nextClubDate: "", buyerCommissionPct: "1.5",
   };
   const buildFromUnit = (unit) => {
     const project = projects.find((p) => p.id === unit.projectId);
@@ -832,6 +842,11 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
       remaining: unit.remaining ?? "",
       remainingMaintenance: unit.remainingMaintenance ?? "",
       remainingClubPayment: unit.remainingClubPayment ?? "",
+      bedrooms: unit.bedrooms ?? "", bathrooms: unit.bathrooms ?? "",
+      nextInstallment: unit.nextInstallment ?? "", nextInstallmentDate: unit.nextInstallmentDate || "",
+      nextMaintenance: unit.nextMaintenance ?? "", nextMaintenanceDate: unit.nextMaintenanceDate || "",
+      nextClub: unit.nextClub ?? "", nextClubDate: unit.nextClubDate || "",
+      buyerCommissionPct: unit.buyerCommissionPct ?? "1.5",
       extrasPrice: unit.extrasPrice ?? "",
       totalPrice: unit.totalPrice,
       deliveryDate: unit.deliveryDate,
@@ -869,7 +884,8 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
     if (!descAuto) return;
     const d = form.type || form.projectId ? autoUnitDescription(form, projOf(form), devOf(form)) : "";
     if (d !== form.description) setForm((f) => ({ ...f, description: d }));
-  }, [descAuto, form.type, form.projectId, form.phase, form.bua, form.landArea, form.extraArea, form.floor, form.finishing, form.furnished, form.deliveryDate, form.totalPrice, form.downpayment, form.remaining, form.rentPrice, form.listingType]);
+  }, [descAuto, form.type, form.projectId, form.phase, form.bua, form.landArea, form.extraArea, form.floor, form.finishing, form.furnished, form.deliveryDate, form.totalPrice, form.downpayment, form.remaining, form.rentPrice, form.listingType,
+      form.bedrooms, form.bathrooms, form.nextInstallment, form.nextInstallmentDate, form.remainingMaintenance, form.nextMaintenance, form.nextMaintenanceDate, form.remainingClubPayment, form.nextClub, form.nextClubDate, form.buyerCommissionPct]);
 
   const totalPhotoCount = existingPhotos.length + photoFiles.length;
 
@@ -970,13 +986,28 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
         <Field label="Land area (sqm)"><input style={inputStyle} type="number" value={form.landArea} onChange={(e) => set("landArea")(e.target.value)} placeholder="0" /></Field>
         <Field label="BUA (sqm)"><input style={inputStyle} type="number" value={form.bua} onChange={(e) => set("bua")(e.target.value)} placeholder="0" /></Field>
         <Field label="Extra area (sqm)"><input style={inputStyle} type="number" value={form.extraArea} onChange={(e) => set("extraArea")(e.target.value)} placeholder="0" /></Field>
+        <Field label="Bedrooms"><input style={inputStyle} type="number" min="0" value={form.bedrooms} onChange={(e) => set("bedrooms")(e.target.value)} placeholder="0" /></Field>
+        <Field label="Bathrooms"><input style={inputStyle} type="number" min="0" value={form.bathrooms} onChange={(e) => set("bathrooms")(e.target.value)} placeholder="0" /></Field>
         <Field label="Delivery date" required><Select value={form.deliveryDate} onChange={set("deliveryDate")} options={DELIVERY} /></Field>
         {forSale && (
           <>
         <Field label="Downpayment"><MoneyInput value={form.downpayment} onChange={set("downpayment")} /></Field>
         <Field label="Remaining"><MoneyInput value={form.remaining} onChange={set("remaining")} /></Field>
+        {num(form.remaining) > 0 && <>
+          <Field label="Next installment"><MoneyInput value={form.nextInstallment} onChange={set("nextInstallment")} /></Field>
+          <Field label="Next installment date"><input type="date" style={inputStyle} value={form.nextInstallmentDate} onChange={(e) => set("nextInstallmentDate")(e.target.value)} /></Field>
+        </>}
         <Field label="Remaining Maintenance"><MoneyInput value={form.remainingMaintenance} onChange={set("remainingMaintenance")} /></Field>
+        {num(form.remainingMaintenance) > 0 && <>
+          <Field label="Next maintenance installment"><MoneyInput value={form.nextMaintenance} onChange={set("nextMaintenance")} /></Field>
+          <Field label="Next maintenance date"><input type="date" style={inputStyle} value={form.nextMaintenanceDate} onChange={(e) => set("nextMaintenanceDate")(e.target.value)} /></Field>
+        </>}
         <Field label="Remaining Club payment"><MoneyInput value={form.remainingClubPayment} onChange={set("remainingClubPayment")} /></Field>
+        {num(form.remainingClubPayment) > 0 && <>
+          <Field label="Next club installment"><MoneyInput value={form.nextClub} onChange={set("nextClub")} /></Field>
+          <Field label="Next club date"><input type="date" style={inputStyle} value={form.nextClubDate} onChange={(e) => set("nextClubDate")(e.target.value)} /></Field>
+        </>}
+        <Field label="Buyer commission %"><input style={inputStyle} type="number" step="0.1" min="0" value={form.buyerCommissionPct} onChange={(e) => set("buyerCommissionPct")(e.target.value)} placeholder="1.5" /></Field>
         <Field label="Extras (price)"><MoneyInput value={form.extrasPrice} onChange={set("extrasPrice")} /></Field>
         <Field label="Total price" required><MoneyInput value={form.totalPrice} onChange={set("totalPrice")} /></Field>
           </>
@@ -1650,6 +1681,11 @@ function mapUnit(row, salesIds) {
     remaining: row.remaining,
     remainingMaintenance: row.remaining_maintenance,
     remainingClubPayment: row.remaining_club_payment,
+    bedrooms: row.bedrooms, bathrooms: row.bathrooms,
+    nextInstallment: row.next_installment, nextInstallmentDate: row.next_installment_date,
+    nextMaintenance: row.next_maintenance, nextMaintenanceDate: row.next_maintenance_date,
+    nextClub: row.next_club, nextClubDate: row.next_club_date,
+    buyerCommissionPct: row.buyer_commission_pct,
     extrasPrice: row.extras_price,
     totalPrice: row.total_price,
     listingType: row.listing_type || "sale",
@@ -1689,6 +1725,15 @@ function unitToDbRow(unit, createdBy) {
     remaining: unit.remaining === "" ? null : unit.remaining,
     remaining_maintenance: unit.remainingMaintenance === "" ? null : unit.remainingMaintenance,
     remaining_club_payment: unit.remainingClubPayment === "" ? null : unit.remainingClubPayment,
+    bedrooms: unit.bedrooms === "" || unit.bedrooms == null ? null : Number(unit.bedrooms),
+    bathrooms: unit.bathrooms === "" || unit.bathrooms == null ? null : Number(unit.bathrooms),
+    next_installment: unit.nextInstallment === "" || unit.nextInstallment == null || !(Number(unit.remaining) > 0) ? null : unit.nextInstallment,
+    next_installment_date: unit.nextInstallmentDate && Number(unit.remaining) > 0 ? unit.nextInstallmentDate : null,
+    next_maintenance: unit.nextMaintenance === "" || unit.nextMaintenance == null || !(Number(unit.remainingMaintenance) > 0) ? null : unit.nextMaintenance,
+    next_maintenance_date: unit.nextMaintenanceDate && Number(unit.remainingMaintenance) > 0 ? unit.nextMaintenanceDate : null,
+    next_club: unit.nextClub === "" || unit.nextClub == null || !(Number(unit.remainingClubPayment) > 0) ? null : unit.nextClub,
+    next_club_date: unit.nextClubDate && Number(unit.remainingClubPayment) > 0 ? unit.nextClubDate : null,
+    buyer_commission_pct: unit.buyerCommissionPct === "" || unit.buyerCommissionPct == null ? 1.5 : Number(unit.buyerCommissionPct),
     extras_price: unit.extrasPrice === "" ? null : unit.extrasPrice,
     total_price: unit.listingType === "rent" ? null : Number(unit.totalPrice),
     listing_type: unit.listingType || "sale",
@@ -1719,6 +1764,15 @@ function unitEditToDbRow(form) {
     remaining: form.remaining === "" ? null : form.remaining,
     remaining_maintenance: form.remainingMaintenance === "" ? null : form.remainingMaintenance,
     remaining_club_payment: form.remainingClubPayment === "" ? null : form.remainingClubPayment,
+    bedrooms: form.bedrooms === "" || form.bedrooms == null ? null : Number(form.bedrooms),
+    bathrooms: form.bathrooms === "" || form.bathrooms == null ? null : Number(form.bathrooms),
+    next_installment: form.nextInstallment === "" || form.nextInstallment == null || !(Number(form.remaining) > 0) ? null : form.nextInstallment,
+    next_installment_date: form.nextInstallmentDate && Number(form.remaining) > 0 ? form.nextInstallmentDate : null,
+    next_maintenance: form.nextMaintenance === "" || form.nextMaintenance == null || !(Number(form.remainingMaintenance) > 0) ? null : form.nextMaintenance,
+    next_maintenance_date: form.nextMaintenanceDate && Number(form.remainingMaintenance) > 0 ? form.nextMaintenanceDate : null,
+    next_club: form.nextClub === "" || form.nextClub == null || !(Number(form.remainingClubPayment) > 0) ? null : form.nextClub,
+    next_club_date: form.nextClubDate && Number(form.remainingClubPayment) > 0 ? form.nextClubDate : null,
+    buyer_commission_pct: form.buyerCommissionPct === "" || form.buyerCommissionPct == null ? 1.5 : Number(form.buyerCommissionPct),
     extras_price: form.extrasPrice === "" ? null : form.extrasPrice,
     total_price: form.listingType === "rent" ? null : Number(form.totalPrice),
     listing_type: form.listingType || "sale",
@@ -2557,7 +2611,14 @@ async function unzipEntries(buf) {
     const raw = f.method === 0 ? data : await inflateRaw(data);
     return td.decode(raw);
   };
-  return { names: Object.keys(files), read };
+  const readBytes = async (name) => {
+    const f = files[name]; if (!f) return null;
+    const lnl = dv.getUint16(f.off + 26, true), lxl = dv.getUint16(f.off + 28, true);
+    const start = f.off + 30 + lnl + lxl;
+    const data = u8.subarray(start, start + f.csize);
+    return f.method === 0 ? new Uint8Array(data) : await inflateRaw(data);
+  };
+  return { names: Object.keys(files), read, readBytes };
 }
 async function readXlsx(buf) {
   const z = await unzipEntries(buf);
@@ -2969,6 +3030,399 @@ function VoiceNotePlayer({ path, getToken }) {
   if (err) return <span>🎙 Voice note (couldn't load)</span>;
   if (!url) return <button onClick={load} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 12.5 }}>🎙 Play voice note</button>;
   return <audio src={url} controls autoPlay style={{ height: 34, maxWidth: 260 }} />;
+}
+
+// =====================================================================
+// ---------- Contracts: promise of sale (وعد بالبيع) ----------
+// =====================================================================
+// Arabic amount in words (تفقيط)
+const AR_ONES = ["", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة"];
+const AR_TEENS = ["عشرة", "أحد عشر", "اثنا عشر", "ثلاثة عشر", "أربعة عشر", "خمسة عشر", "ستة عشر", "سبعة عشر", "ثمانية عشر", "تسعة عشر"];
+const AR_TENS = ["", "", "عشرون", "ثلاثون", "أربعون", "خمسون", "ستون", "سبعون", "ثمانون", "تسعون"];
+const AR_HUNDREDS = ["", "مائة", "مائتان", "ثلاثمائة", "أربعمائة", "خمسمائة", "ستمائة", "سبعمائة", "ثمانمائة", "تسعمائة"];
+function arBelow1000(n) {
+  const h = Math.floor(n / 100), r = n % 100, parts = [];
+  if (h) parts.push(AR_HUNDREDS[h]);
+  if (r) {
+    if (r < 10) parts.push(AR_ONES[r]);
+    else if (r < 20) parts.push(AR_TEENS[r - 10]);
+    else parts.push(r % 10 ? `${AR_ONES[r % 10]} و ${AR_TENS[Math.floor(r / 10)]}` : AR_TENS[Math.floor(r / 10)]);
+  }
+  return parts.join(" و ");
+}
+const AR_SCALES = [null, ["ألف", "ألفان", "آلاف", "ألفا"], ["مليون", "مليونان", "ملايين", "مليونا"], ["مليار", "ملياران", "مليارات", "مليارا"]];
+function arScale(n, [one, two, few, many]) {
+  if (n === 1) return one;
+  if (n === 2) return two;
+  const r = n % 100;
+  if (n >= 3 && n <= 10) return `${arBelow1000(n)} ${few}`;
+  if (r >= 3 && r <= 10) return `${arBelow1000(n)} ${few}`;
+  if (r >= 11) return `${arBelow1000(n)} ${many}`;
+  const h = AR_HUNDREDS[Math.floor(n / 100)];
+  if (r === 1) return `${h} و ${one}`;
+  if (r === 2) return `${h} و ${two}`;
+  return `${Math.floor(n / 100) === 2 ? "مائتا" : h} ${one}`; // e.g. خمسمائة ألف · مائتا ألف
+}
+function arNumberWords(num0) {
+  let n = Math.floor(Math.abs(Number(num0) || 0));
+  if (n === 0) return "صفر";
+  const groups = [];
+  for (let i = 0; n > 0 && i < 4; i++) { groups.push(n % 1000); n = Math.floor(n / 1000); }
+  const parts = [];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i]; if (!g) continue;
+    parts.push(i === 0 ? arBelow1000(g) : arScale(g, AR_SCALES[i]));
+  }
+  return parts.join(" و ");
+}
+const arMoneyWords = (v) => `${arNumberWords(v)} جنيه مصري فقط لا غير`;
+const AR_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const AR_TYPES = { apartment: "شقة", duplex: "دوبلكس", villa: "فيلا", "standalone villa": "فيلا مستقلة", townhouse: "تاون هاوس", "town house": "تاون هاوس", "twin house": "توين هاوس", twinhouse: "توين هاوس", penthouse: "بنتهاوس", studio: "استوديو", chalet: "شاليه", "ground floor": "شقة أرضي", "roof": "روف", loft: "لوفت", office: "مكتب", shop: "محل", clinic: "عيادة" };
+const AR_FLOORS = ["الأرضي", "الأول", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع", "العاشر"];
+function arUnitDesc(u) {
+  if (!u) return "";
+  const t = String(u.type || "").toLowerCase().trim();
+  const typeAr = AR_TYPES[t] || u.type || "وحدة";
+  const f = Number(u.floor);
+  const fl = (x) => (AR_FLOORS[x] != null ? AR_FLOORS[x] : String(x));
+  if (/villa|town|twin/.test(t)) return `(${typeAr})`;
+  if (Number.isFinite(f) && u.floor !== "" && u.floor != null) {
+    if (t === "duplex") return `الدور ${fl(f)} و ${fl(f + 1)} (${typeAr})`;
+    return `الدور ${fl(f)} (${typeAr})`;
+  }
+  return `(${typeAr})`;
+}
+const fmtNum = (v) => Number(v || 0).toLocaleString("en-US");
+const toDMY = (d) => { const [y, m, dd] = String(d || "").split("-"); return y ? `${dd}/${m}/${y}` : ""; };
+
+// Fill the Word template and zip it again (stored, no compression) — no library needed
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+function zipStore(files) {
+  const te = new TextEncoder(), chunks = [], central = [];
+  let offset = 0;
+  files.forEach(({ name, data }) => {
+    const nb = te.encode(name), crc = crc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, nb.length, true);
+    chunks.push(new Uint8Array(lh.buffer), nb, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, nb.length, true); ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), nb);
+    offset += 30 + nb.length + data.length;
+  });
+  const csize = central.reduce((s, c) => s + c.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csize, true); end.setUint32(16, offset, true);
+  return new Blob([...chunks, ...central, new Uint8Array(end.buffer)], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+}
+const xmlEsc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+function contractValues(d, ids) {
+  const day = d.date ? AR_DAYS[new Date(`${d.date}T12:00:00`).getDay()] : "";
+  const garden = num(d.garden) > 0 ? ` و حق انتفاع بالمساحة الخضراء الملحقة بالوحدة المبيعة و البالغ مساحتها ${fmtNum(d.garden)} متر مربع تحت العجز و الزيادة` : "";
+  return {
+    DATE: toDMY(d.date), DAY: day, UNIT: d.unit_number || "", PROJECT: d.project || "", DEVELOPER: d.developer || "",
+    UNIT_DESC: d.unit_desc || "", AREA: fmtNum(d.area), GARDEN: garden,
+    S_NAME: d.seller_name || "", S_ID: ids.seller || "", S_ADDR: d.seller_addr || "",
+    B_NAME: d.buyer_name || "", B_ID: ids.buyer || "", B_ADDR: d.buyer_addr || "",
+    DURATION: String(num(d.duration) || 30), DURATION_W: arNumberWords(num(d.duration) || 30),
+    TOTAL: fmtNum(d.total), TOTAL_W: arMoneyWords(d.total),
+    DOWN: fmtNum(d.down), DOWN_W: arMoneyWords(d.down),
+    REST: fmtNum(d.rest), REST_W: arMoneyWords(d.rest),
+    DEV: fmtNum(d.dev_rest), DEV_W: arMoneyWords(d.dev_rest), IF_DEV: "",
+    PENALTY: fmtNum(d.penalty), PENALTY_W: arMoneyWords(d.penalty),
+    COURT: d.court || "شمال القاهرة", COPIES: String(num(d.copies) || 2), PAGES: String(num(d.pages) || 3),
+  };
+}
+function fillContractXml(xml, d, ids) {
+  const v = contractValues(d, ids);
+  // drop paragraphs that are not needed (merged lines, no developer installments)
+  xml = xml.replace(/<w:p[ >](?:(?!<\/w:p>).)*?\{\{DROP\}\}(?:(?!<\/w:p>).)*?<\/w:p>/gs, "");
+  if (!(num(d.dev_rest) > 0)) xml = xml.replace(/<w:p[ >](?:(?!<\/w:p>).)*?\{\{IF_DEV\}\}(?:(?!<\/w:p>).)*?<\/w:p>/gs, "");
+  return xml.replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in v ? xmlEsc(v[k]) : ""));
+}
+async function templateEntries() {
+  const bin = atob(PROMISE_TEMPLATE_B64);
+  const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return unzipEntries(u8.buffer);
+}
+async function makeContractDocx(d, ids) {
+  const z = await templateEntries();
+  const te = new TextEncoder(), files = [];
+  for (const name of z.names) {
+    let data = await z.readBytes(name);
+    if (name === "word/document.xml") data = te.encode(fillContractXml(new TextDecoder().decode(data), d, ids));
+    files.push({ name, data });
+  }
+  return zipStore(files);
+}
+// Print / PDF: the same filled text as an Arabic page
+async function contractHtml(d, ids) {
+  const z = await templateEntries();
+  const xml = fillContractXml(await z.read("word/document.xml"), d, ids);
+  const body = xml.split(/<w:body>/)[1] || xml;
+  const out = [];
+  body.replace(/<w:tbl>.*?<\/w:tbl>|<w:p[ >].*?<\/w:p>/gs, (blk) => {
+    const paraText = (p) => (p.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, "")).join("");
+    if (blk.startsWith("<w:tbl")) {
+      const cells = (blk.match(/<w:tc>.*?<\/w:tc>/gs) || []).map((c) => (c.match(/<w:p[ >].*?<\/w:p>/gs) || []).map(paraText));
+      out.push(`<table class="parties"><tr>${cells.map((c) => `<td>${c.map((l, i) => (i ? `<div>${l}</div>` : `<div><b>${l}</b></div>`)).join("")}</td>`).join("")}</tr></table>`);
+    } else {
+      const t = paraText(blk); if (!t.trim()) { out.push("<p>&nbsp;</p>"); return ""; }
+      const center = /<w:jc w:val="center"\/>/.test(blk), b = /<w:b\/>/.test(blk);
+      out.push(`<p style="${center ? "text-align:center;" : ""}${b ? "font-weight:700;" : ""}">${t}</p>`);
+    }
+    return "";
+  });
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>وعد بالبيع</title><style>
+    body{font-family:"Times New Roman","Arial",sans-serif;font-size:15px;line-height:1.7;max-width:780px;margin:24px auto;padding:0 20px;color:#111}
+    p{margin:2px 0} table.parties{width:100%;border-collapse:collapse;margin:6px 0} table.parties td{width:50%;vertical-align:top;padding:4px 8px}
+    @media print{body{margin:0 auto}}</style></head><body>${out.join("\n")}<script>window.onload=function(){setTimeout(function(){window.print()},300)}</script></body></html>`;
+}
+
+const CONTRACT_STATUS = { pending: { label: "Waiting for approval", tone: "pending" }, returned: { label: "Returned for changes", tone: "hold" }, approved: { label: "Approved", tone: "active" } };
+const EMPTY_CONTRACT = { date: "", unit_number: "", project: "", developer: "", unit_desc: "", area: "", garden: "", seller_name: "", seller_addr: "", buyer_name: "", buyer_addr: "", total: "", down: "", rest: "", dev_rest: "", penalty: "", duration: "30", court: "شمال القاهرة", copies: "2", pages: "3" };
+function contractFromSources({ deal, unit, client, getProjectInfo }) {
+  const info = unit ? getProjectInfo(unit) : {};
+  const total = num(deal?.sale_price) || num(unit?.totalPrice) || "";
+  const dev = num(unit?.remaining) || "";
+  return {
+    ...EMPTY_CONTRACT, date: todayInput(),
+    unit_number: unit?.unitNumber || "", project: info.name || "", developer: info.developerName || "",
+    unit_desc: arUnitDesc(unit), area: unit?.bua || "", garden: num(unit?.extraArea) || "",
+    seller_name: unit?.ownerName || "", buyer_name: deal?.buyer_name || client?.name || "",
+    total: total ? String(total) : "", dev_rest: dev ? String(dev) : "",
+  };
+}
+
+function ContractIdsModal({ data, onClose }) {
+  const [ids, setIds] = useState({ seller: "", buyer: "" });
+  const { busy, error, run } = useAction();
+  const ok = (s) => /^\d{14}$/.test(s.replace(/\s/g, ""));
+  const go = (kind) => run(async () => {
+    if (!ok(ids.seller) || !ok(ids.buyer)) throw new Error("Each national ID is 14 digits.");
+    const clean = { seller: ids.seller.replace(/\s/g, ""), buyer: ids.buyer.replace(/\s/g, "") };
+    const name = `Promise-of-sale_${data.unit_number || "unit"}_${data.date || todayInput()}`.replace(/[^\w.-]+/g, "-");
+    if (kind === "word") saveBlob(await makeContractDocx(data, clean), `${name}.docx`);
+    else {
+      const w = window.open("", "_blank");
+      if (!w) throw new Error("Allow pop-ups to print.");
+      w.document.open(); w.document.write(await contractHtml(data, clean)); w.document.close();
+    }
+    setIds({ seller: "", buyer: "" }); // never kept
+    onClose();
+  });
+  return (
+    <FinModal title="National IDs (not saved)" onClose={onClose} width={420}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>The IDs go into this file only. They're not saved anywhere — you'll type them again next time.</div>
+        <Field label={`Seller · ${data.seller_name || ""}`}><input inputMode="numeric" maxLength={17} style={inputStyle} value={ids.seller} onChange={(e) => setIds({ ...ids, seller: e.target.value.replace(/[^\d\s]/g, "") })} autoComplete="off" /></Field>
+        <Field label={`Buyer · ${data.buyer_name || ""}`}><input inputMode="numeric" maxLength={17} style={inputStyle} value={ids.buyer} onChange={(e) => setIds({ ...ids, buyer: e.target.value.replace(/[^\d\s]/g, "") })} autoComplete="off" /></Field>
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <button style={btnGhost} onClick={onClose}>Cancel</button>
+          <button style={btnGhost} disabled={busy} onClick={() => go("print")}>🖨 Print / PDF</button>
+          <button style={btnPrimary} disabled={busy} onClick={() => go("word")}>{busy ? "Preparing…" : "⬇ Word file"}</button>
+        </div>
+      </div>
+    </FinModal>
+  );
+}
+
+function ContractForm({ initial, sources, onSave, onCancel, saving, isAdmin, readOnly }) {
+  const [d, setD] = useState(initial);
+  const [auto, setAuto] = useState({ rest: !initial.rest, penalty: !initial.penalty });
+  useEffect(() => { setD(initial); setAuto({ rest: !initial.rest, penalty: !initial.penalty }); }, [initial]); // eslint-disable-line
+  const set = (k) => (v) => setD((x) => {
+    const n = { ...x, [k]: v };
+    if (auto.rest && ["total", "down", "dev_rest"].includes(k)) { const r = num(n.total) - num(n.down) - num(n.dev_rest); n.rest = r > 0 ? String(r) : ""; }
+    if (auto.penalty && k === "down") n.penalty = v;
+    return n;
+  });
+  const sum = num(d.down) + num(d.rest) + num(d.dev_rest);
+  const mismatch = num(d.total) > 0 && Math.abs(sum - num(d.total)) > 0.5;
+  const F = ({ k, label, type = "text", wide, hint }) => (
+    <Field label={label}>
+      <input disabled={readOnly} type={type} inputMode={type === "number" ? "decimal" : undefined} style={{ ...inputStyle, ...(wide ? {} : {}) }} value={d[k] ?? ""} placeholder={hint}
+        onChange={(e) => { if (k === "rest") setAuto((a) => ({ ...a, rest: false })); if (k === "penalty") setAuto((a) => ({ ...a, penalty: false })); set(k)(e.target.value); }} dir={/[؀-ۿ]/.test(String(d[k] || "")) ? "rtl" : undefined} />
+      {type === "number" && num(d[k]) > 0 && <div dir="rtl" style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 3 }}>{arMoneyWords(d[k])}</div>}
+    </Field>
+  );
+  const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 };
+  const H = ({ children }) => <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5, margin: "6px 0 2px" }}>{children}</div>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {sources}
+      <H>Contract</H>
+      <div style={grid}>{F({ k: "date", label: "Contract date", type: "date" })}{F({ k: "duration", label: "Duration (days)", type: "text" })}{F({ k: "court", label: "Court (محكمة … الابتدائية)" })}{F({ k: "copies", label: "Copies" })}</div>
+      <H>Unit</H>
+      <div style={grid}>{F({ k: "unit_number", label: "Unit number" })}{F({ k: "project", label: "Project" })}{F({ k: "developer", label: "Developer company (التابع لشركة …)", hint: "e.g. سوديك السادس من أكتوبر للتنمية و الاستثمار" })}</div>
+      <div style={grid}>{F({ k: "unit_desc", label: "Unit description (Arabic)", hint: "الدور الأرضي و الأول (دوبلكس)" })}{F({ k: "area", label: "Area (m²)", type: "number" })}{F({ k: "garden", label: "Garden / extra area (m², optional)", type: "number" })}</div>
+      <H>Seller · الطرف الأول</H>
+      <div style={grid}>{F({ k: "seller_name", label: "Name" })}{F({ k: "seller_addr", label: "Address (مقيم في)" })}</div>
+      <H>Buyer · الطرف الثاني</H>
+      <div style={grid}>{F({ k: "buyer_name", label: "Name" })}{F({ k: "buyer_addr", label: "Address (مقيم في)" })}</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted }}>🔒 National IDs aren't saved — they're asked for when the file is made.</div>
+      <H>Money</H>
+      <div style={grid}>
+        {F({ k: "total", label: "Total price (EGP)", type: "number" })}
+        {F({ k: "down", label: "Paid at signing (EGP)", type: "number" })}
+        {F({ k: "rest", label: "To the seller at transfer (EGP)", type: "number" })}
+        {F({ k: "dev_rest", label: "Left with the developer (EGP, optional)", type: "number" })}
+        {F({ k: "penalty", label: "Seller's penalty (EGP)", type: "number" })}
+      </div>
+      {mismatch && <div style={{ fontSize: 12.5, color: COLORS.danger, background: "#FDECEC", padding: 8, borderRadius: 10 }}>⚠️ Paid at signing + to the seller + developer = {fmtNum(sum)} — but the total is {fmtNum(d.total)}. Check the numbers.</div>}
+      {!readOnly && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <button style={btnGhost} onClick={onCancel}>Cancel</button>
+          <button style={btnPrimary} disabled={saving} onClick={() => onSave(d)}>{saving ? "Saving…" : isAdmin ? "Save" : "Send for approval"}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContractsPage({ profile, users, units, clients, deals, getProjectInfo, getToken, contracts, refresh, deepId }) {
+  const isAdmin = isFinanceAdmin(profile);
+  const [view, setView] = useState(null); // null | {mode:'new'} | {mode:'open', id}
+  const [filter, setFilter] = useState("all");
+  const [src, setSrc] = useState({ dealId: "", unitId: "", clientId: "" });
+  const [note, setNote] = useState("");
+  const [ids, setIds] = useState(null);
+  const { busy, error, run } = useAction();
+  useEffect(() => { if (deepId) setView({ mode: "open", id: deepId }); }, [deepId]);
+  const userName = (id) => users.find((u) => u.id === id)?.name || "—";
+  const list = (contracts || []).filter((c) => filter === "all" || c.status === filter);
+  const myDeals = (deals || []).filter((d) => ["pending", "returned", "reserved"].includes(d.status) && d.deal_type !== "rent");
+  const unitsById = Object.fromEntries(units.map((u) => [u.id, u]));
+  const clientsById = Object.fromEntries(clients.map((c) => [c.id, c]));
+  const fromSrc = (s) => {
+    const deal = myDeals.find((x) => x.id === s.dealId);
+    const unit = unitsById[deal?.unit_id || s.unitId];
+    const client = clientsById[deal?.client_id || s.clientId];
+    return contractFromSources({ deal, unit, client, getProjectInfo });
+  };
+  const [draft, setDraft] = useState(null);
+  const startNew = () => { setSrc({ dealId: "", unitId: "", clientId: "" }); setDraft({ ...EMPTY_CONTRACT, date: todayInput() }); setView({ mode: "new" }); };
+  const pick = (s) => { setSrc(s); setDraft(fromSrc(s)); };
+  const titleOf = (d) => [d.unit_number, d.project, d.buyer_name].filter(Boolean).join(" · ") || "Promise of sale";
+  const save = (d, existing) => run(async () => {
+    if (!d.seller_name || !d.buyer_name || !num(d.total)) throw new Error("Write the seller, the buyer and the total price.");
+    if (!d.unit_number || !d.project || !num(d.area) || !d.date) throw new Error("Write the contract date, unit number, project and area.");
+    const t = await getToken();
+    const row = { data: d, title: titleOf(d), deal_id: src.dealId || existing?.deal_id || null, unit_id: (myDeals.find((x) => x.id === src.dealId)?.unit_id) || src.unitId || existing?.unit_id || null, client_id: (myDeals.find((x) => x.id === src.dealId)?.client_id) || src.clientId || existing?.client_id || null };
+    if (existing) await db.update("contracts", existing.id, { ...row, ...(isAdmin ? {} : { status: "pending" }) }, t);
+    else await db.insert("contracts", { ...row, status: isAdmin ? "approved" : "pending", created_by: profile.id }, t);
+    await refresh();
+    setView(null);
+  });
+  const act = (c, patch) => run(async () => { await db.update("contracts", c.id, patch, await getToken()); await refresh(); setNote(""); });
+
+  if (view?.mode === "new") return (
+    <div className="card" style={{ ...finCard, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>📄 New promise of sale</div>
+      <ContractForm initial={draft} saving={busy} isAdmin={isAdmin} onCancel={() => setView(null)} onSave={(d) => save(d, null)}
+        sources={
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, background: COLORS.cream, padding: 10, borderRadius: 12 }}>
+            <Field label="Fill from a deal">
+              <select style={{ ...inputStyle, appearance: "none" }} value={src.dealId} onChange={(e) => pick({ dealId: e.target.value, unitId: "", clientId: "" })}>
+                <option value="">— choose a deal —</option>
+                {myDeals.map((d) => <option key={d.id} value={d.id}>{[d.unit_label, d.client_label].filter(Boolean).join(" — ")}</option>)}
+              </select>
+            </Field>
+            {!src.dealId && (
+              <>
+                <Field label="…or a unit">
+                  <select style={{ ...inputStyle, appearance: "none" }} value={src.unitId} onChange={(e) => pick({ ...src, unitId: e.target.value })}>
+                    <option value="">— choose a unit —</option>
+                    {units.filter((u) => u.status !== "sold").map((u) => <option key={u.id} value={u.id}>{u.type} {u.unitNumber} · {getProjectInfo(u).name}</option>)}
+                  </select>
+                </Field>
+                <Field label="…and the buyer (client)">
+                  <select style={{ ...inputStyle, appearance: "none" }} value={src.clientId} onChange={(e) => pick({ ...src, clientId: e.target.value })}>
+                    <option value="">— choose a client —</option>
+                    {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </Field>
+              </>
+            )}
+            <div style={{ gridColumn: "1 / -1", fontSize: 12, color: COLORS.textMuted }}>Everything fills in by itself and you can change any of it.</div>
+          </div>
+        } />
+      <FinError text={error} />
+    </div>
+  );
+
+  const open = view?.mode === "open" ? (contracts || []).find((c) => c.id === view.id) : null;
+  if (open) {
+    const mine = open.created_by === profile.id;
+    const canEdit = isAdmin || (mine && open.status !== "approved");
+    const st = CONTRACT_STATUS[open.status] || CONTRACT_STATUS.pending;
+    return (
+      <div className="card" style={{ ...finCard, display: "flex", flexDirection: "column", gap: 10 }}>
+        <button onClick={() => setView(null)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>&larr; All contracts</button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>📄 {open.title || "Promise of sale"}</div>
+            <div style={{ fontSize: 12, color: COLORS.textMuted }}>By {userName(open.created_by)} · {formatDate(open.created_at)}{open.reviewed_at ? ` · reviewed ${formatDate(open.reviewed_at)}` : ""}</div>
+          </div>
+          <Badge tone={st.tone}>{st.label}</Badge>
+        </div>
+        {open.review_note && open.status === "returned" && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Note:</b> {open.review_note}</div>}
+        {open.status === "approved" && (mine || isAdmin) && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: "#EAF6EE", padding: 10, borderRadius: 12, alignItems: "center" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.success, flex: 1 }}>✅ Approved — ready to print</span>
+            <button style={btnPrimary} onClick={() => setIds(open.data)}>⬇ Word / 🖨 Print</button>
+          </div>
+        )}
+        <ContractForm initial={{ ...EMPTY_CONTRACT, ...open.data }} saving={busy} isAdmin={isAdmin} readOnly={!canEdit} onCancel={() => setView(null)} onSave={(d) => save(d, open)} />
+        {isAdmin && open.status !== "approved" && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", borderTop: `1px solid ${COLORS.border}`, paddingTop: 10 }}>
+            <Field label="Note to sales (needed to return)"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+            <button style={btnGhost} disabled={busy} onClick={() => { if (!note.trim()) return; act(open, { status: "returned", review_note: note.trim() }); }}>Return for changes</button>
+            <button style={btnSuccess} disabled={busy} onClick={() => act(open, { status: "approved", review_note: null })}>Approve</button>
+          </div>
+        )}
+        {(isAdmin || (mine && open.status !== "approved")) && (
+          <button style={{ ...btnGhost, alignSelf: "flex-start", color: COLORS.danger }} disabled={busy} onClick={() => run(async () => { if (!window.confirm("Delete this contract?")) return; await db.remove("contracts", open.id, await getToken()); await refresh(); setView(null); })}>Delete</button>
+        )}
+        <FinError text={error} />
+        {ids && <ContractIdsModal data={ids} onClose={() => setIds(null)} />}
+      </div>
+    );
+  }
+
+  const counts = { pending: 0, returned: 0, approved: 0 };
+  (contracts || []).forEach((c) => { counts[c.status] = (counts[c.status] || 0) + 1; });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>📄 Promise of sale contracts</div>
+        <button className="add-btn" style={btnPrimary} onClick={startNew}>+ New promise of sale</button>
+      </div>
+      <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, alignSelf: "flex-start", flexWrap: "wrap" }}>
+        {[["all", `All (${(contracts || []).length})`], ["pending", `Waiting (${counts.pending})`], ["returned", `Returned (${counts.returned})`], ["approved", `Approved (${counts.approved})`]].map(([id, l]) => (
+          <button key={id} onClick={() => setFilter(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: filter === id ? "#fff" : "transparent", color: filter === id ? COLORS.navy : COLORS.textMuted }}>{l}</button>
+        ))}
+      </div>
+      {list.length === 0 ? (
+        <div style={{ ...finCard, color: COLORS.textMuted, fontSize: 13.5 }}>No contracts here yet. Press “+ New promise of sale” — it fills itself from the deal or the unit.</div>
+      ) : list.map((c) => {
+        const st = CONTRACT_STATUS[c.status] || CONTRACT_STATUS.pending;
+        return (
+          <button key={c.id} className="card lift" onClick={() => setView({ mode: "open", id: c.id })} style={{ textAlign: "left", cursor: "pointer", background: "#fff", border: `1px solid ${COLORS.border}`, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontWeight: 700, color: COLORS.navy }}>{c.title || "Promise of sale"}</div>
+              <div style={{ fontSize: 12, color: COLORS.textMuted }}>{c.data?.date ? toDMY(c.data.date) : ""} · {fmtNum(c.data?.total)} EGP · by {userName(c.created_by)}</div>
+            </div>
+            <Badge tone={st.tone}>{st.label}</Badge>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 const TODAY_GROUPS = [
@@ -8565,6 +9019,7 @@ export default function App() {
     else if (kind === "unit" && id) { setSection("units"); setPendingUnitId(id); }
     else if (kind === "attendance") { setSection("profile"); setTab("attendance"); }
     else if (kind === "today") { setSection("clients"); setClientsTab("today"); setOpenClientId(null); }
+    else if (kind === "contract" && id) { setSection("contracts"); setContractDeep(`${id}`); }
   };
   useEffect(() => {
     try {
@@ -8658,6 +9113,7 @@ export default function App() {
     loadDuplicates(t);
     loadLeaderboard(t);
     refreshCold(t);
+    refreshContracts(t);
   };
 
   // Finance loads separately so a problem there never blocks the rest of the CRM
@@ -8815,6 +9271,7 @@ export default function App() {
     loadDuplicates(t);
     loadLeaderboard(t);
     refreshCold(t);
+    refreshContracts(t);
   };
 
   // ---- my deal got approved while I was away → celebrate once ----
@@ -8841,6 +9298,12 @@ export default function App() {
       ]);
       setCold({ sheets: sheets || [], leads: leads || [], activity: activity || [] });
     } catch (e) { /* table not there yet */ }
+  };
+  const [contracts, setContracts] = useState(null);
+  const [contractDeep, setContractDeep] = useState(null);
+  const refreshContracts = async (tk) => {
+    try { setContracts((await db.select("contracts", "&order=created_at.desc", tk || await getValidToken())) || []); }
+    catch (e) { setContracts([]); }
   };
   const lastColdRef = useRef(null);
   const [coldPrompt, setColdPrompt] = useState(null);
@@ -9419,12 +9882,14 @@ export default function App() {
   if (!profile || profile.role === "pending") return <PendingScreen onSignOut={signOut} />;
 
   const finPending = isFinanceAdmin(profile) ? fin.deals.filter((d) => d.status === "pending").length : 0;
+  const contractBadge = (contracts || []).filter((c) => (isFinanceAdmin(profile) ? c.status === "pending" : c.created_by === profile.id && c.status === "returned")).length;
   const coldBadge = cold.sheets.filter((sh) => sh.assigned_to === profile.id && ["late", "today"].includes(sheetState(sh, cold.leads).state)).length;
   const SECTIONS = [
     { id: "clients", label: "Clients", icon: MessageSquare },
     { id: "units", label: "Units", icon: Building2 },
     { id: "cold", label: "Cold calls", short: "Cold", icon: Phone, badge: coldBadge || 0 },
     { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", short: "Finance", badge: finPending || 0, icon: Wallet },
+    { id: "contracts", label: contractBadge ? `Contracts (${contractBadge})` : "Contracts", short: "Contracts", badge: contractBadge || 0, icon: FileText },
     { id: "profile", label: "My Profile", short: "Profile", icon: UserRound },
   ];
   const UNITS_SUBNAV = [
@@ -9835,6 +10300,10 @@ export default function App() {
           </>
         )}
 
+        {section === "contracts" && (
+          <ContractsPage profile={profile} users={users} units={units} clients={clients} deals={fin.deals} getProjectInfo={getProjectInfo}
+            getToken={getValidToken} contracts={contracts} refresh={() => refreshContracts()} deepId={contractDeep} />
+        )}
         {section === "cold" && (
           <ColdCallsSection profile={profile} users={users} visibleSalesIds={visibleSalesIds} projects={projects} cold={cold} getToken={getValidToken} settings={fin.settings}
             onRefresh={() => refreshCold()} onAddUnit={startUnitFromCold} onLog={logCold} onOutcome={saveColdOutcome} />

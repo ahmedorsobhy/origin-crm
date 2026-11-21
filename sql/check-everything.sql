@@ -1,5 +1,5 @@
 -- Checks that every update is in the database, in its latest version.
--- Read-only: changes nothing. Every line must say OK (29 lines).
+-- Read-only: changes nothing. Every line must say OK (30 lines).
 with fn as (
   select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
 ), col as (
@@ -51,6 +51,9 @@ with fn as (
       and exists (select 1 from pg_proc where proname = 'complete_deal' and prosrc like '%v_paid_b%')
       and exists (select 1 from pg_proc where proname = 'deals_stamp_dates' and prosrc like '%transfer_date%')
       and exists (select 1 from pg_trigger where tgname = 'trg_deal_done_charity')),
+  ('30 Contracts (no national IDs stored) + unit description fields', exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'contracts')
+      and exists (select 1 from pg_trigger where tgname = 'trg_contracts_guard') and exists (select 1 from pg_trigger where tgname = 'trg_contracts_notify')
+      and exists (select 1 from col where c = 'units.bedrooms') and exists (select 1 from col where c = 'units.next_club_date')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
