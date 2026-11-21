@@ -210,7 +210,7 @@ async function run() {
   return { queued: (queued || []).length };
 }
 
-export const BACKUP_TABLES = ["profiles", "developers", "projects", "units", "unit_sales", "clients", "client_activity", "client_units", "client_projects", "lead_duplicates", "deals", "deal_agents", "deal_rates",
+export const BACKUP_TABLES = ["profiles", "developers", "projects", "units", "unit_owners", "unit_sales", "clients", "client_activity", "client_units", "client_projects", "lead_duplicates", "deals", "deal_agents", "deal_rates",
   "finance_transactions", "finance_accounts", "expense_categories", "recurring_expenses", "staff_targets", "staff_salaries", "commission_rates", "finance_settings",
   "attendance", "cold_sheets", "cold_leads", "cold_activity", "campaign_spend", "share_links", "finance_audit"];
 async function dumpAll() {

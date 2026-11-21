@@ -1,5 +1,5 @@
 -- Checks that every update is in the database, in its latest version.
--- Read-only: changes nothing. Every line must say OK (24 lines).
+-- Read-only: changes nothing. Every line must say OK (28 lines).
 with fn as (
   select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
 ), col as (
@@ -36,6 +36,16 @@ with fn as (
       and has_function_privilege('anon', 'public.public_share(text)', 'execute') and exists (select 1 from pg_trigger where tgname = 'trg_notify_price_drop')),
   ('24 Campaigns, late leads, voice notes, backups', exists (select 1 from col where c = 'clients.campaign') and exists (select 1 from col where c = 'finance_settings.late_lead_hours')
       and (select count(*) from storage.buckets where id in ('voice-notes','backups')) = 2),
+  ('25 Owner phones protected', exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'unit_owners')
+      and exists (select 1 from pg_trigger where tgname = 'trg_units_owner_split')
+      and not exists (select 1 from public.units where owner_number is not null or owner_name is not null)),
+  ('26 Only handlers can edit units', exists (select 1 from fn where proname = 'can_edit_unit')
+      and not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('units','unit_sales') and cmd in ('UPDATE','INSERT','DELETE')
+                      and coalesce(qual, with_check) not like '%can_edit_unit%' and coalesce(qual, with_check) not like '%is_admin%' and not (tablename = 'units' and cmd = 'INSERT'))),
+  ('27 Photo upload approved only, activity under real name', exists (select 1 from pg_trigger where tgname = 'trg_activity_author')
+      and not exists (select 1 from pg_policies where schemaname = 'storage' and policyname = 'authenticated upload unit photos' and with_check not like '%is_approved%')),
+  ('28 Deals (done) and reservations counted apart', exists (select 1 from col where c = 'deals.reserved_at') and exists (select 1 from col where c = 'deals.done_at')
+      and exists (select 1 from pg_trigger where tgname = 'trg_deals_stamp_dates') and exists (select 1 from fn where proname = 'sales_ranking' and prosrc like '%reserved_at%')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
