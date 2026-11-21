@@ -2325,6 +2325,8 @@ function boardRows(rows, b) {
 }
 function rankRange(p) {
   const now = new Date();
+  if (typeof p === "string" && p.startsWith("custom:")) { const [, from, to] = p.split(":"); return dateRangeOf({ p: "custom", from, to }); }
+  if (["today", "yesterday", "7d", "30d", "lastquarter", "year", "lastyear"].includes(p)) return dateRangeOf({ p });
   if (p === "week") { const r = dateRangeOf({ p: "week" }); return r; }
   if (p === "quarter") return dateRangeOf({ p: "quarter" });
   if (p === "lastmonth") return dateRangeOf({ p: "lastmonth" });
@@ -2348,6 +2350,8 @@ function useRanking(getToken, period) {
 const MEDAL = ["🥇", "🥈", "🥉"];
 function RankingPage({ profile, getToken }) {
   const [period, setPeriod] = useState("month");
+  const [customFrom, setCustomFrom] = useState(() => { const d = new Date(); return dateKey(new Date(d.getFullYear(), d.getMonth(), 1).toISOString()); });
+  const [customTo, setCustomTo] = useState(() => dateKey(new Date().toISOString()));
   const rows = useRanking(getToken, period);
   const last = useRanking(getToken, "lastmonth");
   const champions = (last || []).length ? RANK_BOARDS.map((b) => ({ b, top: boardRows(last, b)[0] })).filter((x) => x.top) : [];
@@ -2362,12 +2366,29 @@ function RankingPage({ profile, getToken }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>🏆 Sales ranking</div>
-        <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999 }}>
-          {[["week", "This week"], ["month", monthName(nowD)], ["quarter", "This quarter"], ["lastmonth", monthName(lastD)]].map(([id, l]) => (
-            <button key={id} onClick={() => setPeriod(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: period === id ? "#fff" : "transparent", color: period === id ? COLORS.navy : COLORS.textMuted }}>{l}</button>
-          ))}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999 }}>
+            {[["week", "This week"], ["month", monthName(nowD)], ["quarter", "This quarter"], ["lastmonth", monthName(lastD)]].map(([id, l]) => (
+              <button key={id} onClick={() => setPeriod(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: period === id ? "#fff" : "transparent", color: period === id ? COLORS.navy : COLORS.textMuted }}>{l}</button>
+            ))}
+          </div>
+          <select aria-label="More periods" value={["week", "month", "quarter", "lastmonth"].includes(period) ? "" : period.startsWith("custom:") ? "custom" : period}
+            onChange={(e) => { const v = e.target.value; if (!v) return; if (v === "custom") { setPeriod(`custom:${customFrom}:${customTo}`); } else setPeriod(v); }}
+            style={{ ...inputStyle, width: "auto", padding: "6px 10px", fontSize: 12, fontWeight: 700, borderRadius: 999, appearance: "none" }}>
+            <option value="">More periods…</option>
+            <option value="today">Today</option><option value="yesterday">Yesterday</option>
+            <option value="7d">Last 7 days</option><option value="30d">Last 30 days</option>
+            <option value="lastquarter">Last quarter</option><option value="year">This year</option><option value="lastyear">Last year</option>
+            <option value="custom">Custom dates…</option>
+          </select>
         </div>
       </div>
+      {period.startsWith("custom:") && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <Field label="From"><input type="date" style={inputStyle} value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setPeriod(`custom:${e.target.value}:${customTo}`); }} /></Field>
+          <Field label="To"><input type="date" style={inputStyle} value={customTo} onChange={(e) => { setCustomTo(e.target.value); setPeriod(`custom:${customFrom}:${e.target.value}`); }} /></Field>
+        </div>
+      )}
       {champions.length > 0 && (
         <div className="hero" style={{ padding: 14 }}>
           <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>👑 {monthName(lastD)} champions <span style={{ fontWeight: 500, opacity: 0.75, fontSize: 12 }}>· last month's winners</span></div>
@@ -5483,8 +5504,10 @@ function sideAmounts(d, amount, side) {
 }
 const agentSide = (a) => a.side || "buyer";
 
-function computeFinance({ deals, dealAgents, dealRates, txns, targets, thresholds }) {
+function computeFinance({ deals, dealAgents, dealRates, txns, targets, thresholds, charityPct = 0 }) {
   const approved = new Set(deals.filter((d) => d.status === "approved").map((d) => d.id));
+  // money collected on reservations counts toward targets (in the quarter it came in); payouts wait for the transfer
+  const counted = new Set(deals.filter((d) => d.status === "approved" || d.status === "reserved").map((d) => d.id));
   const dealById = Object.fromEntries(deals.map((d) => [d.id, d]));
   const agentsByDeal = groupBy(dealAgents, (a) => a.deal_id);
   // one rate row per (deal, seller, beneficiary), even if duplicates slip in
@@ -5496,7 +5519,7 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
   const ach = {}; // agentId -> qKey -> amount
   collections.forEach((c) => {
     collectedByDeal[c.deal_id] = round2((collectedByDeal[c.deal_id] || 0) + num(c.amount));
-    if (!approved.has(c.deal_id)) return;
+    if (!counted.has(c.deal_id)) return;
     const q = quarterKeyOf(c.occurred_at);
     const bySide = sideAmounts(dealById[c.deal_id], c.amount, c.side);
     (agentsByDeal[c.deal_id] || []).forEach((a) => {
@@ -5521,7 +5544,7 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
   };
 
   collections.forEach((c) => {
-    if (!approved.has(c.deal_id)) return;
+    if (!counted.has(c.deal_id)) return; // reserved deals too: sales can be paid from what came in
     const q = quarterKeyOf(c.occurred_at);
     const bySide = sideAmounts(dealById[c.deal_id], c.amount, c.side);
     (agentsByDeal[c.deal_id] || []).forEach((a) => {
@@ -5556,15 +5579,21 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
   txns.filter((t) => t.kind === "transfer" && t.direction === "out" && t.source_tx_id && t.deal_id).forEach((t) => {
     charityByDeal[t.deal_id] = round2((charityByDeal[t.deal_id] || 0) + num(t.amount));
   });
+  // Reserved deals: Floos Rabna is set aside on paper and moves only when the deal is done
+  const charityPendingByDeal = {};
+  deals.filter((d) => d.status === "reserved").forEach((d) => {
+    const pend = round2(num(collectedByDeal[d.id]) * num(charityPct) / 100 - num(charityByDeal[d.id]));
+    if (pend > 0) { charityPendingByDeal[d.id] = pend; charityByDeal[d.id] = round2(num(charityByDeal[d.id]) + pend); }
+  });
 
   const companyShareByDeal = {};
   Object.keys(collectedByDeal).forEach((dealId) => {
-    if (!approved.has(dealId)) return;
+    if (!counted.has(dealId)) return;
     const distributed = out.filter((l) => l.dealId === dealId).reduce((s, l) => s + l.entitled, 0);
     companyShareByDeal[dealId] = round2(collectedByDeal[dealId] - distributed - (charityByDeal[dealId] || 0));
   });
 
-  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal, charityByDeal };
+  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal, charityByDeal, charityPendingByDeal };
 }
 
 // Preview of a pending deal's split using the CURRENT plans (before rates get frozen)
@@ -5659,6 +5688,7 @@ const TX_KIND_LABEL = {
   salary: "Salary",
   transfer: "Transfer",
   adjustment: "Adjustment",
+  refund: "Refund",
 };
 
 // Numbers roll up when they first appear (e.g. "312,500" counts up from 0)
@@ -6480,17 +6510,26 @@ function DealTeams({ deal, agents, userName, showCommission = true }) {
 }
 
 // Amount collected per side (defaults to that side's commission)
-function SideAmountFields({ deal, values, setValues }) {
+function SideAmountFields({ deal, values, setValues, defaults }) {
   return dealSides(deal).map((side) => (
     <Field key={side} label={`Collected from ${partyName(deal.deal_type, side)} (EGP)`}>
-      <input type="number" min="0" style={inputStyle} value={values[side] ?? String(sideCommission(deal, side))}
+      <input type="number" min="0" style={inputStyle} value={values[side] ?? String(defaults ? defaults[side] : sideCommission(deal, side))}
         onChange={(e) => setValues((v) => ({ ...v, [side]: e.target.value }))} />
     </Field>
   ));
 }
-const sideValues = (deal, values) => Object.fromEntries(["buyer", "seller"].map((side) => [
-  side, dealSides(deal).includes(side) ? num(values[side] ?? sideCommission(deal, side)) : 0,
+const sideValues = (deal, values, defaults) => Object.fromEntries(["buyer", "seller"].map((side) => [
+  side, dealSides(deal).includes(side) ? num(values[side] ?? (defaults ? defaults[side] : sideCommission(deal, side))) : 0,
 ]));
+// What's still owed on each side after earlier collections (e.g. at reservation)
+function sideRemaining(deal, txns) {
+  const paid = { buyer: 0, seller: 0 };
+  (txns || []).filter((t) => t.kind === "commission_in" && t.deal_id === deal.id).forEach((t) => {
+    const by = sideAmounts(deal, t.amount, t.side);
+    paid.buyer += num(by.buyer); paid.seller += num(by.seller);
+  });
+  return { buyer: round2(Math.max(0, sideCommission(deal, "buyer") - paid.buyer)), seller: round2(Math.max(0, sideCommission(deal, "seller") - paid.seller)) };
+}
 
 function ApprovalCard({ deal, ctx }) {
   const { fin, users, calc, thresholds, userName, dealTitle, act, onEditDeal } = ctx;
@@ -6500,8 +6539,10 @@ function ApprovalCard({ deal, ctx }) {
   const [collectedAt, setCollectedAt] = useState(todayInput());
   const [asDone, setAsDone] = useState(false);
   const [amounts, setAmounts] = useState({});
+  const [resAmounts, setResAmounts] = useState({});
   const [note, setNote] = useState("");
   const { busy, error, run } = useAction();
+  const zero = { buyer: 0, seller: 0 };
   const quarter = quarterKeyOf(dateInputToIso(asDone ? collectedAt : todayInput()));
   const collectedNow = sideValues(deal, amounts);
   const preview = previewDistribution({
@@ -6561,10 +6602,26 @@ function ApprovalCard({ deal, ctx }) {
       </div>
 
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Approve as <b>Reserved</b> ({isRentDeal(deal) ? "reservation" : "promise of sale"}, no money yet)</label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={!asDone} onChange={() => setAsDone(false)} /> Approve as <b>Reserved</b> ({isRentDeal(deal) ? "reservation" : "promise of sale"})</label>
         <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="radio" checked={asDone} onChange={() => setAsDone(true)} /> Approve as <b>Done</b> ({isRentDeal(deal) ? "lease signed" : "transfer done"}, commission collected)</label>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+        {!asDone && (
+          <>
+            <div style={{ gridColumn: "1 / -1", fontSize: 12.5, color: COLORS.textMuted }}>Money collected with the reservation (leave 0 if none). It counts toward targets now, and you can pay sales their share of it from the deal page. Floos Rabna moves when the deal is done.</div>
+            <SideAmountFields deal={deal} values={resAmounts} setValues={setResAmounts} defaults={zero} />
+            {Object.values(sideValues(deal, resAmounts, zero)).some((v) => v > 0) && (
+              <>
+                <Field label="Money received into">
+                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                    {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Money in date"><input type="date" style={inputStyle} value={collectedAt} onChange={(e) => setCollectedAt(e.target.value)} /></Field>
+              </>
+            )}
+          </>
+        )}
         {asDone && (
           <>
             <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} />
@@ -6597,11 +6654,22 @@ function ApprovalCard({ deal, ctx }) {
           if (asDone && (collectedNow.buyer > sideCommission(deal, "buyer") + 0.01 || collectedNow.seller > sideCommission(deal, "seller") + 0.01)) {
             throw new Error("Collected can't be more than the commission of that side.");
           }
-          await act((t) => db.rpc("approve_deal", {
-            p_deal: deal.id, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(collectedAt),
-            p_as_done: asDone, p_amount_buyer: asDone ? collectedNow.buyer : null, p_amount_seller: asDone ? collectedNow.seller : null,
-            p_transfer_date: asDone ? collectedAt : null,
-          }, t), { full: true });
+          const atRes = sideValues(deal, resAmounts, zero);
+          if (!asDone && (atRes.buyer > sideCommission(deal, "buyer") + 0.01 || atRes.seller > sideCommission(deal, "seller") + 0.01)) throw new Error("Collected can't be more than the commission of that side.");
+          if (!asDone && (atRes.buyer < 0 || atRes.seller < 0)) throw new Error("Amounts can't be negative.");
+          if (!asDone && atRes.buyer + atRes.seller > 0 && !accountId) throw new Error("Choose the account that received the money.");
+          await act(async (t) => {
+            await db.rpc("approve_deal", {
+              p_deal: deal.id, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(collectedAt),
+              p_as_done: asDone, p_amount_buyer: asDone ? collectedNow.buyer : null, p_amount_seller: asDone ? collectedNow.seller : null,
+              p_transfer_date: asDone ? collectedAt : null,
+            }, t);
+            if (!asDone) {
+              for (const side of ["buyer", "seller"]) {
+                if (atRes[side] > 0) await db.insert("finance_transactions", { kind: "commission_in", direction: "in", amount: atRes[side], account_id: accountId, occurred_at: dateInputToIso(collectedAt), deal_id: deal.id, side, description: `Collected with the reservation (${partyName(deal.deal_type, side)})` }, t);
+              }
+            }
+          }, { full: true });
           celebrate(asDone ? "deal" : "milestone", `${asDone ? "Deal done 🏁" : "Reservation approved 📝"} · ${ctx.dealTitle ? ctx.dealTitle(deal) : ""}`);
         })}>{busy ? "Working…" : asDone ? "Approve as Done" : "Approve as Reserved"}</button>
       </div>
@@ -6716,11 +6784,43 @@ function FinDeals({ ctx }) {
 // =====================================================================
 // ---------- FINANCE: one deal ----------
 // =====================================================================
+// Reserved on / Done on — both editable by Admin/CEO; ranking and reports follow them
+function DealDates({ deal, isAdmin, act }) {
+  const toInput = (iso) => (iso ? dateKey(iso) : "");
+  const [res, setRes] = useState(toInput(deal.reserved_at));
+  const [done, setDone] = useState(deal.transfer_date || toInput(deal.done_at));
+  const [edit, setEdit] = useState(false);
+  const { busy, error, run } = useAction();
+  const isDone = deal.status === "approved";
+  if (!edit) return (
+    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 12.5 }}>
+      <span>📝 <b>Reserved on:</b> {deal.reserved_at ? formatDate(deal.reserved_at) : "—"}</span>
+      {isDone && <span>🏁 <b>Done on:</b> {deal.transfer_date ? formatDate(`${deal.transfer_date}T12:00:00`) : deal.done_at ? formatDate(deal.done_at) : "—"}</span>}
+      {isAdmin && <button onClick={() => setEdit(true)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>✎ Edit dates</button>}
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", background: COLORS.cream, padding: 10, borderRadius: 10 }}>
+      <Field label="Reserved on"><input type="date" style={inputStyle} value={res} onChange={(e) => setRes(e.target.value)} /></Field>
+      {isDone && <Field label="Done on (transfer)"><input type="date" style={inputStyle} value={done} onChange={(e) => setDone(e.target.value)} /></Field>}
+      <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+        if (!res) throw new Error("Choose the reservation date.");
+        if (isDone && !done) throw new Error("Choose the transfer date.");
+        if (isDone && done < res) throw new Error("The transfer can't be before the reservation.");
+        await act((t) => db.update("deals", deal.id, { reserved_at: dateInputToIso(res), ...(isDone ? { transfer_date: done } : {}) }, t));
+        setEdit(false);
+      })}>{busy ? "Saving…" : "Save"}</button>
+      <button style={btnGhost} onClick={() => setEdit(false)}>Cancel</button>
+      <div style={{ fontSize: 11.5, color: COLORS.textMuted, flexBasis: "100%" }}>Moves the deal in the ranking and reports. Money dates (targets) stay as recorded — edit those from the money movements.</div>
+      <FinError text={error} />
+    </div>
+  );
+}
 function DealDetail({ deal, ctx, onBack }) {
   const { fin, isAdmin, profile, calc, thresholds, userName, dealTitle, act, onEditDeal, accountName } = ctx;
   const agents = fin.dealAgents.filter((a) => a.deal_id === deal.id);
   const lines = calc.lines.filter((l) => l.dealId === deal.id && (isAdmin || l.beneficiaryId === profile.id));
-  const collections = fin.txns.filter((t) => t.kind === "commission_in" && t.deal_id === deal.id);
+  const collections = fin.txns.filter((t) => (t.kind === "commission_in" || (isAdmin && t.kind === "refund")) && t.deal_id === deal.id);
   const payouts = fin.txns.filter((t) => ((t.kind === "payout" && (isAdmin || t.beneficiary_id === profile.id)) || (isAdmin && t.kind === "transfer" && t.source_tx_id && t.direction === "out")) && t.deal_id === deal.id);
   const collected = num(calc.collectedByDeal[deal.id]);
   const [modal, setModal] = useState(null); // 'cashout' | 'collect' | 'rates' | 'cancel'
@@ -6742,9 +6842,11 @@ function DealDetail({ deal, ctx, onBack }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, fontSize: 12.5 }}>
           <div><b>{isRentDeal(deal) ? "Rent" : "Sale price"}:</b> {dealPriceText(deal)}</div>
           <div><b>{deal.status === "approved" ? "Total commission" : "Expected commission"}:</b> {egpFull(deal.commission_total)}</div>
-          {deal.status === "approved" && <div><b>Collected:</b> {egpFull(collected)}</div>}
-          {deal.status === "approved" && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
+          {(deal.status === "approved" || deal.status === "reserved") && <div><b>Collected{deal.status === "reserved" ? " so far" : ""}:</b> {egpFull(collected)}</div>}
+          {(deal.status === "approved" || deal.status === "reserved") && <div style={{ color: collected < num(deal.commission_total) ? COLORS.danger : COLORS.success }}><b>Left to collect:</b> {egpFull(num(deal.commission_total) - collected)}</div>}
         </div>
+        {(deal.status === "approved" || deal.status === "reserved") && <DealDates deal={deal} isAdmin={isAdmin} act={act} />}
+        {deal.status === "reserved" && collected > 0 && <div style={{ fontSize: 12, color: COLORS.textMuted }}>Money collected on the reservation counts toward targets. Each person's share of it can be cashed out now (all or part); the rest comes with the transfer. Floos Rabna ({egpFull(num(calc.charityPendingByDeal?.[deal.id]))}) moves when the deal is done.</div>}
         <DealTeams deal={deal} agents={agents} userName={userName} />
         {deal.notes && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 10 }}>{deal.notes}</div>}
         {deal.review_note && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Review note:</b> {deal.review_note}</div>}
@@ -6765,7 +6867,9 @@ function DealDetail({ deal, ctx, onBack }) {
           )}
           {isAdmin && deal.status === "reserved" && (
             <>
+              <button style={btnGhost} onClick={() => setModal("collect")}>+ Add collection</button>
               <button style={btnDanger} onClick={() => setModal("cancel")}>Cancel deal</button>
+              {lines.some((l) => l.remaining > 0.5) && <button style={btnGhost} onClick={() => setModal("cashout")}>Cash out</button>}
               <button style={btnSuccess} onClick={() => setModal("done")}>Mark as done</button>
             </>
           )}
@@ -6781,9 +6885,9 @@ function DealDetail({ deal, ctx, onBack }) {
         <FinError text={error} />
       </div>
 
-      {deal.status === "approved" && (
+      {(deal.status === "approved" || (deal.status === "reserved" && collected > 0)) && (
         <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>{isAdmin ? "Commission split" : "My share"}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>{isAdmin ? "Commission split" : "My share"}{deal.status === "reserved" ? " · from the money collected so far" : ""}</div>
           <TableWrap>
             <thead><tr>
               <th style={thStyle}>Person</th><th style={thStyle}>Rate applied</th>
@@ -6807,7 +6911,7 @@ function DealDetail({ deal, ctx, onBack }) {
               ))}
               {isAdmin && num(calc.charityByDeal[deal.id]) > 0 && (
                 <tr>
-                  <td style={tdStyle} colSpan={2}>Floos Rabna</td>
+                  <td style={tdStyle} colSpan={2}>Floos Rabna{deal.status === "reserved" ? " · moves when the deal is done" : ""}</td>
                   <td style={tdNum}>{egp(calc.charityByDeal[deal.id])}</td>
                   <td style={tdStyle} colSpan={3} />
                 </tr>
@@ -6833,7 +6937,7 @@ function DealDetail({ deal, ctx, onBack }) {
               {[...collections, ...payouts].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at)).map((t) => (
                 <tr key={t.id}>
                   <td style={tdStyle}>{formatDate(t.occurred_at)}</td>
-                  <td style={tdStyle}>{t.kind === "commission_in" ? `Collected from ${t.side ? partyName(deal.deal_type, t.side) : "client"}` : t.kind === "transfer" ? "Moved to Floos Rabna (automatic)" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind === "payout" ? ` · ${t.description}` : ""}</td>
+                  <td style={tdStyle}>{t.kind === "refund" ? (t.description || "Refund") : t.kind === "commission_in" ? `Collected from ${t.side ? partyName(deal.deal_type, t.side) : "client"}` : t.kind === "transfer" ? "Moved to Floos Rabna (automatic)" : `Paid to ${userName(t.beneficiary_id)}`}{t.description && t.kind === "payout" ? ` · ${t.description}` : ""}</td>
                   <td style={tdStyle}>{isAdmin ? accountName(t.account_id) : "—"}</td>
                   <td style={tdNum}>{t.direction === "in" ? egp(t.amount) : ""}</td>
                   <td style={tdNum}>{t.direction === "out" ? egp(t.amount) : ""}</td>
@@ -6869,17 +6973,36 @@ function DealDetail({ deal, ctx, onBack }) {
 function CancelDealForm({ deal, ctx, onDone }) {
   const [note, setNote] = useState("");
   const { busy, error, run } = useAction();
+  const isAdmin = ctx.isAdmin;
+  const collected = round2(num(ctx.calc.collectedByDeal[deal.id]));
+  const refunded = round2((ctx.fin.txns || []).filter((t) => t.kind === "refund" && t.deal_id === deal.id).reduce((s, t) => s + num(t.amount), 0));
+  const activeAccounts = ctx.fin.accounts.filter((a) => !a.archived);
+  const [refund, setRefund] = useState(collected - refunded > 0 && deal.status === "reserved" ? String(collected - refunded) : "0");
+  const [refundAcc, setRefundAcc] = useState(activeAccounts[0]?.id || "");
+  const [refundDate, setRefundDate] = useState(todayInput());
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ fontSize: 13 }}>
         The unit goes back to active and nobody earns commission from this deal anymore. Anything already paid will show as <b>overpaid</b> so you can recover it.
       </div>
       <Field label="Reason"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      {isAdmin && collected > 0 && (
+        <div style={{ background: COLORS.cream, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 12.5 }}>We collected <b>{egpFull(collected)}</b> on this deal{refunded > 0 ? ` (already refunded ${egpFull(refunded)})` : ""}. It drops out of targets and the ranking either way. Refund the client? (0 = the company keeps it)</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Field label="Refund (EGP)"><input type="number" min="0" style={{ ...inputStyle, width: 130 }} value={refund} onChange={(e) => setRefund(e.target.value)} /></Field>
+            {num(refund) > 0 && <Field label="Paid from"><select value={refundAcc} onChange={(e) => setRefundAcc(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>{activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
+            {num(refund) > 0 && <Field label="Date"><input type="date" style={inputStyle} value={refundDate} onChange={(e) => setRefundDate(e.target.value)} /></Field>}
+          </div>
+        </div>
+      )}
       <FinError text={error} />
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
         <button style={btnGhost} onClick={onDone}>Back</button>
         <button style={{ ...btnPrimary, background: COLORS.danger }} disabled={busy} onClick={() => run(async () => {
-          await ctx.act((t) => db.rpc("cancel_deal", { p_deal: deal.id, p_note: note.trim() || null }, t), { full: true });
+          if (num(refund) < 0) throw new Error("Refund can't be negative.");
+          if (num(refund) > collected - refunded + 0.01) throw new Error("Refund can't be more than what was collected.");
+          await ctx.act((t) => db.rpc("cancel_deal", { p_deal: deal.id, p_note: note.trim() || null, p_refund: num(refund) > 0 ? num(refund) : null, p_refund_account: num(refund) > 0 ? refundAcc : null, p_refund_at: num(refund) > 0 ? dateInputToIso(refundDate) : null }, t), { full: true });
           onDone();
         })}>Cancel deal</button>
       </div>
@@ -6960,6 +7083,8 @@ function CashOutModal({ deal, lines, ctx, onClose }) {
 
 function MarkDoneModal({ deal, ctx, onClose }) {
   const activeAccounts = ctx.fin.accounts.filter((a) => !a.archived);
+  const remaining = sideRemaining(deal, ctx.fin.txns);
+  const before = round2(num(ctx.calc.collectedByDeal[deal.id]));
   const [amounts, setAmounts] = useState({});
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
   const [date, setDate] = useState(todayInput());
@@ -6970,7 +7095,8 @@ function MarkDoneModal({ deal, ctx, onClose }) {
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>
           From now on this deal counts toward targets and commissions (in the quarter of the date below), the unit is marked {isRentDeal(deal) ? "rented (on hold until you reactivate it)" : "sold"} and the client moves to Deal Is Done.
         </div>
-        <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} />
+        {before > 0 && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 10 }}>Already collected with the reservation: <b>{egpFull(before)}</b>. Enter what comes in now (the rest).</div>}
+        <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} defaults={remaining} />
         <Field label="Received into">
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
             {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -6981,9 +7107,9 @@ function MarkDoneModal({ deal, ctx, onClose }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button style={btnGhost} onClick={onClose}>Cancel</button>
           <button style={btnSuccess} disabled={busy} onClick={() => run(async () => {
-            const v = sideValues(deal, amounts);
+            const v = sideValues(deal, amounts, remaining);
             if (v.buyer < 0 || v.seller < 0) throw new Error("Enter the amount.");
-            if (v.buyer > sideCommission(deal, "buyer") + 0.01 || v.seller > sideCommission(deal, "seller") + 0.01) throw new Error("Collected can't be more than the commission of that side.");
+            if (v.buyer > remaining.buyer + 0.01 || v.seller > remaining.seller + 0.01) throw new Error("That's more than what's left on that side.");
             await ctx.act((t) => db.rpc("complete_deal", {
               p_deal: deal.id, p_account: accountId || null, p_amount_buyer: v.buyer, p_amount_seller: v.seller, p_collected_at: dateInputToIso(date), p_transfer_date: date,
             }, t), { full: true });
@@ -7254,7 +7380,7 @@ function CommissionForecast({ ctx }) {
   const reserved = fin.deals.filter((d) => d.status === "reserved");
   const byMonth = Object.fromEntries(months.map((m) => [m, 0]));
   let later = 0;
-  reserved.forEach((d) => { const m = monthKeyOf(d.deal_date || d.created_at); const k = m < months[0] ? months[0] : m; if (k in byMonth) byMonth[k] += num(d.commission_total); else later += num(d.commission_total); });
+  reserved.forEach((d) => { const left = Math.max(0, num(d.commission_total) - num(calc.collectedByDeal[d.id])); const m = monthKeyOf(d.deal_date || d.created_at); const k = m < months[0] ? months[0] : m; if (k in byMonth) byMonth[k] += left; else later += left; });
   const toCollect = round2(fin.deals.filter((d) => d.status === "approved").reduce((s, d) => s + Math.max(0, num(d.commission_total) - num(calc.collectedByDeal[d.id])), 0));
   const done = fin.deals.filter((d) => d.status === "approved" && num(d.commission_total) > 0).slice(0, 20);
   const avg = done.length ? done.reduce((s, d) => s + num(d.commission_total), 0) / done.length : 0;
@@ -7279,7 +7405,7 @@ function FinOverview({ ctx, goTab }) {
   const qKey = currentQuarterKey();
   const inMonth = (t) => monthKeyOf(t.occurred_at) === month;
   const sum = (list) => round2(list.reduce((s, t) => s + num(t.amount), 0));
-  const monthIn = sum(fin.txns.filter((t) => inMonth(t) && t.kind === "commission_in"));
+  const monthIn = round2(sum(fin.txns.filter((t) => inMonth(t) && t.kind === "commission_in")) - sum(fin.txns.filter((t) => inMonth(t) && t.kind === "refund")));
   const monthPayouts = sum(fin.txns.filter((t) => inMonth(t) && t.kind === "payout"));
   const monthExpenses = sum(fin.txns.filter((t) => inMonth(t) && (t.kind === "expense" || t.kind === "salary")));
   const quarterIn = sum(fin.txns.filter((t) => t.kind === "commission_in" && quarterKeyOf(t.occurred_at) === qKey));
@@ -7287,7 +7413,7 @@ function FinOverview({ ctx, goTab }) {
   const overpaid = round2(calc.lines.filter((l) => l.remaining < -0.5).reduce((s, l) => s - l.remaining, 0));
   const toCollect = round2(fin.deals.filter((d) => d.status === "approved").reduce((s, d) => s + Math.max(0, num(d.commission_total) - num(calc.collectedByDeal[d.id])), 0));
   const reserved = fin.deals.filter((d) => d.status === "reserved");
-  const reservedExpected = round2(reserved.reduce((s, d) => s + num(d.commission_total), 0));
+  const reservedExpected = round2(reserved.reduce((s, d) => s + Math.max(0, num(d.commission_total) - num(calc.collectedByDeal[d.id])), 0));
   const pending = fin.deals.filter((d) => d.status === "pending").length;
   const totalBalance = round2(Object.values(balances).reduce((s, v) => s + v, 0));
 
@@ -8323,7 +8449,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
   const thresholds = (fin.settings?.tier_thresholds || [0, 70, 100]).map(num);
   const targetsMap = useMemo(() => Object.fromEntries(fin.targets.map((t) => [t.user_id, num(t.quarterly_target)])), [fin.targets]);
   const calc = useMemo(() => computeFinance({
-    deals: fin.deals, dealAgents: fin.dealAgents, dealRates: fin.dealRates, txns: fin.txns, targets: targetsMap, thresholds,
+    deals: fin.deals, dealAgents: fin.dealAgents, dealRates: fin.dealRates, txns: fin.txns, targets: targetsMap, thresholds, charityPct: num(fin.settings?.charity_pct),
   }), [fin, targetsMap]); // eslint-disable-line
   const balances = useMemo(() => accountBalances(fin.accounts, fin.txns), [fin.accounts, fin.txns]);
   const userName = (id) => users.find((u) => u.id === id)?.name || "—";
