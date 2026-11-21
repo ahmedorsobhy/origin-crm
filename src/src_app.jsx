@@ -2148,7 +2148,7 @@ function streakDays(activity, userId, workDays = DEFAULT_WORK_DAYS) {
   let n = 0;
   const d = new Date();
   for (let i = 0; i < 120; i++) {
-    const k = dateKey(d.toISOString().slice(0, 10) + "T12:00:00");
+    const k = dateKey(d.toISOString()); // local (Cairo) day
     if (workDays.includes(d.getDay())) {
       if ((counts[k] || 0) >= 3) n++;
       else if (i > 0) break; // today not done yet doesn't break the streak
@@ -2350,19 +2350,26 @@ function RankingPage({ profile, getToken }) {
   const rows = useRanking(getToken, period);
   const last = useRanking(getToken, "lastmonth");
   const champions = (last || []).length ? RANK_BOARDS.map((b) => ({ b, top: boardRows(last, b)[0] })).filter((x) => x.top) : [];
+  const monthName = (d) => d.toLocaleString("en-US", { month: "long" });
+  const nowD = new Date(), lastD = new Date(nowD.getFullYear(), nowD.getMonth() - 1, 1);
+  const [pf, pt] = rankRange(period);
+  const fmtD = (d) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const showing = period === "month" ? `${monthName(nowD)} so far (1 – ${nowD.getDate()} ${monthName(nowD).slice(0, 3)})`
+    : period === "lastmonth" ? `All of ${monthName(lastD)}`
+    : `${fmtD(pf)} – ${fmtD(new Date(Math.min(Date.now(), pt.getTime() - 1)))}`;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>🏆 Sales ranking</div>
         <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999 }}>
-          {[["week", "This week"], ["month", "This month"], ["quarter", "This quarter"], ["lastmonth", "Last month"]].map(([id, l]) => (
+          {[["week", "This week"], ["month", monthName(nowD)], ["quarter", "This quarter"], ["lastmonth", monthName(lastD)]].map(([id, l]) => (
             <button key={id} onClick={() => setPeriod(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: period === id ? "#fff" : "transparent", color: period === id ? COLORS.navy : COLORS.textMuted }}>{l}</button>
           ))}
         </div>
       </div>
       {champions.length > 0 && (
         <div className="hero" style={{ padding: 14 }}>
-          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>👑 Last month's champions</div>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>👑 {monthName(lastD)} champions <span style={{ fontWeight: 500, opacity: 0.75, fontSize: 12 }}>· last month's winners</span></div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {champions.map(({ b, top }) => (
               <div key={b.id} className="glass" style={{ borderRadius: 14, padding: "6px 12px", fontSize: 12.5 }}>
@@ -2372,6 +2379,7 @@ function RankingPage({ profile, getToken }) {
           </div>
         </div>
       )}
+      <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.navy }}>📊 Ranking for: <span style={{ color: COLORS.gold }}>{showing}</span></div>
       {rows === null ? <div className="skeleton" style={{ height: 240 }} /> : rows.length === 0 ? (
         <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted }}>No sales people yet.</div>
       ) : (
@@ -2428,7 +2436,7 @@ function MyRankCard({ profile, getToken, onOpen }) {
   return (
     <button onClick={onOpen} className="card lift" style={{ textAlign: "left", cursor: "pointer", background: "#fff", border: `1px solid ${COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: COLORS.navy, fontSize: 14 }}>🏆 This month's ranking</b>
+        <b style={{ color: COLORS.navy, fontSize: 14 }}>🏆 {new Date().toLocaleString("en-US", { month: "long" })} ranking</b>
         <span style={{ fontSize: 12, color: COLORS.navy, fontWeight: 700 }}>See all →</span>
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -4989,8 +4997,8 @@ function attendanceStats(attendance, userId, range, settings) {
   });
   const now = new Date();
   const days = [];
-  for (let d = new Date(range[0]); d < range[1] && d <= now; d = new Date(d.getTime() + MS_DAY)) {
-    const k = dateKey(d.toISOString().slice(0, 10) + "T12:00:00");
+  for (let d = new Date(range[0].getFullYear(), range[0].getMonth(), range[0].getDate()); d < range[1] && d <= now; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    const k = dateKey(d.toISOString()); // local (Cairo) day
     const isWork = wd.includes(d.getDay());
     const inAt = firstByDay[k] || null;
     const t = inAt ? new Date(inAt) : null;
@@ -9756,7 +9764,10 @@ export default function App() {
 
         {section === "profile" && tab === "profile" && (
           <>
-            <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>My profile</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14, gap: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy }}>My profile</div>
+              <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Version {BUILD_ID}</div>
+            </div>
             <div style={{ marginBottom: 14 }}><NotificationsCard profile={profile} getToken={getValidToken} /></div>
             <EditProfile profile={profile} currentEmail={session.user.email} onSave={updateMyProfile} onUploadAvatar={uploadAvatar} onUpdateEmail={updateMyEmail} />
           </>
