@@ -27,4 +27,5 @@ export {
   LuBell as Bell,
   LuMessageSquare as MessageSquare,
   LuCircleCheck as CheckCircle,
+  LuFileText as FileText,
 } from "react-icons/lu";
