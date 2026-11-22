@@ -6506,7 +6506,31 @@ function computeFinance({ deals, dealAgents, dealRates, txns, targets, threshold
     companyShareByDeal[dealId] = round2(collectedByDeal[dealId] - distributed - (charityByDeal[dealId] || 0));
   });
 
-  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal, charityByDeal, charityPendingByDeal };
+  // What's still to come on reserved / partly collected deals — estimated at each seller's tier this quarter
+  const qNow = currentQuarterKey();
+  const collectedSide = {};
+  collections.forEach((c) => {
+    const by = sideAmounts(dealById[c.deal_id], c.amount, c.side);
+    const o = (collectedSide[c.deal_id] = collectedSide[c.deal_id] || { buyer: 0, seller: 0 });
+    o.buyer += num(by.buyer); o.seller += num(by.seller);
+  });
+  const expectedByDeal = {};
+  deals.filter((d) => counted.has(d.id)).forEach((d) => {
+    const got = collectedSide[d.id] || { buyer: 0, seller: 0 };
+    const left = { buyer: Math.max(0, sideCommission(d, "buyer") - got.buyer), seller: Math.max(0, sideCommission(d, "seller") - got.seller) };
+    const leftTotal = round2(left.buyer + left.seller);
+    const people = {};
+    (agentsByDeal[d.id] || []).forEach((a) => {
+      const portion = (num(left[agentSide(a)]) * num(a.split_pct)) / 100;
+      const tier = tierOf(a.agent_id, qNow);
+      (ratesByDealAgent[`${d.id}|${a.agent_id}`] || []).forEach((r) => { people[r.beneficiary_id] = round2((people[r.beneficiary_id] || 0) + (portion * rateAt(r.rates, tier)) / 100); });
+    });
+    const team = round2(Object.values(people).reduce((x, v) => x + v, 0));
+    const charity = round2((leftTotal * num(charityPct)) / 100);
+    expectedByDeal[d.id] = { left: leftTotal, people, team, charity, company: round2(leftTotal - team - charity) };
+  });
+
+  return { lines: out, achievement, achievementPct, tierOf, collectedByDeal, companyShareByDeal, charityByDeal, charityPendingByDeal, expectedByDeal };
 }
 
 // Preview of a pending deal's split using the CURRENT plans (before rates get frozen)
@@ -7617,14 +7641,24 @@ function FinDeals({ ctx }) {
     .sort((a, b) => (dealShownDate(b) || "").localeCompare(dealShownDate(a) || "") || new Date(b.created_at) - new Date(a.created_at));
 
   const sumLines = (d, key, onlyMe) => (linesByDeal[d.id] || []).filter((l) => !onlyMe || l.beneficiaryId === profile.id).reduce((s, l) => s + l[key], 0);
+  const exp = (d) => (calc.expectedByDeal && calc.expectedByDeal[d.id]) || { left: 0, people: {}, team: 0, charity: 0, company: 0 };
+  // everyone's share on a deal: what they earned from money already in + what's expected from what's left
+  const sharesOf = (d) => {
+    const m = {};
+    (linesByDeal[d.id] || []).forEach((l) => { m[l.beneficiaryId] = m[l.beneficiaryId] || { now: 0, later: 0, paid: 0 }; m[l.beneficiaryId].now += l.entitled; m[l.beneficiaryId].paid += l.paid; });
+    Object.entries(exp(d).people).forEach(([id, v]) => { m[id] = m[id] || { now: 0, later: 0, paid: 0 }; m[id].later += v; });
+    return Object.entries(m).filter(([, v]) => v.now + v.later + v.paid > 0.5).sort((a, b) => b[1].now + b[1].later - (a[1].now + a[1].later));
+  };
   const totals = rows.reduce((acc, d) => {
+    const e = exp(d);
     acc.commission += num(d.commission_total);
     acc.collected += num(calc.collectedByDeal[d.id]);
     acc.entitled += sumLines(d, "entitled", !isAdmin);
     acc.paid += sumLines(d, "paid", !isAdmin);
     acc.company += num(calc.companyShareByDeal[d.id]);
+    acc.left += e.left; acc.teamLater += e.team; acc.companyLater += e.company; acc.charity += num(calc.charityByDeal[d.id]) + e.charity;
     return acc;
-  }, { commission: 0, collected: 0, entitled: 0, paid: 0, company: 0 });
+  }, { commission: 0, collected: 0, entitled: 0, paid: 0, company: 0, left: 0, teamLater: 0, companyLater: 0, charity: 0 });
 
   const openDeal = fin.deals.find((d) => d.id === openId);
   if (openDeal) return <DealDetail deal={openDeal} ctx={ctx} onBack={() => setOpenId(null)} />;
@@ -7651,10 +7685,13 @@ function FinDeals({ ctx }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <FinStat label="Deals" value={rows.length} />
         <FinStat label="Total commission" value={egp(totals.commission)} sub={`Collected ${egp(totals.collected)}`} />
-        <FinStat label={isAdmin ? "Owed to the team" : "My earnings"} value={egp(totals.entitled)} sub={`Paid ${egp(totals.paid)}`} />
+        {isAdmin && <FinStat label="Left to collect" value={egp(totals.left)} sub={`Company gets ${egp(totals.companyLater)} of it`} />}
+        <FinStat label={isAdmin ? "Owed to the team" : "My earnings"} value={egp(totals.entitled)} sub={`Paid ${egp(totals.paid)}${isAdmin ? ` · +${egp(totals.teamLater)} expected` : ""}`} />
         <FinStat label="Still to pay" value={egp(totals.entitled - totals.paid)} tone={totals.entitled - totals.paid > 0.5 ? "danger" : undefined} />
-        {isAdmin && <FinStat label="Company share" value={egp(totals.company)} tone="success" />}
+        {isAdmin && <FinStat label="Floos Rabna" value={egp(totals.charity)} sub="in + expected" />}
+        {isAdmin && <FinStat label="Company" value={egp(totals.company + totals.companyLater)} sub={`In ${egp(totals.company)} · expected ${egp(totals.companyLater)}`} tone="success" />}
       </div>
+      {isAdmin && <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: -6, marginBottom: 10 }}>“Expected” = what's left to collect, split at each seller's current tier — it updates by itself as money comes in or tiers go up.</div>}
       {rows.length === 0 ? (
         <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No deals match.</div>
       ) : (
@@ -7663,7 +7700,10 @@ function FinDeals({ ctx }) {
             <tr>
               <th style={thStyle}>Date</th><th style={thStyle}>Deal</th><th style={thStyle}>Sold by</th><th style={thStyle}>Status</th>
               <th style={thNum}>Commission</th><th style={thNum}>Collected</th>
-              <th style={thNum}>{isAdmin ? "Team share" : "My share"}</th><th style={thNum}>Paid</th><th style={thNum}>Remaining</th>
+              {isAdmin && <th style={thNum}>Left to collect</th>}
+              {isAdmin ? <th style={thStyle}>Each person (in + expected)</th> : <th style={thNum}>My share</th>}
+              <th style={thNum}>Paid</th><th style={thNum}>{isAdmin ? "Still to pay" : "Remaining"}</th>
+              {isAdmin && <th style={thNum}>Floos Rabna</th>}
               {isAdmin && <th style={thNum}>Company</th>}
             </tr>
           </thead>
@@ -7680,13 +7720,34 @@ function FinDeals({ ctx }) {
                   <td style={tdStyle}><Badge tone={dealStatusInfo(d).tone}>{dealStatusInfo(d).label}</Badge></td>
                   <td style={tdNum}>{egp(d.commission_total)}</td>
                   <td style={tdNum}>{egp(calc.collectedByDeal[d.id] || 0)}</td>
-                  <td style={tdNum}>{egp(ent)}</td>
+                  {isAdmin && <td style={{ ...tdNum, color: exp(d).left > 0.5 ? COLORS.navy : COLORS.textMuted }}>{["approved", "reserved"].includes(d.status) ? egp(exp(d).left) : "—"}</td>}
+                  {isAdmin ? (
+                    <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 190, fontSize: 12 }}>
+                      {["approved", "reserved"].includes(d.status) ? sharesOf(d).map(([id, v]) => (
+                        <div key={id}><b>{userName(id)}</b> {egp(v.now + v.later)}{v.later > 0.5 ? <span style={{ color: COLORS.textMuted }}> ({egp(v.now)} in · {egp(v.later)} est.)</span> : null}</div>
+                      )) : "—"}
+                    </td>
+                  ) : <td style={tdNum}>{egp(ent)}</td>}
                   <td style={tdNum}>{egp(paid)}</td>
                   <td style={{ ...tdNum, color: rem > 0.5 ? COLORS.danger : rem < -0.5 ? COLORS.gold : COLORS.text, fontWeight: rem > 0.5 ? 700 : 400 }}>{egp(rem)}</td>
-                  {isAdmin && <td style={tdNum}>{d.status === "approved" ? egp(calc.companyShareByDeal[d.id] || 0) : "—"}</td>}
+                  {isAdmin && <td style={tdNum}>{["approved", "reserved"].includes(d.status) ? egp(num(calc.charityByDeal[d.id]) + exp(d).charity) : "—"}</td>}
+                  {isAdmin && <td style={{ ...tdNum, fontWeight: 700, color: COLORS.success }} title={["approved", "reserved"].includes(d.status) ? `In ${egp(calc.companyShareByDeal[d.id] || 0)} · expected ${egp(exp(d).company)}` : ""}>{["approved", "reserved"].includes(d.status) ? egp(num(calc.companyShareByDeal[d.id]) + exp(d).company) : "—"}</td>}
                 </tr>
               );
             })}
+            {isAdmin && (
+              <tr style={{ background: COLORS.cream }}>
+                <td style={{ ...tdStyle, fontWeight: 800 }} colSpan={4}>Total · {rows.length} deals</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.commission)}</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.collected)}</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.left)}</td>
+                <td style={{ ...tdStyle, fontWeight: 800 }}>{egp(totals.entitled + totals.teamLater)} <span style={{ fontWeight: 500, color: COLORS.textMuted }}>({egp(totals.teamLater)} est.)</span></td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.paid)}</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.entitled - totals.paid)}</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.charity)}</td>
+                <td style={{ ...tdNum, fontWeight: 800, color: COLORS.success }}>{egp(totals.company + totals.companyLater)}</td>
+              </tr>
+            )}
           </tbody>
         </TableWrap>
       )}
@@ -9265,11 +9326,27 @@ function MyEarnings({ ctx }) {
     const rows = fin.dealAgents.filter((x) => x.deal_id === r.deal_id && x.agent_id === r.agent_id);
     return sum + rows.reduce((t, a) => t + (sideCommission(d || {}, agentSide(a)) * num(a.split_pct) / 100) * rateAt(r.rates, 0) / 100, 0);
   }, 0));
+  // Done deals vs reservations, deal by deal
+  const dealById = Object.fromEntries(fin.deals.map((d) => [d.id, d]));
+  const myAgentDeals = new Set(fin.dealAgents.filter((a) => a.agent_id === profile.id).map((a) => a.deal_id));
+  const myRateDeals = new Set(fin.dealRates.filter((r) => r.beneficiary_id === profile.id).map((r) => r.deal_id));
+  const mineDeal = (d) => myAgentDeals.has(d.id) || myRateDeals.has(d.id) || myLines.some((l) => l.dealId === d.id);
+  const lineOf = (id) => myLines.find((l) => l.dealId === id) || { entitled: 0, paid: 0, remaining: 0, detail: [] };
+  const myExp = (id) => num(calc.expectedByDeal?.[id]?.people?.[profile.id]);
+  const counts = (d) => { // what this deal added to MY target (my split of the money collected)
+    const coll = fin.txns.filter((t) => t.kind === "commission_in" && t.deal_id === d.id);
+    return round2(coll.reduce((sum, c) => { const by = sideAmounts(d, c.amount, c.side); return sum + fin.dealAgents.filter((a) => a.deal_id === d.id && a.agent_id === profile.id).reduce((x, a) => x + (num(by[agentSide(a)]) * num(a.split_pct)) / 100, 0); }, 0));
+  };
+  const doneDeals = fin.deals.filter((d) => d.status === "approved" && mineDeal(d));
+  const resDeals = fin.deals.filter((d) => d.status === "reserved" && mineDeal(d));
+  const owedNow = round2(myLines.filter((l) => dealById[l.dealId] && ["approved", "reserved"].includes(dealById[l.dealId].status)).reduce((x, l) => x + Math.max(0, l.remaining), 0));
+  const expectedTotal = round2([...doneDeals, ...resDeals].reduce((x, d) => x + myExp(d.id), 0));
+  const sumBy = (list, f) => round2(list.reduce((x, d) => x + f(d), 0));
   const salaryPayments = fin.txns.filter((t) => t.kind === "salary" && t.beneficiary_id === profile.id).sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at)).slice(0, 6);
 
   return (
     <>
-      <FinTitle right={<PeriodPicker value={q} onChange={setQ} options={quarterOptions(qKeys)} />}>My earnings</FinTitle>
+      <FinTitle right={<PeriodPicker value={q} onChange={setQ} options={quarterOptions(qKeys)} />}>My finance</FinTitle>
       <div style={{ ...finCard, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
           <div style={{ fontWeight: 600, color: COLORS.navy }}>My target · {quarterLabel(q)}</div>
@@ -9286,14 +9363,14 @@ function MyEarnings({ ctx }) {
         ) : <div style={{ fontSize: 13, color: COLORS.textMuted }}>No target set for you yet.</div>}
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-        <FinStat label={`Earned in ${quarterLabel(q).split(" (")[0]}`} value={egp(quarterEarned)} tone="success" />
-        <FinStat label="Earned (all time)" value={egp(allEarned)} />
-        <FinStat label="Paid to me" value={egp(allPaid)} />
-        <FinStat label="Still owed to me" value={egp(allEarned - allPaid)} tone={allEarned - allPaid > 0.5 ? "danger" : undefined} />
-        {expectedReserved > 0 && <FinStat label="Expected from reserved deals" value={egp(expectedReserved)} sub="Once transfer is done & commission collected" />}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 8 }}>
+        <FinStat label="✅ I got" value={egp(allPaid)} sub="paid to me so far" tone="success" />
+        <FinStat label="⏳ I'll get" value={egp(owedNow + expectedTotal)} sub={`${egp(owedNow)} owed now · ${egp(expectedTotal)} expected`} />
+        <FinStat label="Σ Total" value={egp(allPaid + owedNow + expectedTotal)} sub="got + will get" />
+        <FinStat label={`Earned in ${quarterLabel(q).split(" (")[0]}`} value={egp(quarterEarned)} sub={target ? `Target ${egp(achieved)} of ${egp(target)}` : undefined} />
         {salary && <FinStat label="Monthly salary" value={egp(salary.monthly_salary)} />}
       </div>
+      <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginBottom: 14 }}>“Expected” is what you'd get from money still to be collected, at your current tier — it grows if your tier goes up.</div>
 
       {myPlans.length > 0 && (
         <div style={{ marginBottom: 14 }}>
@@ -9322,20 +9399,64 @@ function MyEarnings({ ctx }) {
         </div>
       )}
 
-      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>My commissions by deal</div>
-      {myLines.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13 }}>No approved deals with collected commission yet.</div> : (
-        <TableWrap>
-          <thead><tr><th style={thStyle}>Deal</th><th style={thStyle}>Rate</th><th style={thNum}>Earned</th><th style={thNum}>Paid</th><th style={thNum}>Remaining</th></tr></thead>
-          <tbody>
-            {myLines.map((l) => (
-              <tr key={l.dealId}>
-                <td style={{ ...tdStyle, whiteSpace: "normal" }}>{dealTitleById(l.dealId)}</td>
-                <td style={{ ...tdStyle, color: COLORS.textMuted }}>{[...new Set(l.detail.map((x) => `${x.rate}%${x.level > 0 ? ` on ${userName(x.agentId)}` : ""}`))].join(", ")}</td>
-                <td style={tdNum}>{egp(l.entitled)}</td>
-                <td style={tdNum}>{egp(l.paid)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: l.remaining > 0.5 ? COLORS.danger : COLORS.success }}>{egp(l.remaining)}</td>
+      <div style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.navy, marginBottom: 8 }}>🏁 Done deals · what I got</div>
+      {doneDeals.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No done deals yet.</div> : (
+        <div style={{ marginBottom: 16 }}>
+          <TableWrap>
+            <thead><tr><th style={thStyle}>Deal</th><th style={thNum}>Collected</th><th style={thNum}>Counted to my target</th><th style={thStyle}>Rate</th><th style={thNum}>My share</th><th style={thNum}>I got</th><th style={thNum}>Owed to me</th><th style={thNum}>Still to collect → me</th></tr></thead>
+            <tbody>
+              {doneDeals.map((d) => { const l = lineOf(d.id); return (
+                <tr key={d.id}>
+                  <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 170 }}>{dealTitleById(d.id)}</td>
+                  <td style={tdNum}>{egp(calc.collectedByDeal[d.id] || 0)}</td>
+                  <td style={tdNum}>{egp(counts(d))}</td>
+                  <td style={{ ...tdStyle, color: COLORS.textMuted }}>{[...new Set(l.detail.map((x) => `${x.rate}%${x.level > 0 ? ` on ${userName(x.agentId)}` : ""}`))].join(", ") || "—"}</td>
+                  <td style={tdNum}>{egp(l.entitled)}</td>
+                  <td style={{ ...tdNum, color: COLORS.success, fontWeight: 700 }}>{egp(l.paid)}</td>
+                  <td style={{ ...tdNum, fontWeight: 700, color: l.remaining > 0.5 ? COLORS.danger : COLORS.text }}>{egp(Math.max(0, l.remaining))}</td>
+                  <td style={tdNum}>{myExp(d.id) > 0.5 ? `${egp(myExp(d.id))} est.` : "—"}</td>
+                </tr>
+              ); })}
+              <tr style={{ background: COLORS.cream }}>
+                <td style={{ ...tdStyle, fontWeight: 800 }}>Total</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(doneDeals, (d) => num(calc.collectedByDeal[d.id])))}</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(doneDeals, counts))}</td>
+                <td style={tdStyle} />
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(doneDeals, (d) => lineOf(d.id).entitled))}</td>
+                <td style={{ ...tdNum, fontWeight: 800, color: COLORS.success }}>{egp(sumBy(doneDeals, (d) => lineOf(d.id).paid))}</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(doneDeals, (d) => Math.max(0, lineOf(d.id).remaining)))}</td>
+                <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(doneDeals, (d) => myExp(d.id)))}</td>
               </tr>
-            ))}
+            </tbody>
+          </TableWrap>
+        </div>
+      )}
+
+      <div style={{ fontWeight: 700, fontSize: 14.5, color: COLORS.navy, marginBottom: 8 }}>📝 Reservations · what I'll get</div>
+      {resDeals.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13 }}>No reservations right now.</div> : (
+        <TableWrap>
+          <thead><tr><th style={thStyle}>Deal</th><th style={thNum}>Commission</th><th style={thNum}>Collected so far</th><th style={thNum}>Still to collect</th><th style={thNum}>My share so far</th><th style={thNum}>I got</th><th style={thNum}>I'll get (est.)</th></tr></thead>
+          <tbody>
+            {resDeals.map((d) => { const l = lineOf(d.id); const e = calc.expectedByDeal?.[d.id] || { left: 0 }; return (
+              <tr key={d.id}>
+                <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 170 }}>{dealTitleById(d.id)}</td>
+                <td style={tdNum}>{egp(d.commission_total)}</td>
+                <td style={tdNum}>{egp(calc.collectedByDeal[d.id] || 0)}</td>
+                <td style={tdNum}>{egp(e.left)}</td>
+                <td style={tdNum}>{egp(l.entitled)}</td>
+                <td style={{ ...tdNum, color: COLORS.success }}>{egp(l.paid)}</td>
+                <td style={{ ...tdNum, fontWeight: 700, color: COLORS.navy }}>{egp(Math.max(0, l.remaining) + myExp(d.id))}</td>
+              </tr>
+            ); })}
+            <tr style={{ background: COLORS.cream }}>
+              <td style={{ ...tdStyle, fontWeight: 800 }}>Total</td>
+              <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(resDeals, (d) => num(d.commission_total)))}</td>
+              <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(resDeals, (d) => num(calc.collectedByDeal[d.id])))}</td>
+              <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(resDeals, (d) => num(calc.expectedByDeal?.[d.id]?.left)))}</td>
+              <td style={{ ...tdNum, fontWeight: 800 }}>{egp(sumBy(resDeals, (d) => lineOf(d.id).entitled))}</td>
+              <td style={{ ...tdNum, fontWeight: 800, color: COLORS.success }}>{egp(sumBy(resDeals, (d) => lineOf(d.id).paid))}</td>
+              <td style={{ ...tdNum, fontWeight: 800, color: COLORS.navy }}>{egp(sumBy(resDeals, (d) => Math.max(0, lineOf(d.id).remaining) + myExp(d.id)))}</td>
+            </tr>
           </tbody>
         </TableWrap>
       )}
@@ -9413,10 +9534,11 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
         { id: "treasury", label: "Treasury & reports" },
         { id: "team", label: "Team plans" },
         { id: "marketing", label: "Campaigns" },
+        { id: "earnings", label: "My finance" },
         { id: "settings", label: "Settings" },
       ]
     : [
-        { id: "earnings", label: "My earnings" },
+        { id: "earnings", label: "My finance" },
         { id: "deals", label: "Deals" },
       ];
 
@@ -9439,7 +9561,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
       {tab === "team" && isAdmin && <FinTeam ctx={ctx} people={people} />}
       {tab === "marketing" && isAdmin && <CampaignReport ctx={ctx} />}
       {tab === "settings" && isAdmin && <FinSettings ctx={ctx} />}
-      {tab === "earnings" && !isAdmin && <MyEarnings ctx={ctx} />}
+      {tab === "earnings" && <MyEarnings ctx={ctx} />}
     </div>
   );
 }
@@ -9883,7 +10005,7 @@ export default function App() {
     const nm = (id) => users.find((u) => u.id === id)?.name || "—";
     if (status === "moved_new" && ex) {
       await db.update("clients", ex.id, { assigned_to: newOwner, ...autoFollowUp(ex.stage === "new_lead" ? "new_lead" : ex.stage) }, t);
-      await db.insert("client_activity", { client_id: ex.id, action: "field_update", field_name: "assigned_to", old_value: nm(ex.assignedTo), new_value: nm(newOwner), note: `Duplicate number — moved from ${nm(ex.assignedTo)} to ${nm(newOwner)}`, changed_by: profile.id }, t);
+      await db.insert("client_activity", { client_id: ex.id, action: "field_update", field_name: "assigned_to", old_value: nm(ex.assignedTo), new_value: nm(newOwner), note: `Lead assigned to ${nm(newOwner)}`, changed_by: profile.id }, t);
     }
     if (status === "both" && ex) {
       // reuse a copy made by an earlier try, so pressing again never makes a second one
@@ -9894,13 +10016,11 @@ export default function App() {
           budget: p.budget === "" || p.budget == null ? null : p.budget, notes: p.notes || null, stage: "new_lead", assigned_to: newOwner,
           created_by: req.requested_by, duplicate_of: ex.id, ...autoFollowUp("new_lead"),
         }, t);
-        await db.insert("client_activity", { client_id: copy.id, action: "created", new_value: "new_lead", note: `Shared lead — also with ${nm(ex.assignedTo)}${p.feedback ? ` · ${p.feedback}` : ""}`, changed_by: profile.id }, t);
+        // the new sales person sees a normal new lead — nothing says someone else has it too
+        await db.insert("client_activity", { client_id: copy.id, action: "created", new_value: "new_lead", note: p.feedback ? `New lead · ${p.feedback}` : "New lead", changed_by: profile.id }, t);
       }
-      await db.insert("client_activity", { client_id: ex.id, action: "note", note: `Same number also given to ${nm(newOwner)} (both work it)`, changed_by: profile.id }, t);
     }
-    if (status === "kept_old" && ex) {
-      await db.insert("client_activity", { client_id: ex.id, action: "note", note: `${nm(req.requested_by)} also entered this number — kept with ${nm(ex.assignedTo)}`, changed_by: profile.id }, t);
-    }
+    // kept with the first sales person: recorded on the duplicate request only (Admin sees it), not on the client
     await db.update("lead_duplicates", req.id, { status, decided_by: profile.id, decided_at: new Date().toISOString() }, t);
     await refreshClients();
   };
