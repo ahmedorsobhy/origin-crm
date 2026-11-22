@@ -1,5 +1,5 @@
 -- Checks that every update is in the database, in its latest version.
--- Read-only: changes nothing. Every line must say OK (32 lines).
+-- Read-only: changes nothing. Every line must say OK (33 lines).
 with fn as (
   select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
 ), col as (
@@ -42,8 +42,10 @@ with fn as (
   ('26 Only handlers can edit units', exists (select 1 from fn where proname = 'can_edit_unit')
       and not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('units','unit_sales') and cmd in ('UPDATE','INSERT','DELETE')
                       and coalesce(qual, with_check) not like '%can_edit_unit%' and coalesce(qual, with_check) not like '%is_admin%' and not (tablename = 'units' and cmd = 'INSERT'))),
-  ('27 Photo upload approved only, activity under real name', exists (select 1 from pg_trigger where tgname = 'trg_activity_author')
-      and not exists (select 1 from pg_policies where schemaname = 'storage' and policyname = 'authenticated upload unit photos' and with_check not like '%is_approved%')),
+  ('27 Photo upload approved only, activity under real name', (exists (select 1 from pg_trigger where tgname = 'trg_activity_author') or exists (select 1 from pg_trigger where tgname = 'trg_stamp_real_time' and tgrelid = 'public.client_activity'::regclass))
+      and exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and cmd = 'INSERT' and coalesce(with_check, '') like '%unit-photos%' and coalesce(with_check, '') like '%is_approved%')
+      and not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and cmd in ('INSERT', 'ALL')
+                      and coalesce(with_check, qual, '') like '%unit-photos%' and coalesce(with_check, qual, '') not like '%is_approved%')),
   ('28 Deals (done) and reservations counted apart', exists (select 1 from col where c = 'deals.reserved_at') and exists (select 1 from col where c = 'deals.done_at')
       and exists (select 1 from pg_trigger where tgname = 'trg_deals_stamp_dates') and exists (select 1 from fn where proname = 'sales_ranking' and prosrc like '%reserved_at%')),
   ('29 Money at reservation, refunds, editable dates, Floos Rabna on done', exists (select 1 from pg_constraint where conname = 'finance_transactions_kind_check' and pg_get_constraintdef(oid) like '%refund%')
@@ -59,6 +61,7 @@ with fn as (
       and exists (select 1 from pg_trigger where tgname = 'trg_cold_sheets_notify')),
   ('32 Cold sheets: move / delete keep history', exists (select 1 from fn where proname = 'cold_move_leads') and exists (select 1 from fn where proname = 'cold_delete_leads')
       and exists (select 1 from pg_constraint where conname = 'cold_activity_lead_id_fkey' and confdeltype = 'n')),
+  ('33 No back-dating (check-ins, clients, units, calls)', (select count(*) from pg_trigger where tgname = 'trg_stamp_real_time') = 5),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
