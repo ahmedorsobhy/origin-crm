@@ -1,5 +1,5 @@
 -- Checks that every update is in the database, in its latest version.
--- Read-only: changes nothing. Every line must say OK (31 lines).
+-- Read-only: changes nothing. Every line must say OK (32 lines).
 with fn as (
   select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
 ), col as (
@@ -57,6 +57,8 @@ with fn as (
   ('31 Cold sheets: sales upload, managers approve', exists (select 1 from col where c = 'cold_sheets.status') and exists (select 1 from col where c = 'cold_sheets.batch_id')
       and exists (select 1 from fn where proname = 'can_manage_cold_for') and exists (select 1 from pg_trigger where tgname = 'trg_cold_sheets_guard')
       and exists (select 1 from pg_trigger where tgname = 'trg_cold_sheets_notify')),
+  ('32 Cold sheets: move / delete keep history', exists (select 1 from fn where proname = 'cold_move_leads') and exists (select 1 from fn where proname = 'cold_delete_leads')
+      and exists (select 1 from pg_constraint where conname = 'cold_activity_lead_id_fkey' and confdeltype = 'n')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
