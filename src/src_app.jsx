@@ -2634,23 +2634,49 @@ async function readXlsx(buf) {
     const rel = rid && [...parse(rels).getElementsByTagName("Relationship")].find((r) => r.getAttribute("Id") === rid);
     if (rel) { const t = rel.getAttribute("Target").replace(/^\/?xl\//, "").replace(/^\//, ""); sheetPath = `xl/${t}`; }
   }
-  const xml = await z.read(sheetPath);
-  if (!xml) throw new Error("Couldn't find a sheet in this file.");
+  // Read the sheet in pieces and only look at rows that hold values — files saved with
+  // a million formatted empty rows (100+ MB inside) stay fast, even on a phone.
+  const bytes = await z.readBytes(sheetPath);
+  if (!bytes) throw new Error("Couldn't find a sheet in this file.");
   const colIdx = (ref) => { const m = String(ref).match(/^([A-Z]+)/); let n = 0; for (const ch of m ? m[1] : "A") n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+  const unesc = (x) => x.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, d) => String.fromCharCode(+d)).replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCharCode(parseInt(h, 16))).replace(/&amp;/g, "&");
   const grid = [];
-  parse(xml).querySelectorAll("sheetData row").forEach((row) => {
-    const out = [];
-    row.querySelectorAll("c").forEach((c) => {
-      const t = c.getAttribute("t"), v = c.getElementsByTagName("v")[0];
-      let val = "";
-      if (t === "s") val = shared[Number(v?.textContent)] ?? "";
-      else if (t === "inlineStr") val = [...c.getElementsByTagName("t")].map((x) => x.textContent).join("");
-      else val = v ? v.textContent : "";
-      if (t !== "s" && t !== "inlineStr" && /^\d+(\.0+)?E\+?\d+$/i.test(val)) val = String(Math.round(Number(val)));
-      out[colIdx(c.getAttribute("r"))] = String(val).trim();
-    });
-    if (out.some((x) => x)) grid.push(Array.from(out, (x) => x || ""));
-  });
+  const handle = (str) => {
+    const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g; let m;
+    while ((m = rowRe.exec(str))) {
+      const inner = m[1];
+      if (inner.indexOf("<v") < 0 && inner.indexOf("<is>") < 0) continue;
+      const out = [];
+      const cellRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let c;
+      while ((c = cellRe.exec(inner))) {
+        const attrs = c[1], body = c[2] || "";
+        const ref = (attrs.match(/\br="([A-Z]+)\d*"/) || [])[1];
+        const t = (attrs.match(/\bt="(\w+)"/) || [])[1];
+        const v = (body.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+        let val = "";
+        if (t === "s") val = shared[Number(v)] ?? "";
+        else if (t === "inlineStr") val = unesc((body.match(/<t[^>]*>[\s\S]*?<\/t>/g) || []).map((x) => x.replace(/<[^>]+>/g, "")).join(""));
+        else val = v != null ? unesc(v) : "";
+        if (t !== "s" && t !== "inlineStr" && t !== "str") {
+          if (/^-?\d+(\.\d+)?E[+-]?\d+$/i.test(val)) { const n = Number(val); if (Number.isFinite(n) && Math.abs(n) < 1e16) val = Number.isInteger(n) ? n.toFixed(0) : String(n); }
+          else if (/^\d+\.0+$/.test(val)) val = val.replace(/\.0+$/, "");
+        }
+        out[ref ? colIdx(ref) : out.length] = String(val).trim();
+      }
+      if (out.some((x) => x)) grid.push(Array.from(out, (x) => x || ""));
+    }
+  };
+  const td = new TextDecoder(), CH = 4 << 20;
+  let carry = "";
+  for (let pos = 0; pos < bytes.length; pos += CH) {
+    carry += td.decode(bytes.subarray(pos, pos + CH), { stream: true });
+    const end = carry.lastIndexOf("</row>");
+    if (end < 0) continue;
+    const part = carry.slice(0, end + 6); carry = carry.slice(end + 6);
+    if (part.indexOf("<v") >= 0 || part.indexOf("<is>") >= 0) handle(part);
+  }
+  carry += td.decode();
+  handle(carry);
   return grid;
 }
 async function readSheetFile(file) {
@@ -2699,48 +2725,105 @@ const STATE_BADGE = {
 };
 function lateText(st) { return st.state === "late" ? (st.daysLate === 1 ? "from yesterday — not finished" : `from ${st.daysLate} days ago — not finished`) : ""; }
 
-function ColdUpload({ users, projects, getToken, onDone }) {
-  const [rows, setRows] = useState(null);
+// Pull every mobile number out of a cell ("0100… / 0122…", "+20 100 …", 1012345678 without the 0)
+function phonesInCell(raw) {
+  const str = String(raw || "");
+  const found = [];
+  const re = /(?:\+?\s*20|0020)?[\s-]*0?1[0125](?:[\s.-]?\d){8}/g; let m;
+  while ((m = re.exec(str))) { const p = cleanPhone(m[0]); if (phoneKey(p).length >= 10 && !found.includes(p)) found.push(p); }
+  if (!found.length) { const p = cleanPhone(str); if (p) found.push(p); }
+  return found;
+}
+const COLD_HEADER_KEYS = {
+  name: ["name", "owner", "client", "الاسم", "اسم", "المالك", "العميل"],
+  project: ["project", "compound", "المشروع", "الكمبوند", "مشروع", "كمبوند"],
+  unit: ["unit", "villa", "apartment", "الوحدة", "وحدة", "رقمالوحدة"],
+};
+function guessColdColumns(grid) {
+  const H = (grid[0] || []).map((h) => String(h).toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, ""));
+  const body = grid.slice(1, 301);
+  const width = Math.max(...grid.slice(0, 301).map((r) => r.length), 0);
+  // the phone column is the one whose cells look like Egyptian mobiles — not the one called "number"
+  let phone = -1, best = 0;
+  for (let j = 0; j < width; j++) {
+    const filled = body.filter((r) => String(r[j] || "").trim()).length;
+    if (!filled) continue;
+    const ok = body.filter((r) => phonesInCell(r[j]).some((p) => /^01[0125]\d{8}$/.test(p))).length;
+    const score = ok / filled + (/(phone|mobile|tel|whatsapp|موبايل|تليفون|هاتف|محمول)/.test(H[j]) ? 0.05 : 0);
+    if (ok >= Math.max(1, filled * 0.3) && score > best) { best = score; phone = j; }
+  }
+  const find = (keys, not) => H.findIndex((h, j) => !not.includes(j) && keys.some((k) => h.includes(k)));
+  const unit = find(COLD_HEADER_KEYS.unit, [phone]);
+  const name = find(COLD_HEADER_KEYS.name, [phone, unit]);
+  const project = find(COLD_HEADER_KEYS.project, [phone, unit, name]);
+  return { phone, name, unit, project };
+}
+function downloadColdSample() {
+  const csv = "﻿Name,Phone,Project,Unit,Notes\nمحمد أحمد,01012345678,Etapa,131B,\nSara Ali,01198765432,Etapa,132A,Called before\n";
+  saveBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), "cold-calls-sample.csv");
+}
+
+function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
+  const [grid, setGrid] = useState(null);
+  const [cols, setCols] = useState({ phone: -1, name: -1, unit: -1, project: -1 });
+  const [projectAll, setProjectAll] = useState("");
+  const [known, setKnown] = useState({});
   const [fileName, setFileName] = useState("");
-  const [salesId, setSalesId] = useState(users[0]?.id || "");
+  const [salesId, setSalesId] = useState(selfOnly ? me.id : users[0]?.id || "");
   const [due, setDue] = useState(todayInput());
   const [perDay, setPerDay] = useState("");
   const [name, setName] = useState("");
   const [includeKnown, setIncludeKnown] = useState(false);
+  const [showBad, setShowBad] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
   const [err, setErr] = useState("");
   const onFile = async (e) => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
-    setErr(""); setFileName(f.name); setName(f.name.replace(/\.(xlsx|csv|txt|tsv)$/i, ""));
+    setErr(""); setFileName(f.name); setName(f.name.replace(/\.(xlsx|csv|txt|tsv)$/i, "")); setReading(true);
     try {
-      const grid = await readSheetFile(f);
-      if (grid.length < 2) throw new Error("The file looks empty.");
-      const H = grid[0].map((h) => String(h).toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, ""));
-      const find = (keys) => H.findIndex((h) => keys.some((k) => h.includes(k)));
-      let iPhone = find(["phone", "mobile", "number", "tel", "whatsapp", "رقم", "موبايل", "تليفون", "هاتف"]);
-      const iName = find(["name", "owner", "client", "الاسم", "اسم", "المالك"]);
-      const iProject = find(["project", "compound", "المشروع", "الكمبوند", "مشروع", "كمبوند"]);
-      const iUnit = find(["unit", "villa", "apartment", "الوحدة", "وحدة"]);
-      if (iPhone < 0) iPhone = grid[1].findIndex((v) => String(v).replace(/\D/g, "").length >= 10);
-      if (iPhone < 0) throw new Error("Couldn't find a phone column. Put headers in the first row (e.g. Name, Phone, Project, Unit).");
-      const seen = new Set();
-      const parsed = grid.slice(1).map((r, i) => {
-        const phone = cleanPhone(String(r[iPhone] || ""));
-        const key = phoneKey(phone);
-        const repeated = key && seen.has(key); if (key) seen.add(key);
-        const used = new Set([iPhone, iName, iProject, iUnit]);
-        const extra = grid[0].map((h, j) => (used.has(j) || !String(r[j] || "").trim() ? null : `${h}: ${r[j]}`)).filter(Boolean).join(" · ");
-        return { i, phone, key, owner_name: iName >= 0 ? r[iName] : "", project_name: iProject >= 0 ? r[iProject] : "", unit_number: iUnit >= 0 ? r[iUnit] : "", extra, repeated, invalid: key.length < 10 };
-      });
-      const known = {};
-      const keys = parsed.filter((x) => !x.invalid).map((x) => x.phone);
-      for (let k = 0; k < keys.length; k += 500) {
-        try { (await db.rpc("known_phones", { p_phones: keys.slice(k, k + 500) }, await getToken()) || []).forEach((x) => { known[x.phone_key] = known[x.phone_key] || x.kind; }); } catch (e2) {}
-      }
-      setRows(parsed.map((x) => ({ ...x, known: known[x.key] || null })));
-    } catch (e2) { setErr(e2.message || "Could not read the file"); setRows(null); }
+      const g = await readSheetFile(f);
+      if (g.length < 2) throw new Error("The file looks empty.");
+      const c = guessColdColumns(g);
+      if (c.phone < 0) throw new Error("Couldn't find a column with mobile numbers. Choose it below or check the file.");
+      setGrid(g); setCols(c);
+    } catch (e2) { setErr(e2.message || "Could not read the file"); setGrid(null); }
+    setReading(false);
   };
-  const usable = rows ? rows.filter((r) => !r.invalid && !r.repeated && (includeKnown || !r.known)) : [];
+  const headers = grid ? Array.from({ length: Math.max(...grid.slice(0, 50).map((r) => r.length)) }, (_, j) => String(grid[0][j] || "").trim() || `Column ${j + 1}`) : [];
+  const rows = useMemo(() => {
+    if (!grid || cols.phone < 0) return null;
+    const seen = new Set();
+    const used = new Set([cols.phone, cols.name, cols.project, cols.unit]);
+    return grid.slice(1).map((r, i) => {
+      const all = phonesInCell(r[cols.phone]);
+      const phone = all[0] || "";
+      const key = phoneKey(phone);
+      const repeated = key && seen.has(key); if (key) seen.add(key);
+      const taken = new Set([...used].filter((j) => j >= 0).map((j) => String(r[j] || "").trim()));
+      const extraParts = headers.map((h, j) => (used.has(j) || !String(r[j] || "").trim() || taken.has(String(r[j]).trim()) ? null : `${h}: ${r[j]}`)).filter(Boolean);
+      if (all.length > 1) extraParts.unshift(`Other numbers: ${all.slice(1).join(" / ")}`);
+      const project = projectAll || (cols.project >= 0 ? r[cols.project] : "");
+      const reason = !phone ? "No number" : !/^0\d{9,10}$/.test(phone) ? "Not a phone number" : repeated ? "Repeated in this sheet" : "";
+      return { i, phone, key, owner_name: cols.name >= 0 ? r[cols.name] : "", project_name: project, unit_number: cols.unit >= 0 ? r[cols.unit] : "", extra: extraParts.join(" · "), reason, repeated, invalid: !!reason && !repeated };
+    });
+  }, [grid, cols, projectAll]); // eslint-disable-line
+  useEffect(() => { // check which numbers are already in the CRM
+    let off = false;
+    (async () => {
+      if (!rows) return;
+      const keys = Array.from(new Set(rows.filter((x) => !x.reason).map((x) => x.phone)));
+      const out = {};
+      for (let k = 0; k < keys.length; k += 500) {
+        try { (await db.rpc("known_phones", { p_phones: keys.slice(k, k + 500) }, await getToken()) || []).forEach((x) => { out[x.phone_key] = out[x.phone_key] || x.kind; }); } catch (e2) {}
+      }
+      if (!off) setKnown(out);
+    })();
+    return () => { off = true; };
+  }, [rows && rows.map((r) => r.key).join(",")]); // eslint-disable-line
+  const withKnown = rows ? rows.map((x) => ({ ...x, known: !x.reason ? known[x.key] || null : null })) : [];
+  const usable = withKnown.filter((r) => !r.reason && (includeKnown || !r.known));
+  const bad = withKnown.filter((r) => r.reason);
   const projectIdFor = (n) => { const t = String(n || "").trim().toLowerCase(); return t ? projects.find((p) => p.name.toLowerCase() === t)?.id || null : null; };
   const upload = async () => {
     if (!salesId) { setErr("Choose the sales person."); return; }
@@ -2752,57 +2835,165 @@ function ColdUpload({ users, projects, getToken, onDone }) {
       let day = new Date(`${due}T12:00:00`);
       const nextWork = (d) => { const x = new Date(d.getTime() + MS_DAY); while (!DEFAULT_WORK_DAYS.includes(x.getDay())) x.setTime(x.getTime() + MS_DAY); return x; };
       const parts = Math.ceil(usable.length / size);
+      const batch = (crypto.randomUUID && crypto.randomUUID()) || null;
       for (let p = 0; p < parts; p++) {
         const chunk = usable.slice(p * size, (p + 1) * size);
-        const [sheet] = await db.insert("cold_sheets", { name: parts > 1 ? `${name || "Sheet"} · ${p + 1}/${parts}` : name || "Sheet", assigned_to: salesId, due_date: isoToDateInput(day.toISOString()) }, t);
+        const [sheet] = await db.insert("cold_sheets", { name: parts > 1 ? `${name || "Sheet"} · ${p + 1}/${parts}` : name || "Sheet", assigned_to: salesId, due_date: isoToDateInput(day.toISOString()), batch_id: batch, batch_part: p + 1, ...(selfOnly ? { status: "pending" } : {}) }, t);
         for (let k = 0; k < chunk.length; k += 200) {
           await db.insert("cold_leads", chunk.slice(k, k + 200).map((r, j) => ({ sheet_id: sheet.id, assigned_to: salesId, owner_name: String(r.owner_name || "").trim() || null, phone: r.phone, project_name: String(r.project_name || "").trim() || null, project_id: projectIdFor(r.project_name), unit_number: String(r.unit_number || "").trim() || null, extra: r.extra || null, position: k + j })), t);
         }
         day = nextWork(day);
       }
-      onDone(`${usable.length} numbers in ${parts} sheet${parts > 1 ? "s" : ""}`);
+      onDone(selfOnly ? `${usable.length} numbers sent for approval` : `${usable.length} numbers in ${parts} sheet${parts > 1 ? "s" : ""}`);
     } catch (e2) { setErr(e2.message || "Upload failed"); } finally { setBusy(false); }
   };
+  const colSelect = (k, label, optional) => (
+    <Field label={label}>
+      <select style={{ ...inputStyle, appearance: "none" }} value={cols[k]} onChange={(e) => setCols({ ...cols, [k]: Number(e.target.value) })}>
+        {optional && <option value={-1}>— none —</option>}
+        {headers.map((h, j) => <option key={j} value={j}>{h}{grid[1] && grid[1][j] ? ` (e.g. ${String(grid[1][j]).slice(0, 18)})` : ""}</option>)}
+      </select>
+    </Field>
+  );
   return (
     <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontWeight: 800, color: COLORS.navy }}>Upload a cold-call sheet</div>
-      <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Excel (.xlsx) or CSV. First row = headers like Name, Phone, Project, Unit. Numbers already in the CRM (clients, unit owners, other sheets) are skipped.</div>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ fontWeight: 800, color: COLORS.navy }}>{selfOnly ? "Upload my cold-call sheet" : "Upload a cold-call sheet"}</div>
+        <button type="button" onClick={downloadColdSample} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>⬇ Download sample sheet</button>
+      </div>
+      <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Excel (.xlsx) or CSV with headers in the first row. Numbers already in the CRM (clients, unit owners, other sheets) are skipped.{selfOnly ? " Your manager approves the sheet before you can call from it." : ""}</div>
       <label className="drop" style={{ border: `2px dashed ${COLORS.border}`, borderRadius: 14, padding: 18, textAlign: "center", cursor: "pointer", color: COLORS.navy, fontWeight: 700, fontSize: 13.5, background: COLORS.cream }}>
-        {fileName || "Choose the Excel file"}
+        {reading ? "Reading the file…" : fileName || "Choose the Excel file"}
         <input type="file" accept=".xlsx,.csv,.tsv,.txt" onChange={onFile} style={{ display: "none" }} />
       </label>
+      {grid && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, background: COLORS.cream, padding: 10, borderRadius: 12 }}>
+          {colSelect("phone", "Phone column")}
+          {colSelect("name", "Owner name column", true)}
+          {colSelect("unit", "Unit column", true)}
+          {colSelect("project", "Project column", true)}
+          <Field label="Project for the whole sheet">
+            <input list="cold-projects" style={inputStyle} value={projectAll} onChange={(e) => setProjectAll(e.target.value)} placeholder={cols.project >= 0 ? "Leave empty to use the column" : "e.g. Etapa"} />
+            <datalist id="cold-projects">{projects.map((p) => <option key={p.id} value={p.name} />)}</datalist>
+          </Field>
+        </div>
+      )}
       {rows && (
         <>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <FinStat label="Ready to upload" value={usable.length} tone="success" />
-            <FinStat label="Already in the CRM" value={rows.filter((r) => r.known && !r.invalid && !r.repeated).length} sub={includeKnown ? "included" : "skipped"} />
-            <FinStat label="Bad or repeated" value={rows.filter((r) => r.invalid || r.repeated).length} />
+            <FinStat label="Already in the CRM" value={withKnown.filter((r) => r.known).length} sub={includeKnown ? "included" : "skipped"} />
+            <FinStat label="Bad or repeated" value={bad.length} sub={bad.length ? <button onClick={() => setShowBad(!showBad)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 11.5 }}>{showBad ? "Hide" : "See why"}</button> : null} />
           </div>
+          {showBad && bad.length > 0 && (
+            <div style={{ maxHeight: 160, overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 12, fontSize: 12.5 }}>
+              {bad.slice(0, 300).map((r) => <div key={r.i} style={{ padding: "5px 10px", borderBottom: `1px solid ${COLORS.border}` }}>Row {r.i + 2}: <b>{String(grid[r.i + 1][cols.phone] || "(empty)")}</b> — {r.reason}</div>)}
+            </div>
+          )}
+          {!projectAll && cols.project < 0 && <div style={{ fontSize: 12.5, color: COLORS.danger }}>⚠️ No project — the WhatsApp message won't say which project. Choose “Project for the whole sheet”.</div>}
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}><input type="checkbox" checked={includeKnown} onChange={(e) => setIncludeKnown(e.target.checked)} /> Include numbers already in the CRM</label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
             <Field label="Sheet name"><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-            <Field label="Sales person" required>
-              <select style={{ ...inputStyle, appearance: "none" }} value={salesId} onChange={(e) => setSalesId(e.target.value)}>
-                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Due day" required><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+            {!selfOnly && (
+              <Field label="Sales person" required>
+                <select style={{ ...inputStyle, appearance: "none" }} value={salesId} onChange={(e) => setSalesId(e.target.value)}>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </Field>
+            )}
+            <Field label={selfOnly ? "Start day" : "Due day"} required><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
             <Field label="Numbers per day (optional)"><input type="number" min="1" style={inputStyle} value={perDay} onChange={(e) => setPerDay(e.target.value)} placeholder="e.g. 100" /></Field>
           </div>
           {Number(perDay) > 0 && usable.length > Number(perDay) && <div style={{ fontSize: 12.5, color: COLORS.navy }}>Will be split into {Math.ceil(usable.length / Number(perDay))} sheets of {perDay}, one per work day starting {formatDate(`${due}T12:00:00`)}.</div>}
           <div style={{ maxHeight: 220, overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-              <thead><tr><th style={thStyle}>Owner</th><th style={thStyle}>Phone</th><th style={thStyle}>Project</th><th style={thStyle}>Unit</th><th style={thStyle}>Status</th></tr></thead>
-              <tbody>{rows.slice(0, 200).map((r) => (
-                <tr key={r.i}><td style={tdStyle}>{r.owner_name || "—"}</td><td style={tdStyle}>{r.phone}</td><td style={tdStyle}>{r.project_name || "—"}</td><td style={tdStyle}>{r.unit_number || "—"}</td>
-                  <td style={tdStyle}>{r.invalid ? <Badge tone="hold">Bad number</Badge> : r.repeated ? <Badge tone="neutral">Repeated</Badge> : r.known ? <Badge tone="pending">In CRM ({r.known})</Badge> : <Badge tone="active">New</Badge>}</td></tr>
+              <thead><tr><th style={thStyle}>Owner</th><th style={thStyle}>Phone</th><th style={thStyle}>Project</th><th style={thStyle}>Unit</th><th style={thStyle}>Notes</th><th style={thStyle}>Status</th></tr></thead>
+              <tbody>{withKnown.slice(0, 200).map((r) => (
+                <tr key={r.i}><td style={tdStyle}>{r.owner_name || "—"}</td><td style={tdStyle}>{r.phone || "—"}</td><td style={tdStyle}>{r.project_name || "—"}</td><td style={tdStyle}>{r.unit_number || "—"}</td>
+                  <td style={{ ...tdStyle, maxWidth: 220, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.extra}>{r.extra || ""}</td>
+                  <td style={tdStyle}>{r.reason ? <Badge tone={r.repeated ? "neutral" : "hold"}>{r.reason}</Badge> : r.known ? <Badge tone="pending">In CRM ({r.known})</Badge> : <Badge tone="active">New</Badge>}</td></tr>
               ))}</tbody>
             </table>
           </div>
-          <button disabled={busy} onClick={upload} className="btn-primary" style={{ alignSelf: "flex-end", border: "none", background: COLORS.navy, color: "#fff", padding: "10px 18px", borderRadius: 999, fontWeight: 700, cursor: "pointer" }}>{busy ? "Uploading…" : `Upload ${usable.length} numbers`}</button>
+          <button disabled={busy} onClick={upload} className="btn-primary" style={{ alignSelf: "flex-end", border: "none", background: COLORS.navy, color: "#fff", padding: "10px 18px", borderRadius: 999, fontWeight: 700, cursor: "pointer" }}>{busy ? "Uploading…" : selfOnly ? `Send ${usable.length} numbers for approval` : `Upload ${usable.length} numbers`}</button>
         </>
       )}
       {err && <div style={{ color: COLORS.danger, fontSize: 12.5 }}>{err}</div>}
+    </div>
+  );
+}
+
+// Waiting sheets (one card per upload): managers approve / change days / reject; sales see the status
+function ColdApprovals({ profile, users, cold, getToken, onRefresh, deepId }) {
+  const isMgrFor = (uid) => isFinanceAdmin(profile) || (profile.role !== "sales_agent" && uid !== profile.id);
+  const waiting = cold.sheets.filter((s) => s.status === "pending" || s.status === "rejected");
+  const groups = {};
+  waiting.forEach((s) => { const k = s.batch_id || s.id; (groups[k] = groups[k] || []).push(s); });
+  const list = Object.values(groups).map((g) => g.sort((a, b) => (a.batch_part || 0) - (b.batch_part || 0)));
+  const [dates, setDates] = useState({});
+  const [notes, setNotes] = useState({});
+  const [open, setOpen] = useState(deepId || null);
+  const { busy, error, run } = useAction();
+  useEffect(() => { if (deepId) setOpen(deepId); }, [deepId]);
+  if (!list.length) return null;
+  const nm = (id) => users.find((u) => u.id === id)?.name || "—";
+  const decide = (g, status) => run(async () => {
+    const t = await getToken();
+    const note = (notes[g[0].id] || "").trim();
+    if (status === "rejected" && !note) throw new Error("Write why, so the sales person can fix it.");
+    for (const s of g) await db.update("cold_sheets", s.id, { status, review_note: status === "rejected" ? note : null, due_date: dates[s.id] || s.due_date }, t);
+    await onRefresh();
+  });
+  const remove = (g) => run(async () => { if (!window.confirm("Delete this upload?")) return; const t = await getToken(); for (const s of g) await db.remove("cold_sheets", s.id, t); await onRefresh(); });
+  return (
+    <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontWeight: 800, color: COLORS.navy }}>⏳ Waiting for approval · {list.length}</div>
+      {list.map((g) => {
+        const first = g[0];
+        const leads = cold.leads.filter((l) => g.some((s) => s.id === l.sheet_id));
+        const mgr = isMgrFor(first.assigned_to);
+        const isOpen = open && g.some((s) => s.id === open || s.batch_id === open);
+        const baseName = first.name.replace(/ · \d+\/\d+$/, "");
+        return (
+          <div key={first.id} style={{ border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 700, color: COLORS.navy }}>{baseName}</div>
+                <div style={{ fontSize: 12, color: COLORS.textMuted }}>{nm(first.assigned_to)} · {leads.length} numbers · {g.length} day{g.length > 1 ? "s" : ""} from {formatDate(`${first.due_date}T12:00:00`)}</div>
+              </div>
+              <Badge tone={first.status === "rejected" ? "hold" : "pending"}>{first.status === "rejected" ? "Not approved" : "Waiting for approval"}</Badge>
+            </div>
+            {first.status === "rejected" && first.review_note && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Note:</b> {first.review_note}</div>}
+            <button onClick={() => setOpen(isOpen ? null : first.id)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>{isOpen ? "Hide details" : "See the numbers"}</button>
+            {isOpen && (
+              <>
+                <div style={{ maxHeight: 200, overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 10, fontSize: 12.5 }}>
+                  {leads.slice(0, 300).map((l) => <div key={l.id} style={{ padding: "4px 10px", borderBottom: `1px solid ${COLORS.border}` }}>{l.owner_name || "—"} · {l.phone} · {l.project_name || "—"}{l.unit_number ? ` · ${l.unit_number}` : ""}</div>)}
+                </div>
+                {mgr && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {g.map((s) => (
+                      <Field key={s.id} label={g.length > 1 ? `Day ${s.batch_part || 1}` : "Due day"}>
+                        <input type="date" style={{ ...inputStyle, width: 160 }} value={dates[s.id] || s.due_date} onChange={(e) => setDates({ ...dates, [s.id]: e.target.value })} />
+                      </Field>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {mgr && first.status === "pending" ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <Field label="Note (needed to reject)"><input style={inputStyle} value={notes[first.id] || ""} onChange={(e) => setNotes({ ...notes, [first.id]: e.target.value })} /></Field>
+                <button style={btnGhost} disabled={busy} onClick={() => decide(g, "rejected")}>Reject</button>
+                <button style={btnSuccess} disabled={busy} onClick={() => decide(g, "active")}>Approve</button>
+              </div>
+            ) : first.assigned_to === profile.id ? (
+              <button style={{ ...btnGhost, alignSelf: "flex-start", color: COLORS.danger }} disabled={busy} onClick={() => remove(g)}>Delete</button>
+            ) : null}
+          </div>
+        );
+      })}
+      <FinError text={error} />
     </div>
   );
 }
@@ -2869,7 +3060,7 @@ function ColdLeadRow({ lead, template, salesName, onCall, onWhatsApp, onOutcome 
   );
 }
 
-function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, getToken, settings, onRefresh, onAddUnit, onLog, onOutcome }) {
+function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, getToken, settings, onRefresh, onAddUnit, onLog, onOutcome, deepId }) {
   const isManager = profile.role !== "sales_agent";
   const [openSheet, setOpenSheet] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -2878,13 +3069,13 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const [fv, setF, resetF, setAllF] = useFilters("cold", { q: "", salesId: isManager ? "" : profile.id, state: "", due: { p: "" } });
   const sales = users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
   const nm = (id) => users.find((u) => u.id === id)?.name || "";
-  const withState = cold.sheets.map((s) => ({ s, st: sheetState(s, cold.leads) }));
+  const withState = cold.sheets.filter((s) => (s.status || "active") === "active").map((s) => ({ s, st: sheetState(s, cold.leads) }));
   const order = { late: 0, today: 1, upcoming: 2, done: 3 };
   const list = withState.filter(({ s, st }) => (!fv.salesId || s.assigned_to === fv.salesId) && (!fv.state || st.state === fv.state) && inDate(`${s.due_date}T12:00:00`, fv.due) && (!(fv.q || "").trim() || s.name.toLowerCase().includes(fv.q.trim().toLowerCase())))
     .sort((a, b) => order[a.st.state] - order[b.st.state] || (a.st.state === "upcoming" ? a.s.due_date.localeCompare(b.s.due_date) : b.s.due_date.localeCompare(a.s.due_date)));
   const toAdd = cold.leads.filter((l) => l.status === "selling" && l.unit_pending && !l.unit_id && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id));
   const template = settings?.wa_cold_template || DEFAULT_COLD_WA;
-  const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet);
+  const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet && (s.status || "active") === "active");
 
   const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} onClose={() => setOutcomeFor(null)} onSave={onOutcome} />;
 
@@ -2927,10 +3118,11 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>📞 Cold calls</div>
-        {isManager && <button onClick={() => setUploading((u) => !u)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>{uploading ? "Close" : "+ Upload sheet"}</button>}
+        <button onClick={() => setUploading((u) => !u)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>{uploading ? "Close" : isManager ? "+ Upload sheet" : "+ Upload my sheet"}</button>
       </div>
       {msg && <div style={{ fontSize: 13, color: COLORS.success, fontWeight: 700 }}>{msg}</div>}
-      {uploading && <ColdUpload users={sales} projects={projects} getToken={getToken} onDone={async (m) => { setUploading(false); setMsg(`Uploaded ✓ ${m}`); await onRefresh(); }} />}
+      {uploading && <ColdUpload users={isManager ? sales : [profile]} selfOnly={!isManager} me={profile} projects={projects} getToken={getToken} onDone={async (m) => { setUploading(false); setMsg(`Uploaded ✓ ${m}`); await onRefresh(); }} />}
+      <ColdApprovals profile={profile} users={users} cold={cold} getToken={getToken} onRefresh={onRefresh} deepId={deepId} />
       {toAdd.length > 0 && (
         <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontWeight: 800, color: COLORS.navy }}>🏠 Units to add · {toAdd.length}</div>
@@ -2949,7 +3141,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
           { id: "due", label: "Due day", type: "date", primary: true },
         ]} />
       {list.length === 0 ? (
-        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{cold.sheets.length ? "No sheets match these filters." : isManager ? "No sheets yet — upload one for your team." : "No sheets yet. Your team leader will upload your numbers here."}</div>
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{cold.sheets.length ? "No sheets match these filters." : isManager ? "No sheets yet — upload one for your team." : "No sheets yet. Your team leader uploads your numbers here — or upload your own sheet."}</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12 }}>
           {list.map(({ s, st }) => (
@@ -9020,6 +9212,7 @@ export default function App() {
     else if (kind === "attendance") { setSection("profile"); setTab("attendance"); }
     else if (kind === "today") { setSection("clients"); setClientsTab("today"); setOpenClientId(null); }
     else if (kind === "contract" && id) { setSection("contracts"); setContractDeep(`${id}`); }
+    else if (kind === "cold" && id) { setSection("cold"); setColdDeep(`${id}`); refreshCold(); }
   };
   useEffect(() => {
     try {
@@ -9301,6 +9494,7 @@ export default function App() {
   };
   const [contracts, setContracts] = useState(null);
   const [contractDeep, setContractDeep] = useState(null);
+  const [coldDeep, setColdDeep] = useState(null);
   const refreshContracts = async (tk) => {
     try { setContracts((await db.select("contracts", "&order=created_at.desc", tk || await getValidToken())) || []); }
     catch (e) { setContracts([]); }
@@ -9883,7 +10077,8 @@ export default function App() {
 
   const finPending = isFinanceAdmin(profile) ? fin.deals.filter((d) => d.status === "pending").length : 0;
   const contractBadge = (contracts || []).filter((c) => (isFinanceAdmin(profile) ? c.status === "pending" : c.created_by === profile.id && c.status === "returned")).length;
-  const coldBadge = cold.sheets.filter((sh) => sh.assigned_to === profile.id && ["late", "today"].includes(sheetState(sh, cold.leads).state)).length;
+  const coldBadge = cold.sheets.filter((sh) => (sh.status || "active") === "active" && sh.assigned_to === profile.id && ["late", "today"].includes(sheetState(sh, cold.leads).state)).length
+    + new Set(cold.sheets.filter((sh) => sh.status === "pending" && sh.assigned_to !== profile.id && (isFinanceAdmin(profile) || profile.role !== "sales_agent")).map((sh) => sh.batch_id || sh.id)).size;
   const SECTIONS = [
     { id: "clients", label: "Clients", icon: MessageSquare },
     { id: "units", label: "Units", icon: Building2 },
@@ -10306,7 +10501,7 @@ export default function App() {
         )}
         {section === "cold" && (
           <ColdCallsSection profile={profile} users={users} visibleSalesIds={visibleSalesIds} projects={projects} cold={cold} getToken={getValidToken} settings={fin.settings}
-            onRefresh={() => refreshCold()} onAddUnit={startUnitFromCold} onLog={logCold} onOutcome={saveColdOutcome} />
+            onRefresh={() => refreshCold()} onAddUnit={startUnitFromCold} onLog={logCold} onOutcome={saveColdOutcome} deepId={coldDeep} />
         )}
         {coldPrompt && (() => {
           const l = cold.leads.find((x) => x.id === coldPrompt);
