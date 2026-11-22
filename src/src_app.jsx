@@ -438,9 +438,95 @@ function ContactButtons({ phone, size = 12, onContact }) {
 
 // ---------- Unit card ----------
 
+// ---------- Units as a spreadsheet ----------
+function makeXlsx(headers, rows, sheetName = "Units") {
+  const te = new TextEncoder();
+  const col = (i) => { let s = ""; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+  const cell = (v, r, c) => {
+    const ref = `${col(c)}${r}`;
+    if (typeof v === "number" && Number.isFinite(v)) return `<c r="${ref}"><v>${v}</v></c>`;
+    if (v == null || v === "") return "";
+    return `<c r="${ref}" t="inlineStr"${r === 1 ? ' s="1"' : ""}><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
+  };
+  const all = [headers, ...rows];
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${headers.map((h, i) => `<col min="${i + 1}" max="${i + 1}" width="${Math.min(40, Math.max(10, String(h).length + 4))}" customWidth="1"/>`).join("")}</cols><sheetData>${all.map((row, ri) => `<row r="${ri + 1}">${row.map((v, ci) => cell(v, ri + 1, ci)).join("")}</row>`).join("")}</sheetData><autoFilter ref="A1:${col(headers.length - 1)}${all.length}"/></worksheet>`;
+  const files = [
+    ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
+    ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlEsc(sheetName)}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">'${xmlEsc(sheetName)}'!$A$1:$${col(headers.length - 1)}$${all.length}</definedName></definedNames></workbook>`],
+    ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ["xl/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf fontId="0"/><xf fontId="1" applyFont="1"/></cellXfs></styleSheet>`],
+    ["xl/worksheets/sheet1.xml", sheet],
+  ];
+  const blob = zipStore(files.map(([name, xml]) => ({ name, data: te.encode(xml) })));
+  return new Blob([blob], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+const UNIT_TABLE_COLS = [
+  { id: "project", label: "Project", get: (u, x) => x.info.name, sticky: true },
+  { id: "unit", label: "Unit", get: (u) => u.unitNumber },
+  { id: "type", label: "Type", get: (u) => u.type },
+  { id: "floor", label: "Floor", get: (u) => (u.floor === "" || u.floor == null ? "" : Number(u.floor)), show: (u) => floorLabel(u.floor) },
+  { id: "bua", label: "BUA m²", get: (u) => num(u.bua) || "", num: true },
+  { id: "land", label: "Land m²", get: (u) => num(u.landArea) || "", num: true },
+  { id: "beds", label: "Beds", get: (u) => num(u.bedrooms) || "", num: true },
+  { id: "delivery", label: "Delivery", get: (u) => u.deliveryDate },
+  { id: "finishing", label: "Finishing", get: (u) => u.finishing },
+  { id: "total", label: "Total", get: (u) => num(u.totalPrice) || "", num: true, money: true },
+  { id: "dp", label: "DP", get: (u) => num(u.downpayment) || "", num: true, money: true },
+  { id: "remaining", label: "Remaining", get: (u) => num(u.remaining) || "", num: true, money: true },
+  { id: "rent", label: "Rent / month", get: (u) => (isForRent(u) ? num(u.rentPrice) || "" : ""), num: true, money: true },
+  { id: "status", label: "Status", get: (u) => (u.status === "active" ? "Available" : u.status === "hold" ? "On hold" : u.status === "sold" ? "Sold" : u.status) },
+  { id: "sales", label: "Sales", get: (u, x) => x.sales },
+  { id: "updated", label: "Updated", get: (u) => (u.updatedAt || u.createdAt || "").slice(0, 10), show: (u) => formatDate(u.updatedAt || u.createdAt) },
+];
+function UnitsTable({ list, getProjectInfo, users, canSeeOwner, onOpen }) {
+  const [sort, setSort] = useState({ id: "updated", dir: -1 });
+  const ctxOf = (u) => ({ info: getProjectInfo(u), sales: u.salesIds.map((id) => users.find((x) => x.id === id)?.name).filter(Boolean).join(", ") });
+  const rows = list.map((u) => ({ u, x: ctxOf(u) }));
+  const col = UNIT_TABLE_COLS.find((c) => c.id === sort.id) || UNIT_TABLE_COLS[0];
+  rows.sort((a, b) => {
+    const A = col.get(a.u, a.x), B = col.get(b.u, b.x);
+    if (A === "" && B !== "") return 1; if (B === "" && A !== "") return -1;
+    return (typeof A === "number" && typeof B === "number" ? A - B : String(A).localeCompare(String(B), undefined, { numeric: true })) * sort.dir;
+  });
+  const th = (c) => ({ position: "sticky", top: 0, zIndex: c.sticky ? 3 : 2, ...(c.sticky ? { left: 0 } : {}), background: COLORS.navy, color: "#fff", padding: "9px 10px", fontSize: 12, fontWeight: 700, textAlign: c.num ? "right" : "left", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" });
+  const td = (c, i) => ({ padding: "7px 10px", fontSize: 12.5, whiteSpace: "nowrap", textAlign: c.num ? "right" : "left", fontVariantNumeric: c.num ? "tabular-nums" : undefined, borderBottom: `1px solid ${COLORS.border}`, background: i % 2 ? "#FBF9F5" : "#fff", ...(c.sticky ? { position: "sticky", left: 0, zIndex: 1, fontWeight: 700, color: COLORS.navy, boxShadow: "1px 0 0 " + COLORS.border } : {}) });
+  return (
+    <div style={{ overflow: "auto", maxHeight: "70vh", border: `1px solid ${COLORS.border}`, borderRadius: 14, background: "#fff" }}>
+      <table style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "100%" }}>
+        <thead><tr>{UNIT_TABLE_COLS.map((c) => (
+          <th key={c.id} style={th(c)} onClick={() => setSort((s) => ({ id: c.id, dir: s.id === c.id ? -s.dir : c.num || c.id === "updated" ? -1 : 1 }))}>
+            {c.label}{sort.id === c.id ? (sort.dir > 0 ? " ▲" : " ▼") : ""}
+          </th>
+        ))}</tr></thead>
+        <tbody>{rows.map(({ u, x }, i) => (
+          <tr key={u.id} onClick={() => onOpen(u)} style={{ cursor: "pointer" }}>
+            {UNIT_TABLE_COLS.map((c) => { const v = c.get(u, x); return <td key={c.id} style={td(c, i)}>{c.show ? c.show(u) : c.money && v !== "" ? Number(v).toLocaleString("en-US") : v === "" || v == null ? "—" : v}</td>; })}
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+function exportUnitsXlsx(list, getProjectInfo, users, canSeeOwner) {
+  const headers = ["Project", "Developer", "Area", "Phase", "Unit", "Type", "Floor", "BUA m²", "Land m²", "Extra m²", "Bedrooms", "Bathrooms", "Delivery", "Finishing", "Listed for", "Total", "DP", "Remaining", "Next installment", "Remaining maintenance", "Remaining club", "Rent / month", "Status", "Sales", "Owner", "Owner phone", "Added", "Updated"];
+  const rows = list.map((u) => {
+    const info = getProjectInfo(u), owner = canSeeOwner(u);
+    const n = (v) => (num(v) ? num(v) : "");
+    return [info.name, info.developerName, info.destination, u.phase || "", u.unitNumber || "", u.type || "", floorLabel(u.floor), n(u.bua), n(u.landArea), n(u.extraArea), n(u.bedrooms), n(u.bathrooms), u.deliveryDate || "", u.finishing || "",
+      LISTING_LABEL[u.listingType || "sale"] || "", n(u.totalPrice), n(u.downpayment), n(u.remaining), n(u.nextInstallment), n(u.remainingMaintenance), n(u.remainingClubPayment), isForRent(u) ? n(u.rentPrice) : "",
+      u.status === "active" ? "Available" : u.status === "hold" ? "On hold" : u.status === "sold" ? "Sold" : u.status || "",
+      u.salesIds.map((id) => users.find((x) => x.id === id)?.name).filter(Boolean).join(", "), owner ? u.ownerName || "" : "", owner ? u.ownerNumber || "" : "",
+      (u.createdAt || "").slice(0, 10), (u.updatedAt || u.createdAt || "").slice(0, 10)];
+  });
+  saveBlob(makeXlsx(headers, rows), `units_${todayInput()}.xlsx`);
+}
+
 const UNIT_FILTERS_INITIAL = { q: "", listing: "", projectId: "", type: "", price: { min: "", max: "" }, destination: "", developerId: "", finishing: "", deliveryDate: "", furnished: "", bua: { min: "", max: "" }, land: { min: "", max: "" }, extra: { min: "", max: "" }, floor: { min: "", max: "" }, salesId: "", added: { p: "" }, updated: { p: "" }, status: "" };
 function UnitsBrowser({ id, units, title, empty, projects, developers, users, getProjectInfo, canSeeOwner, getHandledBy, onOpen, onViewProfile, showStatus }) {
   const [fv, setF, resetF, setAllF] = useFilters(`units:${id}`, UNIT_FILTERS_INITIAL);
+  const [view, setViewRaw] = useState(() => { try { return localStorage.getItem("origin_units_view") || "grid"; } catch (e) { return "grid"; } });
+  const setView = (v) => { setViewRaw(v); try { localStorage.setItem("origin_units_view", v); } catch (e) {} };
   const rentView = fv.listing === "rent";
   const list = units.filter((u) => {
     const info = getProjectInfo(u);
@@ -471,7 +557,17 @@ function UnitsBrowser({ id, units, title, empty, projects, developers, users, ge
   const sales = users.filter((usr) => units.some((u) => u.salesIds.includes(usr.id)));
   return (
     <>
-      <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy, marginBottom: 12 }}>{title}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>{title}</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {view === "table" && list.length > 0 && <button onClick={() => exportUnitsXlsx(list, getProjectInfo, users, canSeeOwner)} style={{ ...btnGhost, padding: "6px 12px" }}>⬇ Download Excel</button>}
+          <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999 }}>
+            {[["grid", "▦ Grid"], ["table", "☰ Table"]].map(([v, l]) => (
+              <button key={v} onClick={() => setView(v)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: view === v ? "#fff" : "transparent", color: view === v ? COLORS.navy : COLORS.textMuted }}>{l}</button>
+            ))}
+          </div>
+        </div>
+      </div>
       <FilterBar id={`units:${id}`} values={fv} set={setF} reset={resetF} setAll={setAllF} count={list.length} noun={list.length === 1 ? "unit" : "units"}
         searchPlaceholder="Search unit number, project, developer, owner…"
         defs={[
@@ -496,6 +592,8 @@ function UnitsBrowser({ id, units, title, empty, projects, developers, users, ge
       />
       {list.length === 0 ? (
         <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{units.length === 0 ? empty : "No units match these filters."}</div>
+      ) : view === "table" ? (
+        <UnitsTable list={list} getProjectInfo={getProjectInfo} users={users} canSeeOwner={canSeeOwner} onOpen={onOpen} />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
           {list.map((u) => <UnitCard key={u.id} unit={u} projectInfo={getProjectInfo(u)} canSeeOwner={canSeeOwner(u)} handledBy={getHandledBy(u)} onOpen={onOpen} onViewProfile={onViewProfile} />)}
@@ -3048,18 +3146,144 @@ function ColdOutcomeModal({ lead, onSave, onClose }) {
 
 function ColdLeadRow({ lead, template, salesName, onCall, onWhatsApp, onOutcome }) {
   const tone = lead.status === "selling" ? COLORS.success : ["not_selling", "dnc", "wrong"].includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
+  const big = { flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 42, borderRadius: 12, fontWeight: 800, fontSize: 13.5, textDecoration: "none", cursor: "pointer" };
   return (
-    <div className="card lift" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${tone}`, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-      <div style={{ flex: "1 1 180px", minWidth: 0 }}>
-        <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 14 }}>{lead.owner_name || "Owner"} <span style={{ fontWeight: 500, color: COLORS.textMuted, fontSize: 12.5 }}>· {lead.phone}</span></div>
-        <div style={{ fontSize: 12, color: COLORS.textMuted }}>{[lead.project_name, lead.unit_number].filter(Boolean).join(" · ") || "—"}{lead.extra ? ` · ${lead.extra}` : ""}</div>
-        <div style={{ fontSize: 11.5, color: tone, fontWeight: 700, marginTop: 2 }}>
-          {COLD_STATUS_LABEL[lead.status]}{lead.attempts > 1 ? ` · ${lead.attempts} tries` : ""}{lead.status === "call_later" && lead.callback_at ? ` · ${formatDateTime(lead.callback_at)}` : ""}{lead.status === "selling" && lead.unit_pending ? " · unit not added yet" : lead.status === "selling" && lead.unit_id ? " · unit added ✓" : ""}
+    <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${tone}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 15.5, overflow: "hidden", textOverflow: "ellipsis" }}>{lead.owner_name || "Owner"}</div>
+          <div style={{ fontSize: 13, color: COLORS.text, marginTop: 1 }} dir="ltr">{lead.phone}</div>
+          {(lead.project_name || lead.unit_number) && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{[lead.project_name, lead.unit_number && `Unit ${lead.unit_number}`].filter(Boolean).join(" · ")}</div>}
+        </div>
+        {lead.status !== "new" && (
+          <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 800, color: tone, background: COLORS.cream, borderRadius: 999, padding: "4px 10px" }}>
+            {COLD_STATUS_LABEL[lead.status]}{lead.attempts > 1 ? ` ×${lead.attempts}` : ""}
+          </span>
+        )}
+      </div>
+      {lead.status === "call_later" && lead.callback_at && <div style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700 }}>⏰ Call back {formatDateTime(lead.callback_at)}</div>}
+      {lead.status === "selling" && lead.unit_pending && <div style={{ fontSize: 12, color: COLORS.success, fontWeight: 700 }}>🏠 Unit not added yet</div>}
+      {lead.extra && <div style={{ fontSize: 11.5, color: COLORS.textMuted, background: COLORS.cream, borderRadius: 8, padding: "4px 8px" }}>{lead.extra}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} aria-label="Call" style={{ ...big, background: COLORS.navy, color: "#fff" }}><Phone size={16} /> Call</a>
+        <a href={`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(coldWaText(template, lead, salesName))}`} target="_blank" rel="noreferrer" onClick={() => onWhatsApp(lead)} aria-label="WhatsApp" style={{ ...big, background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</a>
+        <button onClick={() => onOutcome(lead)} style={{ ...big, border: `1.5px solid ${COLORS.navy}`, background: "#fff", color: COLORS.navy }}>📝 Feedback</button>
+      </div>
+    </div>
+  );
+}
+
+// Move / split / delete numbers on a sheet (history and units stay with whoever made them)
+function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getToken, onDone, onClose }) {
+  const [action, setAction] = useState("move");
+  const [mode, setMode] = useState("new");
+  const [delMode, setDelMode] = useState("new");
+  const [to, setTo] = useState("");
+  const [count, setCount] = useState("");
+  const [due, setDue] = useState(sheet.due_date > todayKey() ? sheet.due_date : todayKey());
+  const { busy, error, run } = useAction();
+  const people = users.filter((u) => u.id !== profile.id && u.id !== sheet.assigned_to && visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
+  const n = {
+    all: leads.filter((l) => l.status !== "selling").length,
+    new: leads.filter((l) => l.status === "new").length,
+    retry: leads.filter((l) => ["no_answer", "call_later", "not_selling"].includes(l.status)).length,
+    everything: leads.length,
+    called: leads.filter((l) => l.status !== "new").length,
+  };
+  const Opt = ({ v, cur, set, label, sub }) => (
+    <label style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 10px", border: `1px solid ${cur === v ? COLORS.navy : COLORS.border}`, borderRadius: 12, cursor: "pointer", background: cur === v ? COLORS.cream : "#fff" }}>
+      <input type="radio" checked={cur === v} onChange={() => set(v)} style={{ marginTop: 3 }} />
+      <span><b>{label}</b> <span style={{ color: COLORS.textMuted }}>· {n[v]}</span>{sub && <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{sub}</div>}</span>
+    </label>
+  );
+  return (
+    <FinModal title={`Manage “${sheet.name}”`} onClose={onClose} width={480}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
+        <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, alignSelf: "flex-start" }}>
+          {[["move", "Move to someone"], ["delete", "Delete"]].map(([id, l]) => (
+            <button key={id} onClick={() => setAction(id)} style={{ border: "none", borderRadius: 999, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: action === id ? "#fff" : "transparent", color: action === id ? COLORS.navy : COLORS.textMuted }}>{l}</button>
+          ))}
+        </div>
+        {action === "move" ? (
+          <>
+            <Field label="Move to">
+              <select style={{ ...inputStyle, appearance: "none" }} value={to} onChange={(e) => setTo(e.target.value)}>
+                <option value="">— choose —</option>
+                {people.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABEL[u.role] || u.role}</option>)}
+              </select>
+            </Field>
+            {people.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.danger }}>There's nobody else in your team to move these numbers to.</div>}
+            <Opt v="new" cur={mode} set={setMode} label="Numbers nobody called yet" />
+            <Opt v="retry" cur={mode} set={setMode} label="Call them again" sub="No answer, call back later and not selling — they start fresh with the new person" />
+            <Opt v="all" cur={mode} set={setMode} label="All numbers" sub="Everything except owners who said they're selling" />
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <Field label="How many (optional — to split)"><input type="number" min="1" style={{ ...inputStyle, width: 150 }} value={count} onChange={(e) => setCount(e.target.value)} placeholder={`all ${n[mode]}`} /></Field>
+              <Field label="Due day"><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+            </div>
+          </>
+        ) : (
+          <>
+            <Opt v="new" cur={delMode} set={setDelMode} label="Only numbers nobody called yet" />
+            <Opt v="called" cur={delMode} set={setDelMode} label="Only numbers that were called" />
+            <Opt v="everything" cur={delMode} set={setDelMode} label="The whole sheet" />
+          </>
+        )}
+        <div style={{ fontSize: 12, color: COLORS.textMuted, background: COLORS.cream, padding: 8, borderRadius: 10 }}>✅ Calls, WhatsApps and results already made stay counted for whoever made them, and units already added stay as they are.</div>
+        <FinError text={error} />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button style={btnGhost} onClick={onClose}>Cancel</button>
+          {action === "move" ? (
+            <button style={btnPrimary} disabled={busy || !to || !n[mode]} onClick={() => run(async () => {
+              const moved = await db.rpc("cold_move_leads", { p_sheet: sheet.id, p_to: to, p_mode: mode, p_count: Number(count) > 0 ? Math.round(Number(count)) : null, p_due: due || null }, await getToken());
+              await onDone(`Moved ${moved} numbers to ${users.find((u) => u.id === to)?.name || ""}`);
+            })}>{busy ? "Moving…" : `Move ${Number(count) > 0 ? Math.min(Number(count), n[mode]) : n[mode]} numbers`}</button>
+          ) : (
+            <button style={btnDanger} disabled={busy || !n[delMode]} onClick={() => run(async () => {
+              if (!window.confirm(`Delete ${n[delMode]} numbers? This can't be undone.`)) return;
+              const del = await db.rpc("cold_delete_leads", { p_sheet: sheet.id, p_mode: delMode }, await getToken());
+              await onDone(`Deleted ${del} numbers`);
+            })}>{busy ? "Deleting…" : `Delete ${n[delMode]} numbers`}</button>
+          )}
         </div>
       </div>
-      <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} className="round-btn" aria-label="Call" style={{ width: 40, height: 40, borderRadius: 20, background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><Phone size={17} /></a>
-      <a href={`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(coldWaText(template, lead, salesName))}`} target="_blank" rel="noreferrer" onClick={() => onWhatsApp(lead)} className="round-btn" aria-label="WhatsApp" style={{ width: 40, height: 40, borderRadius: 20, background: "#25D366", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><MessageSquare size={17} /></a>
-      <button onClick={() => onOutcome(lead)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 999, padding: "8px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: COLORS.navy }}>Result</button>
+    </FinModal>
+  );
+}
+
+// Summary of a sheet for managers
+const COLD_SUMMARY_ROWS = [
+  ["new", "Not called yet", COLORS.navy], ["no_answer", "No answer", COLORS.gold], ["call_later", "Call back later", COLORS.gold],
+  ["not_selling", "Not selling", COLORS.danger], ["dnc", "Don't call again", COLORS.danger], ["wrong", "Wrong number", COLORS.danger], ["selling", "Selling 🎯", COLORS.success],
+];
+function coldSummary(leads, activity) {
+  const ids = new Set(leads.map((l) => l.id));
+  const acts = activity.filter((a) => ids.has(a.lead_id));
+  const by = {}; leads.forEach((l) => { by[l.status] = (by[l.status] || 0) + 1; });
+  const last = acts.reduce((m, a) => (!m || a.created_at > m ? a.created_at : m), null);
+  return { by, calls: acts.filter((a) => a.action === "call").length, wa: acts.filter((a) => a.action === "whatsapp").length, last, total: leads.length, tried: leads.filter(isTried).length };
+}
+function ColdSheetSummary({ leads, activity, onPick }) {
+  const s = coldSummary(leads, activity);
+  return (
+    <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <FinStat label="Called" value={`${s.tried} / ${s.total}`} sub={s.total ? `${Math.round((s.tried / s.total) * 100)}%` : ""} />
+        <FinStat label="Calls made" value={s.calls} />
+        <FinStat label="WhatsApps sent" value={s.wa} />
+        <FinStat label="Last activity" value={s.last ? formatDateTime(s.last) : "—"} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {COLD_SUMMARY_ROWS.map(([id, label, color]) => {
+          const n = s.by[id] || 0;
+          return (
+            <button key={id} onClick={() => n && onPick(id)} disabled={!n} style={{ display: "flex", alignItems: "center", gap: 10, border: "none", background: "none", padding: 0, cursor: n ? "pointer" : "default", textAlign: "left" }}>
+              <span style={{ width: 130, fontSize: 12.5, color: COLORS.textMuted }}>{label}</span>
+              <span style={{ flex: 1, height: 18, background: COLORS.creamDark, borderRadius: 6, overflow: "hidden" }}><span style={{ display: "block", width: `${s.total ? (n / s.total) * 100 : 0}%`, height: "100%", background: color, opacity: 0.85 }} /></span>
+              <span style={{ width: 70, textAlign: "right", fontSize: 12.5, fontWeight: 700, color: COLORS.navy, fontVariantNumeric: "tabular-nums" }}>{n}{s.total ? <span style={{ fontWeight: 500, color: COLORS.textMuted }}> · {Math.round((n / s.total) * 100)}%</span> : null}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3070,6 +3294,12 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
   const [outcomeFor, setOutcomeFor] = useState(null);
+  const [leadTab, setLeadTab] = useState("call");
+  const [sheetView, setSheetView] = useState("numbers");
+  const [statusPick, setStatusPick] = useState(null);
+  const [manage, setManage] = useState(false);
+  useEffect(() => { const sh = deepId && cold.sheets.find((x) => x.id === deepId && (x.status || "active") === "active"); if (sh) openSheetFn(sh); }, [deepId, cold.sheets.length]); // eslint-disable-line
+  const openSheetFn = (s) => { setOpenSheet(s.id); setLeadTab("call"); setStatusPick(null); setSheetView(isManager && s.assigned_to !== profile.id ? "summary" : "numbers"); };
   const [fv, setF, resetF, setAllF] = useFilters("cold", { q: "", salesId: isManager ? "" : profile.id, state: "", due: { p: "" } });
   const sales = users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
   const nm = (id) => users.find((u) => u.id === id)?.name || "";
@@ -3086,13 +3316,15 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   if (sheet) {
     const st = sheetState(sheet, cold.leads);
     const leads = cold.leads.filter((l) => l.sheet_id === sheet.id).sort((a, b) => a.position - b.position);
-    const groups = [
-      ["To call", leads.filter((l) => l.status === "new")],
-      ["Try again", leads.filter(needsRetry).sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
-      ["Owners selling", leads.filter((l) => l.status === "selling")],
-      ["Done", leads.filter((l) => ["not_selling", "dnc", "wrong"].includes(l.status))],
+    const tabs = [
+      ["call", "To call", leads.filter((l) => l.status === "new")],
+      ["retry", "Try again", leads.filter(needsRetry).sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
+      ["selling", "Selling", leads.filter((l) => l.status === "selling")],
+      ["done", "Done", leads.filter((l) => ["not_selling", "dnc", "wrong"].includes(l.status))],
     ];
+    const shown = statusPick ? leads.filter((l) => l.status === statusPick) : (tabs.find((t) => t[0] === leadTab) || tabs[0])[2];
     const salesName = nm(sheet.assigned_to) || profile.name;
+    const pill = (active) => ({ border: "none", borderRadius: 999, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: active ? "#fff" : "transparent", color: active ? COLORS.navy : COLORS.textMuted });
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <button onClick={() => setOpenSheet(null)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>← All sheets</button>
@@ -3102,17 +3334,46 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>{sheet.name}</div>
               <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{nm(sheet.assigned_to)} · due {formatDate(`${sheet.due_date}T12:00:00`)}{st.state === "late" ? ` · ${lateText(st)}` : ""}</div>
             </div>
-            <span className="pill" style={{ fontSize: 12, fontWeight: 800, padding: "5px 12px", borderRadius: 999, background: STATE_BADGE[st.state].bg, color: STATE_BADGE[st.state].color }}>{STATE_BADGE[st.state].text}</span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span className="pill" style={{ fontSize: 12, fontWeight: 800, padding: "5px 12px", borderRadius: 999, background: STATE_BADGE[st.state].bg, color: STATE_BADGE[st.state].color }}>{STATE_BADGE[st.state].text}</span>
+              {isManager && <button onClick={() => setManage(true)} style={{ ...btnGhost, padding: "6px 12px" }}>⚙ Manage</button>}
+            </div>
           </div>
           <div style={{ height: 9, borderRadius: 9, background: COLORS.cream, overflow: "hidden" }}><div className="grow-bar" style={{ width: `${st.total ? (st.tried / st.total) * 100 : 0}%`, height: "100%", background: st.done ? COLORS.success : COLORS.gold }} /></div>
           <div style={{ fontSize: 12.5, color: COLORS.navy, fontWeight: 600 }}>{st.tried} / {st.total} called · {st.retry} to try again · {st.selling} selling</div>
         </div>
-        {groups.map(([title, g]) => g.length > 0 && (
-          <div key={title} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontWeight: 800, color: COLORS.navy }}>{title} <span style={{ color: COLORS.textMuted, fontWeight: 500, fontSize: 12.5 }}>· {g.length}</span></div>
-            {g.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
+        {msg && <div style={{ fontSize: 13, color: COLORS.success, fontWeight: 700 }}>{msg}</div>}
+        {isManager && (
+          <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, alignSelf: "flex-start" }}>
+            <button onClick={() => { setSheetView("summary"); setStatusPick(null); }} style={pill(sheetView === "summary")}>📊 Summary</button>
+            <button onClick={() => setSheetView("numbers")} style={pill(sheetView === "numbers")}>📋 Numbers</button>
           </div>
-        ))}
+        )}
+        {isManager && sheetView === "summary" ? (
+          <ColdSheetSummary leads={leads} activity={cold.activity} onPick={(id) => { setStatusPick(id); setSheetView("numbers"); }} />
+        ) : (
+          <>
+            {statusPick ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                <b style={{ color: COLORS.navy }}>{COLD_STATUS_LABEL[statusPick]} · {shown.length}</b>
+                <button onClick={() => setStatusPick(null)} style={{ ...btnGhost, padding: "4px 10px" }}>✕ Show all</button>
+              </div>
+            ) : (
+              <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, overflowX: "auto", maxWidth: "100%" }}>
+                {tabs.map(([id, label, g]) => <button key={id} onClick={() => setLeadTab(id)} style={pill(leadTab === id)}>{label} ({g.length})</button>)}
+              </div>
+            )}
+            {shown.length === 0 ? (
+              <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
+                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
+              </div>
+            )}
+          </>
+        )}
+        {manage && <ColdManageModal sheet={sheet} leads={leads} users={users} profile={profile} visibleSalesIds={visibleSalesIds} getToken={getToken} onClose={() => setManage(false)}
+          onDone={async (m) => { setManage(false); setMsg(m); await onRefresh(); }} />}
         {outcomeModal}
       </div>
     );
@@ -3149,7 +3410,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12 }}>
           {list.map(({ s, st }) => (
-            <button key={s.id} onClick={() => setOpenSheet(s.id)} className="card lift" style={{ textAlign: "left", cursor: "pointer", background: "#fff", border: `1px solid ${st.state === "late" ? COLORS.danger : COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+            <button key={s.id} onClick={() => openSheetFn(s)} className="card lift" style={{ textAlign: "left", cursor: "pointer", background: "#fff", border: `1px solid ${st.state === "late" ? COLORS.danger : COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "flex-start" }}>
                 <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 14 }}>{s.name}</div>
                 <span className="pill" style={{ fontSize: 11, fontWeight: 800, padding: "3px 9px", borderRadius: 999, background: STATE_BADGE[st.state].bg, color: STATE_BADGE[st.state].color, whiteSpace: "nowrap" }}>{STATE_BADGE[st.state].text}</span>
@@ -3157,6 +3418,8 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div style={{ fontSize: 12, color: st.state === "late" ? COLORS.danger : COLORS.textMuted, fontWeight: st.state === "late" ? 700 : 500 }}>{isManager ? `${nm(s.assigned_to)} · ` : ""}due {formatDate(`${s.due_date}T12:00:00`)}{st.state === "late" ? ` · ${lateText(st)}` : ""}</div>
               <div style={{ height: 8, borderRadius: 8, background: COLORS.cream, overflow: "hidden" }}><div className="grow-bar" style={{ width: `${st.total ? (st.tried / st.total) * 100 : 0}%`, height: "100%", background: st.done ? COLORS.success : COLORS.gold }} /></div>
               <div style={{ fontSize: 12, color: COLORS.navy }}>{st.tried} / {st.total} called{st.selling ? ` · ${st.selling} selling 🎯` : ""}</div>
+              {isManager && st.tried > 0 && (() => { const by = {}; cold.leads.forEach((l) => { if (l.sheet_id === s.id) by[l.status] = (by[l.status] || 0) + 1; }); return (
+                <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{[["no_answer", "no answer"], ["call_later", "call later"], ["not_selling", "not selling"], ["wrong", "wrong"], ["dnc", "don't call"]].filter(([k]) => by[k]).map(([k, l]) => `${by[k]} ${l}`).join(" · ")}</div>); })()}
             </button>
           ))}
         </div>
