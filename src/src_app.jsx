@@ -178,6 +178,9 @@ body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helv
 .seg button { white-space: nowrap; transition: all .25s cubic-bezier(.2,.8,.2,1.2); }
 .drop:hover { border-color: var(--gold) !important; background: rgba(251,246,236,.8) !important; }
 
+.topbar { padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+/* full-screen pop-ups keep clear of the iPhone notch / status bar */
+div[style*="position: fixed"][style*="inset: 0"] { padding-top: max(16px, calc(env(safe-area-inset-top) + 8px)) !important; padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px)) !important; }
 .topbar { position: sticky; top: 0; z-index: 50; border-radius: 0 0 22px 22px; background: linear-gradient(120deg, rgba(14,24,48,.86) 0%, rgba(23,38,74,.84) 55%, rgba(36,57,107,.82) 100%); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); color: #fff; box-shadow: 0 10px 30px rgba(14,24,48,.22); border-bottom: 1px solid rgba(255,255,255,.08); }
 .topnav { display: flex; gap: 4px; background: rgba(255,255,255,.08); padding: 4px; border-radius: 999px; }
 .topnav button { display: flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 999px; border: none; cursor: pointer; font-size: 13.5px; font-weight: 700; background: transparent; color: rgba(255,255,255,.78); }
@@ -1877,6 +1880,7 @@ function mapClient(row) {
     source: row.source || "",
     referralName: row.referral_name || "",
     campaign: row.campaign || "",
+    duplicateOf: row.duplicate_of || null,
     budget: row.budget,
     interest: row.interest || "buy",
     notes: row.notes || "",
@@ -3864,7 +3868,7 @@ function UpdateBanner() {
   }, [fresh]);
   if (!fresh) return null;
   return (
-    <div className="glass pop-in" style={{ position: "fixed", top: 72, left: "50%", transform: "translateX(-50%)", zIndex: 200, borderRadius: 999, padding: "8px 8px 8px 16px", display: "flex", gap: 10, alignItems: "center", border: `1px solid ${COLORS.border}`, boxShadow: "0 10px 30px rgba(14,24,48,.2)", fontSize: 13, fontWeight: 600, color: COLORS.navy }}>
+    <div className="glass pop-in" style={{ position: "fixed", top: "calc(72px + env(safe-area-inset-top))", left: "50%", transform: "translateX(-50%)", zIndex: 200, borderRadius: 999, padding: "8px 8px 8px 16px", display: "flex", gap: 10, alignItems: "center", border: `1px solid ${COLORS.border}`, boxShadow: "0 10px 30px rgba(14,24,48,.2)", fontSize: 13, fontWeight: 600, color: COLORS.navy }}>
       ✨ A new version is ready
       <button onClick={() => goToVersion(fresh)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "7px 14px", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>Update</button>
     </div>
@@ -9619,15 +9623,17 @@ export default function App() {
       await db.insert("client_activity", { client_id: ex.id, action: "field_update", field_name: "assigned_to", old_value: nm(ex.assignedTo), new_value: nm(newOwner), note: `Duplicate number — moved from ${nm(ex.assignedTo)} to ${nm(newOwner)}`, changed_by: profile.id }, t);
     }
     if (status === "both" && ex) {
-      const [copy] = await db.insert("clients", {
-        name: p.name || ex.name, phone: p.phone || ex.phone, email: p.email || null, source: p.source || ex.source || null, interest: p.interest || ex.interest,
-        budget: p.budget === "" || p.budget == null ? null : p.budget, notes: p.notes || null, stage: "new_lead", assigned_to: newOwner,
-        created_by: req.requested_by, duplicate_of: ex.id, ...autoFollowUp("new_lead"),
-      }, t);
-      await db.insert("client_activity", [
-        { client_id: copy.id, action: "created", new_value: "new_lead", note: `Shared lead — also with ${nm(ex.assignedTo)}${p.feedback ? ` · ${p.feedback}` : ""}`, changed_by: profile.id },
-        { client_id: ex.id, action: "note", note: `Same number also given to ${nm(newOwner)} (both work it)`, changed_by: profile.id },
-      ], t);
+      // reuse a copy made by an earlier try, so pressing again never makes a second one
+      let copy = clients.find((c) => c.duplicateOf === ex.id && c.assignedTo === newOwner);
+      if (!copy) {
+        [copy] = await db.insert("clients", {
+          name: p.name || ex.name, phone: p.phone || ex.phone, email: p.email || null, source: p.source || ex.source || null, interest: p.interest || ex.interest,
+          budget: p.budget === "" || p.budget == null ? null : p.budget, notes: p.notes || null, stage: "new_lead", assigned_to: newOwner,
+          created_by: req.requested_by, duplicate_of: ex.id, ...autoFollowUp("new_lead"),
+        }, t);
+        await db.insert("client_activity", { client_id: copy.id, action: "created", new_value: "new_lead", note: `Shared lead — also with ${nm(ex.assignedTo)}${p.feedback ? ` · ${p.feedback}` : ""}`, changed_by: profile.id }, t);
+      }
+      await db.insert("client_activity", { client_id: ex.id, action: "note", note: `Same number also given to ${nm(newOwner)} (both work it)`, changed_by: profile.id }, t);
     }
     if (status === "kept_old" && ex) {
       await db.insert("client_activity", { client_id: ex.id, action: "note", note: `${nm(req.requested_by)} also entered this number — kept with ${nm(ex.assignedTo)}`, changed_by: profile.id }, t);
