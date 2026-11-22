@@ -7649,6 +7649,18 @@ function FinDeals({ ctx }) {
     Object.entries(exp(d).people).forEach(([id, v]) => { m[id] = m[id] || { now: 0, later: 0, paid: 0 }; m[id].later += v; });
     return Object.entries(m).filter(([, v]) => v.now + v.later + v.paid > 0.5).sort((a, b) => b[1].now + b[1].later - (a[1].now + a[1].later));
   };
+  // one column per level: Sales · Team leader · Sales manager · CEO (by the person's role)
+  const SHARE_COLS = [
+    { id: "sales", label: "Sales", roles: ["sales_agent"] },
+    { id: "tl", label: "Team leader", roles: ["team_leader"] },
+    { id: "sm", label: "Sales manager", roles: ["sales_manager"] },
+    { id: "top", label: "CEO", roles: ["ceo", "admin"] },
+  ];
+  const roleOf = (id) => ctx.users.find((u) => u.id === id)?.role || "sales_agent";
+  const colOf = (id) => SHARE_COLS.find((c) => c.roles.includes(roleOf(id)))?.id || "sales";
+  const inCol = (d, cid) => sharesOf(d).filter(([id]) => colOf(id) === cid);
+  const colTotal = (cid) => round2(rows.filter((d) => ["approved", "reserved"].includes(d.status)).reduce((x, d) => x + inCol(d, cid).reduce((y, [, v]) => y + v.now + v.later, 0), 0));
+  const shownCols = SHARE_COLS.filter((c) => colTotal(c.id) > 0.5);
   const totals = rows.reduce((acc, d) => {
     const e = exp(d);
     acc.commission += num(d.commission_total);
@@ -7701,7 +7713,7 @@ function FinDeals({ ctx }) {
               <th style={thStyle}>Date</th><th style={thStyle}>Deal</th><th style={thStyle}>Sold by</th><th style={thStyle}>Status</th>
               <th style={thNum}>Commission</th><th style={thNum}>Collected</th>
               {isAdmin && <th style={thNum}>Left to collect</th>}
-              {isAdmin ? <th style={thStyle}>Each person (in + expected)</th> : <th style={thNum}>My share</th>}
+              {isAdmin ? shownCols.map((c) => <th key={c.id} style={thNum}>{c.label}</th>) : <th style={thNum}>My share</th>}
               <th style={thNum}>Paid</th><th style={thNum}>{isAdmin ? "Still to pay" : "Remaining"}</th>
               {isAdmin && <th style={thNum}>Floos Rabna</th>}
               {isAdmin && <th style={thNum}>Company</th>}
@@ -7716,18 +7728,25 @@ function FinDeals({ ctx }) {
                 <tr key={d.id} onClick={() => setOpenId(d.id)} style={{ cursor: "pointer" }}>
                   <td style={tdStyle} title={d.status === "approved" ? "Money in date" : isRentDeal(d) ? "Reservation date" : "Promise of sale date"}>{dealShownDate(d)}</td>
                   <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 180 }}>{dealTitle(d)}</td>
-                  <td style={{ ...tdStyle, whiteSpace: "normal" }}>{(agentsByDeal[d.id] || []).map((a) => `${userName(a.agent_id)}${d.sides === "both" ? ` (${agentSide(a) === "buyer" ? "B" : "S"})` : ""}`).join(", ")}<div style={{ fontSize: 11, color: COLORS.textMuted }}>{d.sides === "both" ? "Buyer & seller" : d.sides === "seller" ? "Seller side" : "Buyer side"}</div></td>
+                  <td style={{ ...tdStyle, whiteSpace: "normal" }}>{[...new Set((agentsByDeal[d.id] || []).map((a) => userName(a.agent_id).split(" ")[0]))].join(", ")}<div style={{ fontSize: 11, color: COLORS.textMuted }}>{d.sides === "both" ? "Buyer & seller" : d.sides === "seller" ? "Seller side" : "Buyer side"}</div></td>
                   <td style={tdStyle}><Badge tone={dealStatusInfo(d).tone}>{dealStatusInfo(d).label}</Badge></td>
                   <td style={tdNum}>{egp(d.commission_total)}</td>
                   <td style={tdNum}>{egp(calc.collectedByDeal[d.id] || 0)}</td>
                   {isAdmin && <td style={{ ...tdNum, color: exp(d).left > 0.5 ? COLORS.navy : COLORS.textMuted }}>{["approved", "reserved"].includes(d.status) ? egp(exp(d).left) : "—"}</td>}
-                  {isAdmin ? (
-                    <td style={{ ...tdStyle, whiteSpace: "normal", minWidth: 190, fontSize: 12 }}>
-                      {["approved", "reserved"].includes(d.status) ? sharesOf(d).map(([id, v]) => (
-                        <div key={id}><b>{userName(id)}</b> {egp(v.now + v.later)}{v.later > 0.5 ? <span style={{ color: COLORS.textMuted }}> ({egp(v.now)} in · {egp(v.later)} est.)</span> : null}</div>
-                      )) : "—"}
-                    </td>
-                  ) : <td style={tdNum}>{egp(ent)}</td>}
+                  {isAdmin ? shownCols.map((c) => {
+                    const list = ["approved", "reserved"].includes(d.status) ? inCol(d, c.id) : [];
+                    const later = list.reduce((x, [, v]) => x + v.later, 0);
+                    return (
+                      <td key={c.id} style={{ ...tdNum, whiteSpace: "nowrap" }} title={list.map(([id, v]) => `${userName(id)}: ${egp(v.now)} in · ${egp(v.later)} expected`).join("\n")}>
+                        {list.length === 0 ? <span style={{ color: COLORS.textMuted }}>0</span> : (
+                          <>
+                            <div>{list.map(([id, v], i) => <span key={id}>{i > 0 ? <span style={{ color: COLORS.textMuted }}> · </span> : null}<span style={{ color: COLORS.textMuted, fontSize: 11.5 }}>{userName(id).split(" ")[0]}</span> <b>{egp(v.now + v.later)}</b></span>)}</div>
+                            {later > 0.5 && <div style={{ fontSize: 10.5, color: COLORS.textMuted }}>incl. {egp(later)} est.</div>}
+                          </>
+                        )}
+                      </td>
+                    );
+                  }) : <td style={tdNum}>{egp(ent)}</td>}
                   <td style={tdNum}>{egp(paid)}</td>
                   <td style={{ ...tdNum, color: rem > 0.5 ? COLORS.danger : rem < -0.5 ? COLORS.gold : COLORS.text, fontWeight: rem > 0.5 ? 700 : 400 }}>{egp(rem)}</td>
                   {isAdmin && <td style={tdNum}>{["approved", "reserved"].includes(d.status) ? egp(num(calc.charityByDeal[d.id]) + exp(d).charity) : "—"}</td>}
@@ -7741,7 +7760,7 @@ function FinDeals({ ctx }) {
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.commission)}</td>
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.collected)}</td>
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.left)}</td>
-                <td style={{ ...tdStyle, fontWeight: 800 }}>{egp(totals.entitled + totals.teamLater)} <span style={{ fontWeight: 500, color: COLORS.textMuted }}>({egp(totals.teamLater)} est.)</span></td>
+                {shownCols.map((c) => <td key={c.id} style={{ ...tdNum, fontWeight: 800 }}>{egp(colTotal(c.id))}</td>)}
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.paid)}</td>
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.entitled - totals.paid)}</td>
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.charity)}</td>
