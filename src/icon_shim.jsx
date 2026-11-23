@@ -28,4 +28,5 @@ export {
   LuMessageSquare as MessageSquare,
   LuCircleCheck as CheckCircle,
   LuFileText as FileText,
+  LuSettings as Settings,
 } from "react-icons/lu";

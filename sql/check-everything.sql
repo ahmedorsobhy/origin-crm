@@ -66,6 +66,9 @@ with fn as (
       and exists (select 1 from fn where proname = 'admin_sync_deal_rates') and exists (select 1 from pg_trigger where tgname = 'trg_charity_follow_edit')
       and exists (select 1 from pg_policies where tablename = 'attendance' and policyname = 'admin delete attendance')
       and not exists (select 1 from pg_proc where proname = 'can_manage_cold_for' and prosrc like '%is distinct from auth.uid()%')),
+  ('35 Cold results (sell later, sold, with us, off/busy) + reminders + CEO manages users', exists (select 1 from pg_constraint where conname = 'cold_leads_status_check' and pg_get_constraintdef(oid) like '%with_us%')
+      and exists (select 1 from col where c = 'cold_leads.note') and exists (select 1 from fn where proname = 'cold_reminders')
+      and exists (select 1 from pg_policies where tablename = 'projects' and policyname = 'admin write projects' and with_check like '%is_finance_admin%')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
