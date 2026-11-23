@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Home, User, LayoutGrid, PlusCircle, PauseCircle, LogOut, Users,
   Search, Building2, MapPin, Ruler, Layers, Wallet, Calendar,
@@ -140,6 +141,7 @@ body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helv
 .orbs i:nth-child(2) { bottom: -28vmax; right: -22vmax; background: radial-gradient(circle, rgba(160,186,238,.7) 0%, rgba(160,186,238,0) 62%); animation: orbB 32s ease-in-out infinite alternate; }
 .orbs i:nth-child(3) { top: 30%; left: 35%; width: 42vmax; height: 42vmax; background: radial-gradient(circle, rgba(205,184,236,.5) 0%, rgba(205,184,236,0) 62%); animation: orbC 38s ease-in-out infinite alternate; }
 .app-shell > *:not(.orbs):not(.celebrate):not(.bottom-nav):not(.topbar) { position: relative; z-index: 1; }
+@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes orbA { to { transform: translate(18vmax, 12vmax) scale(1.15); } }
 @keyframes orbB { to { transform: translate(-16vmax, -14vmax) scale(1.1); } }
 @keyframes orbC { to { transform: translate(-20vmax, 10vmax) scale(.9); } }
@@ -670,8 +672,9 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
 
 // ---------- Unit detail modal ----------
 
-function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside, onShareLink }) {
+function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meName, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside, onShareLink }) {
   const [reassignId, setReassignId] = useState("");
+  const [askOwner, setAskOwner] = useState(false);
   if (!unit) return null;
 
   const shareOnWhatsApp = () => {
@@ -784,10 +787,12 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, onClose, onReque
               </div>
             )}
             {canSeeOwner ? (
-              <div style={{ fontSize: 13, color: COLORS.text, display: "flex", gap: 16 }}>
+              <div style={{ fontSize: 13, color: COLORS.text, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
                 <span style={{ color: COLORS.textMuted }}>Owner</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><UserRound size={14} /> {unit.ownerName}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Phone size={14} /> {unit.ownerNumber}<ContactButtons phone={unit.ownerNumber} /></span>
+                {askOwner && <OwnerAskModal unit={unit} projectName={projectInfo.name} salesName={meName} settings={waSettings} onClose={() => setAskOwner(false)} />}
+                {unit.ownerNumber && <button onClick={() => setAskOwner(true)} style={{ border: "none", background: "#25D366", color: "#fff", borderRadius: 999, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Still available? 💬</button>}
               </div>
             ) : (
               <div style={{ fontSize: 13, color: COLORS.textMuted, display: "flex", alignItems: "center", gap: 6 }}>
@@ -918,7 +923,7 @@ function autoUnitDescription(form, project, developer) {
 }
 const LAST_UNIT_KEY = "origin_last_unit_place";
 
-function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing, units = [], onOpenUnit, prefill }) {
+function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing, onAdded, units = [], onOpenUnit, prefill }) {
   const empty = {
     developerId: "", projectId: "", phase: "", type: "", landArea: "", bua: "",
     extraArea: "", floor: "", finishing: "", downpayment: "", remaining: "",
@@ -962,15 +967,7 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
   };
 
   const isEditing = !!editingUnit;
-  // New units start in the same developer / project / phase as the last one added
-  const remembered = () => {
-    try {
-      const r = JSON.parse(localStorage.getItem(LAST_UNIT_KEY) || "null");
-      if (r && projects.some((p) => p.id === r.projectId)) return { developerId: r.developerId || "", projectId: r.projectId, phase: r.phase || "", listingType: r.listingType || "sale" };
-    } catch (e) {}
-    return {};
-  };
-  const [form, setForm] = useState(() => (isEditing ? buildFromUnit(editingUnit) : prefill ? { ...empty, ...remembered(), ...Object.fromEntries(Object.entries(prefill).filter(([k, v]) => v && k !== "n")) } : { ...empty, ...remembered() }));
+  const [form, setForm] = useState(() => (isEditing ? buildFromUnit(editingUnit) : prefill ? { ...empty, ...Object.fromEntries(Object.entries(prefill).filter(([k, v]) => v && k !== "n")) } : { ...empty }));
   const [descAuto, setDescAuto] = useState(!isEditing);
   const [existingPhotos, setExistingPhotos] = useState(isEditing ? editingUnit.photos : []);
   const [photoFiles, setPhotoFiles] = useState([]); // { file, previewUrl }
@@ -1033,10 +1030,14 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
           },
           photoFiles.map((p) => p.file)
         );
-        try { localStorage.setItem(LAST_UNIT_KEY, JSON.stringify({ developerId: form.developerId, projectId: form.projectId, phase: form.phase, listingType: form.listingType })); } catch (e) {}
-        setForm({ ...empty, developerId: form.developerId, projectId: form.projectId, phase: form.phase, listingType: form.listingType });
+        // Start the next unit from a completely clean form
+        try { localStorage.removeItem(LAST_UNIT_KEY); } catch (e) {}
+        setForm({ ...empty });
         setDescAuto(true);
         setPhotoFiles([]);
+        setExistingPhotos([]);
+        if (onAdded) onAdded();
+        try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) {}
       }
     } catch (err) {
       setError(err.message || "Something went wrong saving the unit.");
@@ -2426,8 +2427,9 @@ function PastBuyers({ units, profile, visibleSalesIds, getProjectInfo, onContact
 // ---------- Owner follow-up: check with the owner every 30 days ----------
 const OWNER_CHECK_DAYS = 30, STALE_UNIT_DAYS = 60;
 const unitAgeDays = (u) => Math.floor((Date.now() - new Date(u.updatedAt || u.createdAt).getTime()) / MS_DAY);
-function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStill, onPriceChanged, onSold }) {
+function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStill, onPriceChanged, onSold, waSettings }) {
   const [busy, setBusy] = useState("");
+  const [ask, setAsk] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const list = units.filter((u) => u.status === "active" && unitAgeDays(u) >= OWNER_CHECK_DAYS
     && u.salesIds.some((id) => (profile.role === "sales_agent" ? id === profile.id : visibleSalesIds.includes(id))))
@@ -2449,6 +2451,7 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
               <div style={{ fontSize: 12, color: COLORS.textMuted }}>{u.ownerName || "Owner"} · last update {unitAgeDays(u)} days ago{unitAgeDays(u) >= STALE_UNIT_DAYS ? " · stale" : ""}</div>
             </div>
             {u.ownerNumber && <ContactButtons phone={u.ownerNumber} size={16} onContact={() => {}} />}
+            {u.ownerNumber && <button style={{ ...btn, background: "#25D366", color: "#fff", border: "none" }} onClick={() => setAsk(u)}>Ask 💬</button>}
             <button style={{ ...btn, background: COLORS.success, color: "#fff", border: "none" }} disabled={busy === u.id} onClick={async () => { setBusy(u.id); try { await onStill(u); } finally { setBusy(""); } }}>{busy === u.id ? "…" : "Still available"}</button>
             <button style={btn} onClick={() => onPriceChanged(u)}>Price changed</button>
             <button style={btn} onClick={() => onSold(u)}>Sold</button>
@@ -2456,6 +2459,7 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
         ))}
       </div>
       {list.length > 5 && <button onClick={() => setShowAll(!showAll)} style={{ ...btn, marginTop: 8 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
+      {ask && <OwnerAskModal unit={ask} projectName={getProjectInfo(ask).name} salesName={profile.name} settings={waSettings} onClose={() => setAsk(null)} />}
     </div>
   );
 }
@@ -2799,13 +2803,64 @@ const COLD_OUTCOMES = [
 ];
 const COLD_STATUS_LABEL = { new: "Not called", no_answer: "No answer", call_later: "Call back later", not_selling: "Not selling", dnc: "Don't call again", wrong: "Wrong number", selling: "Selling" };
 const DEFAULT_COLD_WA = "{greeting} 🌷 معاك {sales} من Origin Real Estate، بكلم حضرتك بخصوص وحدتك{in_project}. هل حضرتك عارضها للبيع؟";
-function coldWaText(template, lead, salesName) {
+const DEFAULT_OWNER_AR = "{greeting} {owner} 🌷 معاك {sales} من Origin Real Estate. بخصوص وحدة حضرتك ({type} {unit}) في {project}، هل لسه متاحة {listing}؟ ولو في أي تغيير في السعر يا ريت تبلغني. شكراً لحضرتك 🙏";
+const DEFAULT_OWNER_EN = "{greeting} {owner} 🌷 This is {sales} from Origin Real Estate. About your unit ({type} {unit}) in {project} — is it still available {listing}? Please let me know if anything changed in the price. Thank you 🙏";
+function ownerAskText(template, lang, unit, projectName, salesName) {
   const h = new Date().getHours();
-  const greeting = h < 12 ? "صباح الخير" : "مساء الخير";
+  const ar = lang === "ar";
+  const greeting = ar ? (h < 12 ? "صباح الخير" : "مساء الخير") : (h < 12 ? "Good morning" : "Good evening");
+  const lt = unit.listingType || "sale";
+  const listing = ar ? (lt === "rent" ? "للإيجار" : lt === "both" ? "للبيع أو الإيجار" : "للبيع") : (lt === "rent" ? "for rent" : lt === "both" ? "for sale or rent" : "for sale");
+  return String(template || (ar ? DEFAULT_OWNER_AR : DEFAULT_OWNER_EN))
+    .replace(/\{greeting\}/g, greeting).replace(/\{owner\}/g, unit.ownerName || "").replace(/\{sales\}/g, salesName || "")
+    .replace(/\{project\}/g, projectName || "").replace(/\{unit\}/g, unit.unitNumber || "").replace(/\{type\}/g, unit.type || "")
+    .replace(/\{listing\}/g, listing).replace(/ {2,}/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")");
+}
+// Pick an Arabic or English WhatsApp message, edit it, send it
+function WaPickModal({ title, sub, phone, make, onSent, onClose }) {
+  const [lang, setLang] = useState("ar");
+  const [texts, setTexts] = useState(() => ({ ar: make("ar"), en: make("en") }));
+  const send = () => {
+    window.open(`https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(texts[lang])}`, "_blank");
+    if (onSent) onSent();
+    onClose();
+  };
+  const tab = (k, label) => (
+    <button key={k} onClick={() => setLang(k)} style={{ flex: 1, border: `1px solid ${lang === k ? COLORS.navy : COLORS.border}`, background: lang === k ? COLORS.navy : "#fff", color: lang === k ? "#fff" : COLORS.navy, borderRadius: 999, padding: "8px 12px", fontWeight: 700, cursor: "pointer" }}>{label}</button>
+  );
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, background: "rgba(14,24,48,.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div className="card" style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(520px, 100%)", maxHeight: "90vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ fontWeight: 800, color: COLORS.navy }}>{title}</div>
+          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={18} /></button>
+        </div>
+        {sub && <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>{sub}</div>}
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>{tab("ar", "عربي")}{tab("en", "English")}</div>
+        <textarea dir={lang === "ar" ? "rtl" : "ltr"} rows={6} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} value={texts[lang]} onChange={(e) => { const v = e.target.value; setTexts((t) => ({ ...t, [lang]: v })); }} />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10, flexWrap: "wrap" }}>
+          <button style={btnGhost} onClick={() => setTexts((t) => ({ ...t, [lang]: make(lang) }))}>Reset text</button>
+          <button style={{ ...btnPrimary, background: "#25D366" }} disabled={!texts[lang].trim() || !phone} onClick={send}>Send on WhatsApp</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+function OwnerAskModal({ unit, projectName, salesName, settings, onClose, onSent }) {
+  return <WaPickModal title="Ask the owner on WhatsApp" phone={unit.ownerNumber} onClose={onClose} onSent={onSent && (() => onSent(unit))}
+    sub={`${unit.ownerName || "Owner"} · ${unit.ownerNumber} · ${unit.type} ${unit.unitNumber}${projectName ? ` · ${projectName}` : ""}`}
+    make={(lang) => ownerAskText(lang === "ar" ? settings?.wa_owner_ar : settings?.wa_owner_en, lang, unit, projectName, salesName)} />;
+}
+const DEFAULT_COLD_WA_EN = "{greeting} 🌷 This is {sales} from Origin Real Estate, reaching out about your unit{in_project}. Are you considering selling it?";
+function coldWaText(template, lead, salesName, lang = "ar") {
+  const h = new Date().getHours();
+  const ar = lang !== "en";
+  const greeting = ar ? (h < 12 ? "صباح الخير" : "مساء الخير") : (h < 12 ? "Good morning" : "Good evening");
   const project = lead.project_name || "";
-  return String(template || DEFAULT_COLD_WA)
+  return String(template || (ar ? DEFAULT_COLD_WA : DEFAULT_COLD_WA_EN))
     .replace(/\{greeting\}/g, greeting).replace(/\{sales\}/g, salesName || "")
-    .replace(/\{in_project\}/g, project ? ` في ${project}` : "").replace(/\{project\}/g, project)
+    .replace(/\{in_project\}/g, project ? (ar ? ` في ${project}` : ` in ${project}`) : "").replace(/\{project\}/g, project)
     .replace(/\{owner\}/g, lead.owner_name || "").replace(/\{unit\}/g, lead.unit_number || "");
 }
 const isTried = (l) => l.status !== "new" || l.attempts > 0;
@@ -3144,7 +3199,8 @@ function ColdOutcomeModal({ lead, onSave, onClose }) {
   );
 }
 
-function ColdLeadRow({ lead, template, salesName, onCall, onWhatsApp, onOutcome }) {
+function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp, onOutcome }) {
+  const [waPick, setWaPick] = useState(false);
   const tone = lead.status === "selling" ? COLORS.success : ["not_selling", "dnc", "wrong"].includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
   const big = { flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 42, borderRadius: 12, fontWeight: 800, fontSize: 13.5, textDecoration: "none", cursor: "pointer" };
   return (
@@ -3166,9 +3222,12 @@ function ColdLeadRow({ lead, template, salesName, onCall, onWhatsApp, onOutcome 
       {lead.extra && <div style={{ fontSize: 11.5, color: COLORS.textMuted, background: COLORS.cream, borderRadius: 8, padding: "4px 8px" }}>{lead.extra}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} aria-label="Call" style={{ ...big, background: COLORS.navy, color: "#fff" }}><Phone size={16} /> Call</a>
-        <a href={`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(coldWaText(template, lead, salesName))}`} target="_blank" rel="noreferrer" onClick={() => onWhatsApp(lead)} aria-label="WhatsApp" style={{ ...big, background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</a>
+        <button onClick={() => setWaPick(true)} aria-label="WhatsApp" style={{ ...big, border: "none", background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</button>
         <button onClick={() => onOutcome(lead)} style={{ ...big, border: `1.5px solid ${COLORS.navy}`, background: "#fff", color: COLORS.navy }}>📝 Feedback</button>
       </div>
+      {waPick && <WaPickModal title="WhatsApp the owner" phone={lead.phone} onClose={() => setWaPick(false)} onSent={() => onWhatsApp(lead)}
+        sub={`${lead.owner_name || "Owner"} · ${lead.phone}${lead.project_name ? ` · ${lead.project_name}` : ""}`}
+        make={(lang) => coldWaText(lang === "ar" ? template : templateEn, lead, salesName, lang)} />}
     </div>
   );
 }
@@ -3309,6 +3368,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
     .sort((a, b) => order[a.st.state] - order[b.st.state] || (a.st.state === "upcoming" ? a.s.due_date.localeCompare(b.s.due_date) : b.s.due_date.localeCompare(a.s.due_date)));
   const toAdd = cold.leads.filter((l) => l.status === "selling" && l.unit_pending && !l.unit_id && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id));
   const template = settings?.wa_cold_template || DEFAULT_COLD_WA;
+  const templateEn = settings?.wa_cold_en || DEFAULT_COLD_WA_EN;
   const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet && (s.status || "active") === "active");
 
   const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} onClose={() => setOutcomeFor(null)} onSave={onOutcome} />;
@@ -3367,7 +3427,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
-                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
+                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
               </div>
             )}
           </>
@@ -3386,7 +3446,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
         <button onClick={() => setUploading((u) => !u)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>{uploading ? "Close" : isManager ? "+ Upload sheet" : "+ Upload my sheet"}</button>
       </div>
       {msg && <div style={{ fontSize: 13, color: COLORS.success, fontWeight: 700 }}>{msg}</div>}
-      {uploading && <ColdUpload users={isManager ? sales : [profile]} selfOnly={!isManager} me={profile} projects={projects} getToken={getToken} onDone={async (m) => { setUploading(false); setMsg(`Uploaded ✓ ${m}`); await onRefresh(); }} />}
+      {uploading && <ColdUpload users={isManager ? (["admin", "ceo"].includes(profile.role) || sales.some((u) => u.id === profile.id) ? sales : [profile, ...sales]) : [profile]} selfOnly={!isManager} me={profile} projects={projects} getToken={getToken} onDone={async (m) => { setUploading(false); setMsg(`Uploaded ✓ ${m}`); await onRefresh(); }} />}
       <ColdApprovals profile={profile} users={users} cold={cold} getToken={getToken} onRefresh={onRefresh} deepId={deepId} />
       {toAdd.length > 0 && (
         <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -5213,17 +5273,48 @@ function BackupSettings({ ctx }) {
 function ColdTemplateSettings({ ctx }) {
   const { fin, act } = ctx;
   const [text, setText] = useState(fin.settings?.wa_cold_template || DEFAULT_COLD_WA);
+  const [textEn, setTextEn] = useState(fin.settings?.wa_cold_en || DEFAULT_COLD_WA_EN);
   const [saved, setSaved] = useState(false);
   const { busy, error, run } = useAction();
   return (
     <div style={{ ...finCard, gridColumn: "1 / -1" }}>
-      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Cold call WhatsApp message</div>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Cold call WhatsApp messages (Arabic / English)</div>
       <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>{"{greeting}"} becomes صباح الخير before 12 and مساء الخير after · {"{sales}"} the sales person · {"{in_project}"} " في" + the project (empty if no project) · {"{project}"} · {"{owner}"} · {"{unit}"}</div>
       <textarea dir="auto" rows={3} style={{ ...inputStyle, resize: "vertical" }} value={text} onChange={(e) => setText(e.target.value)} />
       <div style={{ fontSize: 12, color: COLORS.textMuted, margin: "6px 0" }}>Preview: <span dir="auto">{coldWaText(text, { project_name: "Westown", owner_name: "Ahmed", unit_number: "B-12" }, ctx.profile?.name || "Omar")}</span></div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.navy, marginTop: 6 }}>English</div>
+      <textarea dir="ltr" rows={3} style={{ ...inputStyle, resize: "vertical" }} value={textEn} onChange={(e) => setTextEn(e.target.value)} />
+      <div style={{ fontSize: 12, color: COLORS.textMuted, margin: "6px 0" }}>Preview: {coldWaText(textEn, { project_name: "Westown", owner_name: "Ahmed", unit_number: "B-12" }, ctx.profile?.name || "Omar", "en")}</div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => { setSaved(false); await act((tk) => db.update("finance_settings", 1, { wa_cold_template: text.trim() || null, updated_at: new Date().toISOString() }, tk)); setSaved(true); })}>Save message</button>
-        <button style={btnGhost} onClick={() => setText(DEFAULT_COLD_WA)}>Reset</button>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => { setSaved(false); await act((tk) => db.update("finance_settings", 1, { wa_cold_template: text.trim() || null, wa_cold_en: textEn.trim() || null, updated_at: new Date().toISOString() }, tk)); setSaved(true); })}>Save message</button>
+        <button style={btnGhost} onClick={() => { setText(DEFAULT_COLD_WA); setTextEn(DEFAULT_COLD_WA_EN); }}>Reset</button>
+        {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
+      </div>
+      <FinError text={error} />
+    </div>
+  );
+}
+
+function OwnerAskSettings({ ctx }) {
+  const { fin, act } = ctx;
+  const [ar, setAr] = useState(fin.settings?.wa_owner_ar || DEFAULT_OWNER_AR);
+  const [en, setEn] = useState(fin.settings?.wa_owner_en || DEFAULT_OWNER_EN);
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  const sample = { ownerName: "Ahmed", unitNumber: "B-12", type: "Apartment", listingType: "sale" };
+  return (
+    <div style={{ ...finCard, gridColumn: "1 / -1" }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Owner WhatsApp — "is the unit still available?"</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>The sales person picks Arabic or English from the unit and can still edit the text before sending. {"{greeting}"} · {"{owner}"} · {"{sales}"} · {"{type}"} · {"{unit}"} · {"{project}"} · {"{listing}"} (for sale / for rent)</div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.navy }}>Arabic</div>
+      <textarea dir="rtl" rows={3} style={{ ...inputStyle, resize: "vertical" }} value={ar} onChange={(e) => setAr(e.target.value)} />
+      <div style={{ fontSize: 12, color: COLORS.textMuted, margin: "4px 0 10px" }} dir="rtl">{ownerAskText(ar, "ar", sample, "Westown", ctx.profile?.name || "Omar")}</div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.navy }}>English</div>
+      <textarea dir="ltr" rows={3} style={{ ...inputStyle, resize: "vertical" }} value={en} onChange={(e) => setEn(e.target.value)} />
+      <div style={{ fontSize: 12, color: COLORS.textMuted, margin: "4px 0 10px" }}>{ownerAskText(en, "en", sample, "Westown", ctx.profile?.name || "Omar")}</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => { setSaved(false); await act((tk) => db.update("finance_settings", 1, { wa_owner_ar: ar.trim() || null, wa_owner_en: en.trim() || null, updated_at: new Date().toISOString() }, tk)); setSaved(true); })}>Save messages</button>
+        <button style={btnGhost} onClick={() => { setAr(DEFAULT_OWNER_AR); setEn(DEFAULT_OWNER_EN); }}>Reset</button>
         {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
       </div>
       <FinError text={error} />
@@ -5263,7 +5354,85 @@ function WaTemplatesSettings({ ctx }) {
   );
 }
 
-function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest, onQuickReply, onContact, matchSlot, waTemplates, salesName, getToken, onVoiceSaved }) {
+// Admin / CEO: change any field of a client
+const isoToLocalInput = (iso) => { if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return ""; return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+function ClientEditModal({ client, users, onSave, onClose }) {
+  const [f, setF] = useState(() => ({
+    name: client.name || "", phone: client.phone || "", email: client.email || "", source: client.source || "", referralName: client.referralName || "",
+    campaign: client.campaign || "", budget: client.budget ?? "", interest: client.interest || "buy", notes: client.notes || "", assignedTo: client.assignedTo || "",
+    stage: client.stage || "new_lead", meetingAt: isoToLocalInput(client.meetingAt), nextAction: client.nextAction || "", nextActionAt: isoToLocalInput(client.nextActionAt),
+    createdAt: (client.createdAt || "").slice(0, 10),
+  }));
+  const set = (k) => (e) => { const v = e && e.target ? e.target.value : e; setF((x) => ({ ...x, [k]: v })); };
+  const { busy, error, run } = useAction();
+  const people = users.filter((u) => !["pending"].includes(u.role));
+  const save = () => run(async () => {
+    if (!f.name.trim()) throw new Error("Enter the client name.");
+    if (!f.phone.trim()) throw new Error("Enter the phone number.");
+    const patch = {
+      name: f.name.trim(), phone: cleanPhone(f.phone), email: f.email.trim() || null, source: f.source || null,
+      referral_name: f.source === "colleague_referral" ? (f.referralName.trim() || null) : null,
+      campaign: f.campaign.trim() || null, budget: f.budget === "" ? null : f.budget, interest: f.interest, notes: f.notes.trim() || null,
+      assigned_to: f.assignedTo || client.assignedTo, meeting_at: f.meetingAt ? new Date(f.meetingAt).toISOString() : null,
+      next_action: f.nextAction.trim() || null, next_action_at: f.nextActionAt ? new Date(f.nextActionAt).toISOString() : null,
+    };
+    if (f.stage !== client.stage) { patch.stage = f.stage; patch.previous_stage = client.stage; }
+    if (f.createdAt && f.createdAt !== (client.createdAt || "").slice(0, 10)) patch.created_at = new Date(`${f.createdAt}T12:00:00`).toISOString();
+    await onSave(client, patch);
+    onClose();
+  });
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(14,24,48,.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div className="card" style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(640px, 100%)", maxHeight: "90vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, color: COLORS.navy }}>Edit client</div>
+          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={18} /></button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+          <Field label="Name" required><input style={inputStyle} value={f.name} onChange={set("name")} /></Field>
+          <Field label="Phone" required><input style={inputStyle} value={f.phone} onChange={set("phone")} inputMode="tel" /></Field>
+          <Field label="Email"><input style={inputStyle} value={f.email} onChange={set("email")} /></Field>
+          <Field label="Sales">
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.assignedTo} onChange={set("assignedTo")}>
+              {people.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Source">
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.source} onChange={set("source")}>
+              <option value="">—</option>
+              {SOURCES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </select>
+          </Field>
+          {f.source === "colleague_referral" && <Field label="Referred by"><input style={inputStyle} value={f.referralName} onChange={set("referralName")} /></Field>}
+          <Field label="Campaign"><input style={inputStyle} value={f.campaign} onChange={set("campaign")} /></Field>
+          <Field label="Looking to">
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.interest} onChange={set("interest")}>
+              <option value="buy">Buy</option><option value="rent">Rent</option>
+            </select>
+          </Field>
+          <Field label={f.interest === "rent" ? "Budget (rent / month)" : "Budget"}><MoneyInput value={f.budget} onChange={set("budget")} /></Field>
+          <Field label="Stage">
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.stage} onChange={set("stage")}>
+              {STAGES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Meeting"><input type="datetime-local" style={inputStyle} value={f.meetingAt} onChange={set("meetingAt")} /></Field>
+          <Field label="Next follow-up"><input style={inputStyle} value={f.nextAction} onChange={set("nextAction")} /></Field>
+          <Field label="Follow-up on"><input type="datetime-local" style={inputStyle} value={f.nextActionAt} onChange={set("nextActionAt")} /></Field>
+          <Field label="Added on"><input type="date" style={inputStyle} value={f.createdAt} onChange={set("createdAt")} /></Field>
+        </div>
+        <div style={{ marginTop: 10 }}><Field label="Notes"><textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={f.notes} onChange={set("notes")} /></Field></div>
+        <FinError text={error} />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+          <button style={btnGhost} onClick={onClose}>Cancel</button>
+          <button style={btnPrimary} disabled={busy} onClick={save}>{busy ? "Saving…" : "Save changes"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClientProfile({ client, activity, assignedUser, projects, units, developers, projectInfoFn, linkedUnitIds, canManage, onEditClient, onBack, onChangeStage, onAddFeedback, onCloseLead, onRestore, onToggleUnitLink, onOpenUnit, onMarkSold, onChangeInterest, onQuickReply, onContact, matchSlot, waTemplates, salesName, getToken, onVoiceSaved }) {
   const [unitPickerOpen, setUnitPickerOpen] = useState(false);
   const timeline = activity.filter((a) => a.clientId === client.id).sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt));
 
@@ -5288,7 +5457,8 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
             <div style={{ fontWeight: 700, fontSize: 17, color: COLORS.navy }}>{client.name}</div>
             <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>{client.phone}{client.email ? ` · ${client.email}` : ""}<ContactButtons phone={client.phone} size={15} onContact={(kind) => onContact && onContact(client, kind)} /></div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {onEditClient && <button onClick={onEditClient} style={{ ...btnGhost, padding: "4px 12px", fontSize: 12 }}>✎ Edit</button>}
             {client.qualified && <Badge tone="active">Qualified</Badge>}
             <ClientStageBadge stage={client.stage} />
           </div>
@@ -5953,7 +6123,7 @@ function attendanceStats(attendance, userId, range, settings) {
     avg: avg === null ? "—" : `${String(Math.floor(avg / 60)).padStart(2, "0")}:${String(avg % 60).padStart(2, "0")}`,
   };
 }
-function AttendanceReport({ attendance, people, settings, title = "Attendance", fixedPersonId, storageKey = "attendance" }) {
+function AttendanceReport({ attendance, people, settings, title = "Attendance", fixedPersonId, storageKey = "attendance", onAdminSet }) {
   const [fv, setF, resetF, setAllF] = useFilters(storageKey, { when: { p: "month" }, person: "", show: "" });
   const [openId, setOpenId] = useState(fixedPersonId || null);
   const cut = lateCutoff(settings);
@@ -5998,8 +6168,18 @@ function AttendanceReport({ attendance, people, settings, title = "Attendance", 
             {open && (
               <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
                 {st.days.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>No work days in this period.</div>}
+                {onAdminSet && <div style={{ gridColumn: "1 / -1", fontSize: 11.5, color: COLORS.textMuted }}>Admin / CEO: tap a day to change or remove the check-in time.</div>}
                 {[...st.days].reverse().map((x) => (
-                  <div key={x.k} style={{ borderRadius: 10, padding: "6px 8px", fontSize: 12, background: x.absent ? "#FCEBEB" : x.late ? "#FBF1E6" : x.inAt ? "#E6F4EA" : COLORS.cream, color: x.absent ? COLORS.danger : COLORS.text }}>
+                  <div key={x.k} onClick={onAdminSet ? () => {
+                      const cur = x.inAt ? new Date(x.inAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+                      const v = window.prompt(`${u.name} · ${DAY_NAMES[x.d.getDay()]} ${x.d.getDate()}/${x.d.getMonth() + 1}\nCheck-in time (HH:MM, 24h). Leave empty to remove the check-in.`, cur);
+                      if (v === null) return;
+                      const t = v.trim();
+                      if (t && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(t)) { window.alert("Write the time like 09:45"); return; }
+                      Promise.resolve(onAdminSet(u.id, x.d, t || null)).catch((e) => window.alert(e.message || "Could not save the check-in"));
+                    } : undefined}
+                    title={onAdminSet ? "Change check-in" : undefined}
+                    style={{ borderRadius: 10, padding: "6px 8px", fontSize: 12, cursor: onAdminSet ? "pointer" : "default", background: x.absent ? "#FCEBEB" : x.late ? "#FBF1E6" : x.inAt ? "#E6F4EA" : COLORS.cream, color: x.absent ? COLORS.danger : COLORS.text }}>
                     <div style={{ fontWeight: 700 }}>{DAY_NAMES[x.d.getDay()]} {x.d.getDate()}/{x.d.getMonth() + 1}</div>
                     <div>{x.inAt ? `${new Date(x.inAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}${x.late ? " · late" : ""}${x.offDay ? " · day off" : ""}` : x.absent ? "Missed" : "—"}</div>
                   </div>
@@ -7220,6 +7400,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
       fixed[fixed.length - 1].split_pct = round2(fixed[fixed.length - 1].split_pct + round2(100 - fixed.reduce((x, a) => x + a.split_pct, 0)));
       rows.push(...fixed);
     }
+    if (ed && total < num(ed.commission_collected) - 0.5) throw new Error(`${money(num(ed.commission_collected))} was already collected on this deal — the commission can't be less than that.`);
     const done = isAdmin && approveNow && asDone;
     const amtB = done && hasBuyer ? num(collBuyer ?? commBuyer) : 0;
     const amtS = done && hasSeller ? num(collSeller ?? commSeller) : 0;
@@ -7233,8 +7414,8 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
       deal: {
         unit_id: unitId || null,
         client_id: clientId || null,
-        unit_label: unit ? `${unit.type} · ${unit.unitNumber} · ${getProjectInfo(unit).name}` : null,
-        client_label: client ? client.name : null,
+        unit_label: unit ? `${unit.type} · ${unit.unitNumber} · ${getProjectInfo(unit).name}` : (ed && unitId === ed.unit_id ? ed.unit_label || null : null),
+        client_label: client ? client.name : (ed && clientId === ed.client_id ? ed.client_label || null : null),
         deal_type: dealType,
         sale_price: isRent ? contractValue : num(salePrice),
         rent_monthly: isRent ? num(rentMonthly) : null,
@@ -7845,6 +8026,7 @@ function DealDetail({ deal, ctx, onBack }) {
         {deal.review_note && <div style={{ fontSize: 12.5, color: COLORS.danger }}><b>Review note:</b> {deal.review_note}</div>}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {mine && <button style={btnGhost} onClick={() => onEditDeal(deal)}>Edit & resubmit</button>}
+          {isAdmin && !mine && <button style={btnGhost} onClick={() => onEditDeal(deal)}>✎ Edit deal</button>}
           {mine && <button style={btnDanger} disabled={busy} onClick={() => run(async () => {
             if (!window.confirm("Withdraw this deal?")) return;
             await act((t) => db.remove("deals", deal.id, t));
@@ -8788,6 +8970,7 @@ function FinTreasury({ ctx }) {
   const [fv, setF, resetF, setAllF] = useFilters("treasury", { q: "", when: { p: "month" }, account: "", kind: "", category: "", person: "", amount: { min: "", max: "" }, direction: "" });
   const { account, kind, category, person } = fv;
   const [modal, setModal] = useState(null);
+  const [editTx, setEditTx] = useState(null);
   const delAction = useAction();
   const rr = dateRangeOf(fv.when) || [new Date(2000, 0, 1), new Date(2100, 0, 1)];
   const range = { from: rr[0], to: rr[1] };
@@ -8914,7 +9097,10 @@ function FinTreasury({ ctx }) {
               <td style={tdStyle}>
                 {r.source_tx_id
                   ? <span style={{ fontSize: 11, color: COLORS.textMuted }} title="Removed automatically when its collection is deleted">auto</span>
-                  : <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} disabled={delAction.busy} onClick={() => removeTx(r)}>Delete</button>}
+                  : <span style={{ display: "inline-flex", gap: 4 }}>
+                      <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} onClick={() => setEditTx(r)}>Edit</button>
+                      <button style={{ ...btnGhost, padding: "3px 8px", fontSize: 11 }} disabled={delAction.busy} onClick={() => removeTx(r)}>Delete</button>
+                    </span>}
               </td>
             </tr>
           ))}
@@ -8924,7 +9110,90 @@ function FinTreasury({ ctx }) {
       <FinError text={delAction.error} />
       {modal === "out" && <ExpenseModal ctx={ctx} defaultAccountId={account} onClose={() => setModal(null)} />}
       {modal && modal !== "out" && <TreasuryModal mode={modal} ctx={ctx} onClose={() => setModal(null)} />}
+      {editTx && <TxEditModal tx={fin.txns.find((x) => x.id === editTx.id) || editTx} ctx={ctx} onClose={() => setEditTx(null)} />}
     </>
+  );
+}
+
+// Admin / CEO: fix any money movement (both sides of a transfer move together; Floos Rabna follows a collection by itself)
+function TxEditModal({ tx, ctx, onClose }) {
+  const { fin } = ctx;
+  const pair = tx.transfer_group ? fin.txns.filter((x) => x.transfer_group === tx.transfer_group && x.id !== tx.id && !x.source_tx_id) : [];
+  const other = pair[0] || null;
+  const deal = tx.deal_id ? fin.deals.find((d) => d.id === tx.deal_id) : null;
+  const [f, setF] = useState(() => ({
+    date: isoToDateInput(tx.occurred_at), amount: String(tx.amount ?? ""), account: tx.account_id || "", otherAccount: other?.account_id || "",
+    description: tx.description || "", category: tx.category_id || "", person: tx.beneficiary_id || "", side: tx.side || "",
+  }));
+  const set = (k) => (e) => { const v = e && e.target ? e.target.value : e; setF((x) => ({ ...x, [k]: v })); };
+  const { busy, error, run } = useAction();
+  const save = () => run(async () => {
+    const amount = num(f.amount);
+    if (amount <= 0) throw new Error("Enter the amount.");
+    if (!f.account) throw new Error("Choose the account.");
+    if (other && f.otherAccount === f.account) throw new Error("The two sides of a transfer must be different accounts.");
+    const when = dateInputToIso(f.date);
+    const patch = { amount, account_id: f.account, occurred_at: when, description: f.description.trim() || null };
+    if (tx.kind === "expense") patch.category_id = f.category || null;
+    if (tx.beneficiary_id || ["payout", "salary"].includes(tx.kind)) patch.beneficiary_id = f.person || null;
+    if (tx.kind === "commission_in" && deal && deal.sides === "both") patch.side = f.side || null;
+    await ctx.act(async (tok) => {
+      await db.update("finance_transactions", tx.id, patch, tok);
+      if (other) await db.update("finance_transactions", other.id, { amount, occurred_at: when, account_id: f.otherAccount || other.account_id, description: patch.description }, tok);
+    });
+    onClose();
+  });
+  const accounts = fin.accounts;
+  return (
+    <FinModal title={`Edit · ${TX_KIND_LABEL[tx.kind] || tx.kind}`} onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+        <Field label="Date"><input type="date" style={inputStyle} value={f.date} onChange={set("date")} /></Field>
+        <Field label="Amount (EGP)"><MoneyInput value={f.amount} onChange={set("amount")} /></Field>
+        <Field label={other ? (tx.direction === "out" ? "From account" : "To account") : "Account"}>
+          <select style={{ ...inputStyle, appearance: "none" }} value={f.account} onChange={set("account")}>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.archived ? " (archived)" : ""}</option>)}
+          </select>
+        </Field>
+        {other && (
+          <Field label={tx.direction === "out" ? "To account" : "From account"}>
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.otherAccount} onChange={set("otherAccount")}>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.archived ? " (archived)" : ""}</option>)}
+            </select>
+          </Field>
+        )}
+        {tx.kind === "expense" && (
+          <Field label="Category">
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.category} onChange={set("category")}>
+              <option value="">—</option>
+              {fin.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </Field>
+        )}
+        {(tx.beneficiary_id || ["payout", "salary"].includes(tx.kind)) && (
+          <Field label="Person">
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.person} onChange={set("person")}>
+              <option value="">—</option>
+              {ctx.users.filter((u) => u.role !== "pending").map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </Field>
+        )}
+        {tx.kind === "commission_in" && deal && deal.sides === "both" && (
+          <Field label="From">
+            <select style={{ ...inputStyle, appearance: "none" }} value={f.side} onChange={set("side")}>
+              <option value="buyer">{partyName(deal.deal_type, "buyer")}</option>
+              <option value="seller">{partyName(deal.deal_type, "seller")}</option>
+            </select>
+          </Field>
+        )}
+      </div>
+      <Field label="Description"><input style={inputStyle} value={f.description} onChange={set("description")} /></Field>
+      {tx.kind === "commission_in" && <div style={{ fontSize: 12, color: COLORS.textMuted }}>Commissions, targets and Floos Rabna are recalculated from the new amount and date.</div>}
+      <FinError text={error} />
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button style={btnGhost} onClick={onClose}>Cancel</button>
+        <button style={btnPrimary} disabled={busy} onClick={save}>{busy ? "Saving…" : "Save changes"}</button>
+      </div>
+    </FinModal>
   );
 }
 
@@ -9277,6 +9546,7 @@ function FinSettings({ ctx }) {
         <WaTemplatesSettings ctx={ctx} />
 
         <ColdTemplateSettings ctx={ctx} />
+        <OwnerAskSettings ctx={ctx} />
         <LateLeadSettings ctx={ctx} />
         <BackupSettings ctx={ctx} />
 
@@ -9759,13 +10029,18 @@ export default function App() {
     let dealId;
     if (dealModal && dealModal.editing) {
       dealId = dealModal.editing.deal.id;
-      await db.update("deals", dealId, deal, t);
+      const { commission_collected, ...changes } = deal; // never reset money already collected
+      await db.update("deals", dealId, changes, t);
       await db.removeWhere("deal_agents", `deal_id=eq.${dealId}`, t);
     } else {
       const created = await db.insert("deals", { ...deal, created_by: profile.id }, t);
       dealId = (Array.isArray(created) ? created[0] : created).id;
     }
     await db.insert("deal_agents", agents.map((a) => ({ ...a, deal_id: dealId })), t);
+    if (dealModal && dealModal.editing && ["reserved", "approved"].includes(dealModal.editing.deal.status) && isFinanceAdmin(profile)) {
+      // people changed on a live deal → give the new ones their rate chain, keep any rates you adjusted by hand
+      await db.rpc("admin_sync_deal_rates", { p_deal: dealId }, t);
+    }
     if (approveNow) {
       await db.rpc("approve_deal", {
         p_deal: dealId, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(asDone ? transferDate : deal.deal_date),
@@ -9907,9 +10182,34 @@ export default function App() {
     try { setContracts((await db.select("contracts", "&order=created_at.desc", tk || await getValidToken())) || []); }
     catch (e) { setContracts([]); }
   };
+  // ---- keep everything fresh without pressing refresh ----
+  const [syncing, setSyncing] = useState(false);
+  const syncRef = useRef({ running: false, last: 0 });
+  const refreshAll = async (manual) => {
+    if (!session || syncRef.current.running) return;
+    if (!manual && Date.now() - syncRef.current.last < 15000) return;
+    syncRef.current.running = true; if (manual) setSyncing(true);
+    try {
+      const t = await getValidToken();
+      if (t) await fetchAllRaw({ ...session, access_token: t });
+    } catch (e) { /* offline for a moment, the next round will catch up */ }
+    finally { syncRef.current.running = false; syncRef.current.last = Date.now(); if (manual) setSyncing(false); }
+  };
+  const refreshAllRef = useRef(refreshAll);
+  refreshAllRef.current = refreshAll;
+  useEffect(() => {
+    if (!session) return;
+    const onBack = () => { if (document.visibilityState !== "hidden") refreshAllRef.current(false); };
+    const tick = setInterval(() => { if (document.visibilityState !== "hidden") refreshAllRef.current(false); }, 45000);
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("focus", onBack);
+    window.addEventListener("online", onBack);
+    return () => { clearInterval(tick); document.removeEventListener("visibilitychange", onBack); window.removeEventListener("focus", onBack); window.removeEventListener("online", onBack); };
+  }, [session && session.user && session.user.id]); // eslint-disable-line
   const lastColdRef = useRef(null);
   const [coldPrompt, setColdPrompt] = useState(null);
   const [unitPrefill, setUnitPrefill] = useState(null);
+  const [unitFormNonce, setUnitFormNonce] = useState(0);
   useEffect(() => {
     const back = () => {
       const c = lastColdRef.current;
@@ -10174,6 +10474,32 @@ export default function App() {
     bumpDaily(profile.id, "update");
   };
 
+  // Admin / CEO: set (or remove) someone's check-in for one day
+  const setAttendanceDay = async (userId, day, hhmm) => {
+    const t = await getValidToken();
+    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+    const end = new Date(start.getTime() + MS_DAY);
+    const same = attendance.filter((a) => a.userId === userId && new Date(a.checkedInAt) >= start && new Date(a.checkedInAt) < end);
+    for (const a of same) await db.remove("attendance", a.id, t);
+    if (hhmm) {
+      const [h, m] = hhmm.split(":").map(Number);
+      const at = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, m);
+      await db.insert("attendance", { user_id: userId, checked_in_at: at.toISOString(), lat: same[0]?.lat ?? null, lng: same[0]?.lng ?? null, distance_meters: same[0]?.distanceMeters ?? null }, t);
+    }
+    const rows = await db.select("attendance", "&order=checked_in_at.desc", t);
+    setAttendance((rows || []).map(mapAttendance));
+  };
+  const [editClient, setEditClient] = useState(null);
+  const saveClientEdit = async (client, patch) => {
+    const t = await getValidToken();
+    await db.update("clients", client.id, patch, t);
+    const labels = { name: "name", phone: "phone", email: "email", source: "source", campaign: "campaign", budget: "budget", interest: "looking to", notes: "notes", assigned_to: "sales", meeting_at: "meeting", next_action: "follow-up", next_action_at: "follow-up date", created_at: "added on" };
+    const before = { name: client.name, phone: client.phone, email: client.email || null, source: client.source || null, campaign: client.campaign || null, budget: client.budget ?? null, interest: client.interest, notes: client.notes || null, assigned_to: client.assignedTo, meeting_at: client.meetingAt || null, next_action: client.nextAction || null, next_action_at: client.nextActionAt || null };
+    const changed = Object.keys(labels).filter((k) => k in patch && (k === "created_at" || String(patch[k] ?? "") !== String(before[k] ?? "")) && !(k.endsWith("_at") && patch[k] && before[k] && new Date(patch[k]).getTime() === new Date(before[k]).getTime()));
+    if (patch.stage) await db.insert("client_activity", { client_id: client.id, action: "stage_change", field_name: "stage", old_value: client.stage, new_value: patch.stage, note: "Changed by Admin", changed_by: profile.id }, t);
+    if (changed.length) await db.insert("client_activity", { client_id: client.id, action: "note", note: `✎ Edited by ${profile.name}: ${changed.map((k) => labels[k]).join(", ")}`, changed_by: profile.id }, t);
+    await refreshClients();
+  };
   const addClientFeedback = async (client, note) => {
     const t = await getValidToken();
     await db.insert("client_activity", { client_id: client.id, action: "note", note, changed_by: profile.id }, t);
@@ -10547,6 +10873,8 @@ export default function App() {
               checkedInToday={attendance.find((a) => a.userId === profile.id && isToday(a.checkedInAt))}
               onCheckIn={checkIn}
             />
+            <button className="theme-btn" title="Refresh now" aria-label="Refresh data" disabled={syncing} onClick={() => refreshAll(true)}
+              style={{ display: "inline-block", animation: syncing ? "spin 0.8s linear infinite" : "none" }}>↻</button>
             <NotificationsBell
               clients={clients}
               activity={clientActivity}
@@ -10688,11 +11016,12 @@ export default function App() {
               developers={developers}
               projects={projects}
               editingUnit={editingUnit}
-              onDoneEditing={() => setEditingUnit(null)}
+              onDoneEditing={() => { setEditingUnit(null); setUnitFormNonce((n) => n + 1); }}
+              onAdded={() => { setUnitPrefill(null); setUnitFormNonce((n) => n + 1); }}
               units={units}
               onOpenUnit={setOpenUnit}
               prefill={unitPrefill}
-              key={unitPrefill ? `pf${unitPrefill.n}` : editingUnit ? `e${editingUnit.id}` : "new"}
+              key={unitPrefill ? `pf${unitPrefill.n}` : editingUnit ? `e${editingUnit.id}` : `new${unitFormNonce}`}
             />
           </>
         )}
@@ -10731,6 +11060,7 @@ export default function App() {
                     projectInfoFn={getProjectInfo}
                     linkedUnitIds={linkedUnitIds}
                     canManage={visibleSalesIds.includes(client.assignedTo)}
+                    onEditClient={isFinanceAdmin(profile) ? () => setEditClient(client) : null}
                     onBack={() => setOpenClientId(null)}
                     onChangeStage={() => setStageChangeTarget(client)}
                     onAddFeedback={() => setFeedbackTarget(client)}
@@ -10795,7 +11125,7 @@ export default function App() {
                       {isFinanceAdmin(profile) && <MorningBrief clients={clients} activity={clientActivity} fin={fin} attendance={attendance} users={users} visibleSalesIds={visibleSalesIds} settings={fin.settings} onOpen={openLink} />}
                     </>}
                     bottomSlot={<>
-                      <OwnerFollowUp units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo}
+                      <OwnerFollowUp units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} waSettings={fin.settings}
                         onStill={async (u) => { await db.update("units", u.id, { updated_at: new Date().toISOString() }, await getValidToken()); await refreshUnits(); bumpDaily(profile.id, "update"); }}
                         onPriceChanged={(u) => { setEditingUnit(u); setSection("units"); setTab("add"); }}
                         onSold={(u) => setSoldEdit({ unit: u, mode: "outside" })} />
@@ -10886,6 +11216,7 @@ export default function App() {
                 onConfirm={(note) => addClientFeedback(feedbackTarget, note)}
               />
             )}
+            {editClient && <ClientEditModal client={editClient} users={users} onSave={saveClientEdit} onClose={() => setEditClient(null)} />}
             {closeTarget && (
               <CloseLeadModal
                 client={closeTarget}
@@ -10960,7 +11291,7 @@ export default function App() {
         )}
 
         {section === "profile" && tab === "attendance" && (
-          <AttendanceReport attendance={attendance} settings={fin.settings}
+          <AttendanceReport attendance={attendance} settings={fin.settings} onAdminSet={isFinanceAdmin(profile) ? setAttendanceDay : undefined}
             people={profile.role === "sales_agent" ? [profile] : users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role))}
             title={profile.role === "sales_agent" ? "My attendance" : "Attendance"} storageKey="attendance:tab" />
         )}
@@ -11053,6 +11384,8 @@ export default function App() {
         <div>
           <UnitModal
             unit={openUnit}
+            waSettings={fin.settings}
+            meName={profile.name}
             projectInfo={getProjectInfo(openUnit)}
             canSeeOwner={canSeeOwner(openUnit)}
             handledBy={getHandledBy(openUnit)}
@@ -11062,7 +11395,7 @@ export default function App() {
             onViewProfile={(id) => { setOpenUnit(null); setViewedUserId(id); }}
             assignableUsers={users.filter((u) => u.role !== "admin" && u.role !== "pending")}
             onReassign={reassignUnit}
-            canEdit={profile.role === "admin" || openUnit.salesIds.includes(profile.id)}
+            canEdit={canEditUnit(openUnit)}
             onSoldOutside={canEditUnit(openUnit) ? (u) => { setOpenUnit(null); setSoldEdit({ unit: u, mode: "outside" }); } : undefined}
             onShareLink={shareUnitLink}
             onEditRequest={(u) => { setOpenUnit(null); setEditingUnit(u); setTab("add"); }}
