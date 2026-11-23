@@ -2955,6 +2955,9 @@ function coldWaText(template, lead, salesName, lang = "ar") {
     .replace(/\{owner\}/g, lead.owner_name || "").replace(/\{unit\}/g, lead.unit_number || "");
 }
 const isTried = (l) => l.status !== "new" || l.attempts > 0;
+// "Try again" / "Done": call-backs whose time came first, then the latest feedback on top
+const callbackDue = (l) => l.status === "call_later" && l.callback_at && new Date(l.callback_at) <= new Date();
+const byRecent = (a, b) => (callbackDue(b) ? 1 : 0) - (callbackDue(a) ? 1 : 0) || new Date(b.last_contact_at || b.updated_at || 0) - new Date(a.last_contact_at || a.updated_at || 0);
 const needsRetry = (l) => l.status === "no_answer" || l.status === "off_busy" || l.status === "call_later";
 const laterDue = (l) => l.status === "later" && (!l.callback_at || new Date(l.callback_at) <= new Date(new Date().setHours(23, 59, 59, 999)));
 const unitWaiting = (l) => l.status === "selling" && l.unit_pending && !l.unit_id;
@@ -3452,7 +3455,7 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
           </span>
         )}
       </div>
-      {lead.status === "call_later" && lead.callback_at && <div style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700 }}>⏰ Call back {formatDateTime(lead.callback_at)}</div>}
+      {lead.status === "call_later" && lead.callback_at && <div style={{ fontSize: 12, color: callbackDue(lead) ? COLORS.danger : COLORS.gold, fontWeight: 700 }}>⏰ {callbackDue(lead) ? "Call back now" : `Call back ${formatDateTime(lead.callback_at)}`}</div>}
       {unitWaiting(lead) && <div style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700 }}>🏠 Unit not added yet{onAddUnit ? <button onClick={() => onAddUnit(lead)} style={{ marginLeft: 8, border: "none", background: COLORS.gold, color: "#fff", borderRadius: 999, padding: "3px 10px", fontWeight: 700, fontSize: 11.5, cursor: "pointer" }}>Add now</button> : null}</div>}
       {lead.status === "later" && <div style={{ fontSize: 12, color: laterDue(lead) ? COLORS.danger : COLORS.gold, fontWeight: 700 }}>📅 {laterDue(lead) ? "Call again now" : `Call again ${formatDate(lead.callback_at)}`}</div>}
       {lead.note && <div style={{ fontSize: 12, color: COLORS.text, background: "#FBF1E6", borderRadius: 8, padding: "4px 8px" }} dir="auto">{lead.note}</div>}
@@ -3647,10 +3650,10 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
     const leads = cold.leads.filter((l) => l.sheet_id === sheet.id).sort((a, b) => a.position - b.position);
     const tabs = [
       ["call", "To call", leads.filter((l) => l.status === "new")],
-      ["retry", "Try again", leads.filter(needsRetry).sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
+      ["retry", "Try again", leads.filter(needsRetry).sort(byRecent)],
       ["selling", "Selling", leads.filter((l) => l.status === "selling")],
       ["later", "Sell later", leads.filter((l) => l.status === "later").sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
-      ["done", "Done", leads.filter((l) => COLD_DONE.includes(l.status))],
+      ["done", "Done", leads.filter((l) => COLD_DONE.includes(l.status)).sort(byRecent)],
     ];
     const shown = statusPick ? leads.filter((l) => l.status === statusPick) : (tabs.find((t) => t[0] === leadTab) || tabs[0])[2];
     const salesName = nm(sheet.assigned_to) || profile.name;
