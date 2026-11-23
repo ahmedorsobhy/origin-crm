@@ -4597,6 +4597,15 @@ function mediaUrl(raw) {
 }
 const isVideo = (u) => /\.(mp4|webm|mov)(\?|$)/i.test(u);
 const moodOf = (m) => (m.mood === "happy" ? "deal" : m.mood);
+// Which GIFs / animations are ON for a moment. GIFs are on unless turned off; built-in animations are on
+// only when chosen — or, if nothing was chosen, when there is no GIF.
+function celebActive(kind, media) {
+  const mine = media.filter((m) => moodOf(m) === kind.id);
+  const gifs = mine.filter((m) => m.url && !m.off);
+  const picked = mine.filter((m) => m.builtin);
+  const builtins = picked.length ? picked.map((m) => m.builtin).filter((b) => b !== "_none") : gifs.length ? [] : kind.builtins;
+  return { gifs, builtins };
+}
 function CelebrationOverlay({ profile, settings }) {
   const [show, setShow] = useState(null);
   useEffect(() => {
@@ -4604,10 +4613,9 @@ function CelebrationOverlay({ profile, settings }) {
       let mood = e.detail?.mood || "deal";
       if (mood === "happy") mood = "deal";
       const kind = CELEB_KINDS.find((k) => k.id === mood) || CELEB_KINDS[0];
-      const media = (Array.isArray(settings?.celebration_media) ? settings.celebration_media : []).filter((m) => moodOf(m) === kind.id);
-      const uploads = media.filter((m) => m.url);
-      const chosen = media.filter((m) => m.builtin).map((m) => m.builtin);
-      const pool = uploads.length ? uploads.map((m) => ({ url: mediaUrl(m.url) })) : (chosen.length ? chosen : kind.builtins).map((b) => ({ svg: CELEB_SVGS[b] })).filter((x) => x.svg);
+      const { gifs, builtins } = celebActive(kind, Array.isArray(settings?.celebration_media) ? settings.celebration_media : []);
+      let pool = [...gifs.map((m) => ({ url: mediaUrl(m.url) })), ...builtins.map((b) => ({ svg: CELEB_SVGS[b] })).filter((x) => x.svg)];
+      if (!pool.length) pool = kind.builtins.map((b) => ({ svg: CELEB_SVGS[b] }));
       const pick = pool[Math.floor(Math.random() * pool.length)] || {};
       const lines = CELEB_LINES[kind.id] || CELEB_LINES.deal;
       const first = String(profile?.name || "").trim().split(/\s+/)[0] || "champ";
@@ -4656,50 +4664,59 @@ function CelebrationSettings({ ctx, uploadMedia }) {
   const { error, run } = useAction();
   const save = (next) => run(async () => { setList(next); await act((t) => db.update("finance_settings", 1, { celebration_media: next, updated_at: new Date().toISOString() }, t)); setMsg("Saved ✓"); });
   const toggleBuiltin = (kind, id) => {
-    const mine = list.filter((m) => m.mood === kind.id && m.builtin);
-    const current = mine.length ? mine.map((m) => m.builtin) : kind.builtins;
-    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-    save([...list.filter((m) => !(m.mood === kind.id && m.builtin)), ...(next.length ? next : [id]).map((b) => ({ mood: kind.id, builtin: b }))]);
+    const { gifs, builtins } = celebActive(kind, list);
+    const next = builtins.includes(id) ? builtins.filter((x) => x !== id) : [...builtins, id];
+    if (!next.length && !gifs.length) { setMsg("Keep at least one GIF or animation on."); return; }
+    save([...list.filter((m) => !(m.mood === kind.id && m.builtin)), ...(next.length ? next : ["_none"]).map((b) => ({ mood: kind.id, builtin: b }))]);
+  };
+  const toggleGif = (kind, m) => {
+    const { gifs, builtins } = celebActive(kind, list);
+    if (!m.off && gifs.length === 1 && !builtins.length) { setMsg("Keep at least one GIF or animation on."); return; }
+    save(list.map((x) => (x === m ? { ...x, off: !x.off } : x)));
+  };
+  const addGif = (kind, url) => {
+    // a new GIF is on; if the animations were only on by default, they step aside for it
+    const hadPick = list.some((m) => m.mood === kind.id && m.builtin);
+    save([...list, { mood: kind.id, url }, ...(hadPick ? [] : [{ mood: kind.id, builtin: "_none" }])]);
   };
   const allIds = Object.keys(CELEB_SVGS);
   const section = (kind) => {
     const uploads = list.filter((m) => m.mood === kind.id && m.url);
-    const chosen = list.filter((m) => m.mood === kind.id && m.builtin).map((m) => m.builtin);
-    const active = chosen.length ? chosen : kind.builtins;
+    const active = celebActive(kind, list).builtins;
+    const onCount = uploads.filter((m) => !m.off).length + active.length;
     return (
       <div key={kind.id} style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
           <div style={{ fontWeight: 700, color: COLORS.navy, fontSize: 13.5 }}>{kind.label}</div>
           <span style={{ fontSize: 11, color: COLORS.textMuted }}>{kind.big ? "Full screen" : "Small, in the corner"}</span>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {uploads.map((m, i) => (
-            <div key={i} style={{ position: "relative", width: 92, height: 72, borderRadius: 10, overflow: "hidden", background: COLORS.cream }}>
-              {isVideo(mediaUrl(m.url)) ? <video src={mediaUrl(m.url)} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <img src={mediaUrl(m.url)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
-              <button aria-label="Remove" onClick={() => save(list.filter((x) => x !== m))} style={{ position: "absolute", top: 3, right: 3, border: "none", borderRadius: 999, background: "rgba(0,0,0,.6)", color: "#fff", cursor: "pointer", width: 20, height: 20, fontSize: 12 }}>×</button>
-            </div>
-          ))}
-          {uploads.length === 0 && <div style={{ fontSize: 12, color: COLORS.textMuted }}>No GIFs yet — the animations below are used.</div>}
-        </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <input style={{ ...inputStyle, flex: "1 1 160px", padding: "6px 8px", fontSize: 12.5 }} value={link[kind.id] || ""} onChange={(e) => setLink((l) => ({ ...l, [kind.id]: e.target.value }))} placeholder="Paste a GIF link (Giphy, Tenor…)" />
-          <button style={btnGhost} onClick={() => { const v = (link[kind.id] || "").trim(); if (v) { save([...list, { mood: kind.id, url: v }]); setLink((l) => ({ ...l, [kind.id]: "" })); } }}>Add link</button>
+          <button style={btnGhost} onClick={() => { const v = (link[kind.id] || "").trim(); if (v) { addGif(kind, v); setLink((l) => ({ ...l, [kind.id]: "" })); } }}>Add link</button>
           <label style={{ ...btnGhost, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
             {busyMood === kind.id ? "Uploading…" : "Upload GIF"}
             <input type="file" accept="image/gif,image/webp,video/mp4,video/webm" style={{ display: "none" }} onChange={async (e) => {
               const f = e.target.files && e.target.files[0]; if (!f) return;
               if (f.size > 8 * 1024 * 1024) { setMsg("That file is over 8 MB — pick a shorter GIF."); return; }
               setBusyMood(kind.id);
-              try { const url = await uploadMedia(f); await save([...list, { mood: kind.id, url }]); } catch (err) { setMsg(err.message || "Upload failed"); } finally { setBusyMood(""); e.target.value = ""; }
+              try { const url = await uploadMedia(f); await addGif(kind, url); } catch (err) { setMsg(err.message || "Upload failed"); } finally { setBusyMood(""); e.target.value = ""; }
             }} />
           </label>
         </div>
-        <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Built-in animations (used when there are no GIFs) — tap to turn on or off:</div>
+        <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Tap to turn on or off — use one alone or mix several · <b style={{ color: COLORS.navy }}>{onCount} on</b>{onCount > 1 ? ", one picked at random" : ""}</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {uploads.map((m, i) => (
+            <div key={`g${i}`} onClick={() => toggleGif(kind, m)} title={m.off ? "Your GIF — off (tap to use it)" : "Your GIF — on (tap to stop using it)"}
+              style={{ position: "relative", width: 54, height: 46, borderRadius: 10, overflow: "hidden", cursor: "pointer", background: COLORS.cream, border: `2px solid ${m.off ? COLORS.border : COLORS.gold}`, opacity: m.off ? 0.4 : 1, boxSizing: "border-box" }}>
+              {isVideo(mediaUrl(m.url)) ? <video src={mediaUrl(m.url)} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <img src={mediaUrl(m.url)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+              <button aria-label="Remove GIF" onClick={(e) => { e.stopPropagation(); if (window.confirm("Remove this GIF?")) save(list.filter((x) => x !== m)); }}
+                style={{ position: "absolute", top: 1, right: 1, border: "none", borderRadius: 999, background: "rgba(0,0,0,.6)", color: "#fff", cursor: "pointer", width: 16, height: 16, fontSize: 11, lineHeight: "16px", padding: 0 }}>×</button>
+            </div>
+          ))}
           {(kind.id === "sad" ? allIds.filter((x) => x.startsWith("S")) : allIds.filter((x) => !x.startsWith("S"))).map((id) => {
             const on = active.includes(id);
             return (
-              <button key={id} onClick={() => toggleBuiltin(kind, id)} title={id} style={{ width: 54, height: 46, borderRadius: 10, padding: 2, cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, opacity: on ? 1 : 0.4 }}>
+              <button key={id} onClick={() => toggleBuiltin(kind, id)} title={id} style={{ width: 54, height: 46, borderRadius: 10, padding: 2, cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, opacity: on ? 1 : 0.4, boxSizing: "border-box" }}>
                 <div style={{ width: "100%", height: "100%" }} dangerouslySetInnerHTML={{ __html: CELEB_SVGS[id] }} />
               </button>
             );
@@ -4712,7 +4729,7 @@ function CelebrationSettings({ ctx, uploadMedia }) {
   return (
     <div style={{ ...finCard, gridColumn: "1 / -1" }}>
       <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Celebrations</div>
-      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12 }}>Each moment has its own GIFs, always with a message using the sales person's name. One is picked at random each time.</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12 }}>Each moment has its own GIFs, always with a message using the sales person's name. Tap a GIF or animation to turn it on (gold) or off — one of the ON ones is picked at random each time. A GIF you add is on right away.</div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>{CELEB_KINDS.map(section)}</div>
       {msg && <div style={{ fontSize: 12.5, color: /fail|over/i.test(msg) ? COLORS.danger : COLORS.success, marginTop: 8 }}>{msg}</div>}
       <FinError text={error} />
@@ -11202,8 +11219,8 @@ export default function App() {
               </div>
             </div>
             <button className="theme-btn" title="Settings" aria-label="Settings" onClick={() => goSection("settings")}><SettingsIcon size={17} /></button>
-            <button onClick={signOut} title="Sign out" style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 600 }}>
-              <LogOut size={14} /><span className="hide-sm">Sign out</span>
+            <button onClick={signOut} title="Sign out" aria-label="Sign out" style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 600 }}>
+              <LogOut size={16} />
             </button>
           </div>
         </div>
