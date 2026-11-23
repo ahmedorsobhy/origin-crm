@@ -142,6 +142,8 @@ body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helv
 .orbs i:nth-child(3) { top: 30%; left: 35%; width: 42vmax; height: 42vmax; background: radial-gradient(circle, rgba(205,184,236,.5) 0%, rgba(205,184,236,0) 62%); animation: orbC 38s ease-in-out infinite alternate; }
 .app-shell > *:not(.orbs):not(.celebrate):not(.bottom-nav):not(.topbar) { position: relative; z-index: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes drawerIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media print { .rank-tab { display: none !important; } }
 @keyframes orbA { to { transform: translate(18vmax, 12vmax) scale(1.15); } }
 @keyframes orbB { to { transform: translate(-16vmax, -14vmax) scale(1.1); } }
 @keyframes orbC { to { transform: translate(-20vmax, 10vmax) scale(.9); } }
@@ -2663,6 +2665,37 @@ function MonthlyAwards({ profile, getToken }) {
   }, [last]); // eslint-disable-line
   return null;
 }
+// Ranking lives on the side: a small 🏆 tab on the right edge of every page opens it
+function RankingDrawer({ profile, getToken }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (!open) return; const k = (e) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [open]);
+  useEffect(() => { const o = () => setOpen(true); window.addEventListener("origin-open-ranking", o); return () => window.removeEventListener("origin-open-ranking", o); }, []);
+  return createPortal(
+    <>
+      {!open && (
+        <button className="rank-tab" onClick={() => setOpen(true)} aria-label="Open ranking" title="Ranking"
+          style={{ position: "fixed", right: 0, top: "42%", zIndex: 60, border: "none", cursor: "pointer", background: COLORS.navy, color: "#fff", borderRadius: "14px 0 0 14px", padding: "12px 7px 12px 9px", boxShadow: "0 6px 18px rgba(14,24,48,.25)", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, fontWeight: 800, fontSize: 11 }}>
+          <span style={{ fontSize: 18 }}>🏆</span>
+          <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", letterSpacing: 1 }}>Ranking</span>
+        </button>
+      )}
+      {open && (
+        <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1500, background: "rgba(14,24,48,.35)" }}>
+          <div className="rank-drawer" onClick={(e) => e.stopPropagation()}
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(560px, 94vw)", background: "#F6F4EF", boxShadow: "-12px 0 40px rgba(14,24,48,.25)", overflowY: "auto",
+              padding: "calc(14px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom))", animation: "drawerIn .22s ease-out" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+              <button onClick={() => setOpen(false)} aria-label="Close ranking" style={{ border: "none", background: "rgba(14,24,48,.08)", width: 36, height: 36, borderRadius: 18, cursor: "pointer", color: COLORS.navy, display: "flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
+            </div>
+            <RankingPage profile={profile} getToken={getToken} />
+          </div>
+        </div>
+      )}
+    </>,
+    document.body
+  );
+}
+
 function MyRankCard({ profile, getToken, onOpen }) {
   const rows = useRanking(getToken, "month");
   if (!rows || !rows.length) return null;
@@ -4524,7 +4557,8 @@ const CELEB_KINDS = [
   { id: "meeting", label: "📅 Meeting booked", big: true, builtins: ["M1", "M2"] },
   { id: "unit", label: "🏠 New unit added", big: false, builtins: ["H4", "U1"] },
   { id: "client", label: "👤 New client added", big: false, builtins: ["C1", "H3"] },
-  { id: "milestone", label: "🌟 Daily milestone (3 in a day)", big: true, builtins: ["L1", "H2", "H3"] },
+  { id: "milestone", label: "🌟 Daily milestone (every 3 units / clients / updates)", big: true, builtins: ["L1", "H2", "H3"] },
+  { id: "calls", label: "📞 Calls milestone (every 10 calls)", big: true, builtins: ["H5", "H1", "M2"] },
   { id: "sad", label: "😢 Sad (sold without us, hold, not interested)", big: true, builtins: ["S1", "S2", "S3", "S4", "S5"] },
 ];
 const CELEB_LINES = {
@@ -4532,12 +4566,15 @@ const CELEB_LINES = {
   meeting: ["Meeting booked, {first}! Go close it 💼", "{first} gets the meeting 📅 Now win it!", "Face to face, {first} — that's where deals happen 🤝"],
   unit: ["Nice find, {first} — new unit in 🏠", "{first} brings another unit 🔑", "Fresh listing, {first}! 🏡"],
   client: ["New client, {first} — call them now 📞", "{first}, one more in the pipeline 👤", "Welcome aboard! Over to you, {first} 📲"],
-  milestone: ["{first}, that's 3 today! 🌟", "Hat-trick, {first}! 🎩", "{first} is unstoppable today ⚡"],
+  milestone: ["{first}, another 3 done! 🌟", "Hat-trick, {first}! 🎩", "{first} is unstoppable today ⚡", "Keep stacking them, {first} 📈"],
+  calls: ["10 more calls, {first}! Every call is a chance 📞", "{first} is dialing like a champ 💪", "Keep the phone hot, {first} 🔥", "The next call could be the deal, {first} 🚀", "Numbers make deals, {first} — keep going 📈"],
   sad: ["Hard luck, {first} — the next one is yours 💪", "Shake it off, {first}. Every no gets you closer to a yes 🌱", "Not this time, {first}. Your next deal is around the corner 🚀", "Chin up, {first} — champions lose some too 🏆", "On to the next one, {first} 💫"],
 };
 const SMALL_KINDS = ["unit", "client"];
 function celebrate(mood, title) { try { window.dispatchEvent(new CustomEvent("origin-celebrate", { detail: { mood, title } })); } catch (e) {} }
-// Counts today's new units / clients / updates per person; the 3rd of each kind earns a milestone (once a day)
+// Counts today's new units / clients / updates / calls per person. Every 3rd unit, client or update
+// (3, 6, 9…) and every 10th call (10, 20, 30…) earns a milestone.
+const DAILY_STEP = { unit: 3, client: 3, update: 3, call: 10 };
 function bumpDaily(userId, kind) {
   try {
     const day = dateKey(new Date().toISOString());
@@ -4545,9 +4582,10 @@ function bumpDaily(userId, kind) {
     const d = JSON.parse(localStorage.getItem(key) || "{}");
     d[kind] = (d[kind] || 0) + 1;
     localStorage.setItem(key, JSON.stringify(d));
-    if (d[kind] === 3) {
-      const what = { unit: "3 new units today", client: "3 new clients today", update: "3 updates today" }[kind];
-      setTimeout(() => celebrate("milestone", what), kind === "update" ? 300 : 3300);
+    const step = DAILY_STEP[kind] || 3, n = d[kind];
+    if (n % step === 0) {
+      const what = { unit: `${n} new units today`, client: `${n} new clients today`, update: `${n} updates today`, call: `${n} calls today 📞` }[kind];
+      setTimeout(() => celebrate(kind === "call" ? "calls" : "milestone", what), kind === "update" || kind === "call" ? 300 : 3300);
     }
   } catch (e) {}
 }
@@ -10485,7 +10523,7 @@ export default function App() {
     return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
   }, []);
   const logCold = async (lead, kind) => {
-    if (kind === "call") lastColdRef.current = { leadId: lead.id, at: Date.now() };
+    if (kind === "call") { lastColdRef.current = { leadId: lead.id, at: Date.now() }; bumpDaily(profile.id, "call"); }
     try {
       const t = await getValidToken();
       await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: kind }, t);
@@ -10714,6 +10752,7 @@ export default function App() {
     const key = `${client.id}|${kind}`;
     if (Date.now() - (lastContactRef.current[key] || 0) < 10 * 60 * 1000) return;
     lastContactRef.current[key] = Date.now();
+    if (kind === "call") bumpDaily(profile.id, "call");
     try {
       const t = await getValidToken();
       await db.insert("client_activity", { client_id: client.id, action: kind, changed_by: profile.id }, t);
@@ -11126,6 +11165,7 @@ export default function App() {
       <div className="orbs" aria-hidden="true"><i /><i /><i /></div>
       <UpdateBanner />
       <CelebrationOverlay profile={profile} settings={fin.settings} />
+      <RankingDrawer profile={profile} getToken={getValidToken} />
       {/* Top bar */}
       <div className="topbar">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 16px" }}>
@@ -11378,7 +11418,7 @@ export default function App() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
                   <div className="seg" style={{ display: "flex", gap: 4, background: COLORS.creamDark, padding: 4, borderRadius: 999 }}>
-                    {[["today", "Today"], ["all", "All clients"], ["calendar", "Calendar"], ["ranking", "Ranking"], ...(profile.role !== "sales_agent" ? [["team", "Team activity"], ["import", "Import leads"]] : []), ...(isFinanceAdmin(profile) ? [["dups", `Duplicates${duplicates.filter((d) => d.status === "pending").length ? ` (${duplicates.filter((d) => d.status === "pending").length})` : ""}`]] : [])].map(([id, label]) => (
+                    {[["today", "Today"], ["all", "All clients"], ["calendar", "Calendar"], ...(profile.role !== "sales_agent" ? [["team", "Team activity"], ["import", "Import leads"]] : []), ...(isFinanceAdmin(profile) ? [["dups", `Duplicates${duplicates.filter((d) => d.status === "pending").length ? ` (${duplicates.filter((d) => d.status === "pending").length})` : ""}`]] : [])].map(([id, label]) => (
                       <button key={id} onClick={() => setClientsTab(id)} style={{ border: "none", borderRadius: 999, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: clientsTab === id ? "#fff" : "transparent", color: clientsTab === id ? COLORS.navy : COLORS.textMuted, boxShadow: clientsTab === id ? "0 1px 3px rgba(16,26,48,0.12)" : "none" }}>{label}</button>
                     ))}
                   </div>
@@ -11410,7 +11450,6 @@ export default function App() {
                         onPriceChanged={(u) => { setEditingUnit(u); setSection("units"); setTab("add"); }}
                         onSold={(u) => setSoldEdit({ unit: u, mode: "outside" })} />
                       <PastBuyers units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} onContact={() => {}} />
-                      <MyRankCard profile={profile} getToken={getValidToken} onOpen={() => setClientsTab("ranking")} />
                       {profile.role === "sales_agent" && <MonthlyAwards profile={profile} getToken={getValidToken} />}
                     </>}
                   />
@@ -11421,7 +11460,6 @@ export default function App() {
                 {clientsTab === "import" && profile.role !== "sales_agent" && (
                   <LeadImport clients={clients} users={users.filter((u) => visibleSalesIds.includes(u.id) && u.role !== "pending")} onImport={importLeads} checkPhones={checkPhones} onDone={() => setClientsTab("all")} />
                 )}
-                {clientsTab === "ranking" && <RankingPage profile={profile} getToken={getValidToken} />}
                 {clientsTab === "calendar" && (
                   <MeetingsCalendar clients={clients.filter((c) => visibleSalesIds.includes(c.assignedTo))} users={users} profile={profile} onOpenClient={(c) => setOpenClientId(c.id)} />
                 )}
