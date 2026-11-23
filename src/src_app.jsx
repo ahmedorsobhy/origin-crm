@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Home, User, LayoutGrid, PlusCircle, PauseCircle, LogOut, Users,
   Search, Building2, MapPin, Ruler, Layers, Wallet, Calendar,
-  Phone, UserRound, Image as ImageIcon, X, ChevronDown, Check, Lock, Trash2, Clock, Bell, MessageSquare, CheckCircle, FileText
+  Phone, UserRound, Image as ImageIcon, X, ChevronDown, Check, Lock, Trash2, Clock, Bell, MessageSquare, CheckCircle, FileText, Settings as SettingsIcon
 } from "lucide-react";
 import { PROMISE_TEMPLATE_B64 } from "./contract_template.js";
 
@@ -1220,6 +1220,59 @@ function HoldModal({ unit, projectInfo, onConfirm, onCancel }) {
   );
 }
 
+// Settings → App: things each person sets for themselves on this device
+function AppPrefs({ profile, getToken }) {
+  const [dark, setDark] = useState(() => typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
+  const [cleared, setCleared] = useState("");
+  const setTheme = (d) => { document.documentElement.classList.toggle("dark", d); try { localStorage.setItem("origin_theme", d ? "dark" : "light"); } catch (e) {} setDark(d); };
+  const clearKeys = (test) => { let n = 0; try { Object.keys(localStorage).filter(test).forEach((k) => { localStorage.removeItem(k); n++; }); } catch (e) {} return n; };
+  const card = { background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 10 };
+  const seg = (on) => ({ flex: 1, border: `1px solid ${on ? COLORS.navy : COLORS.border}`, background: on ? COLORS.navy : "#fff", color: on ? "#fff" : COLORS.navy, borderRadius: 999, padding: "9px 12px", fontWeight: 700, cursor: "pointer" });
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, alignItems: "start" }}>
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: COLORS.navy }}>Appearance</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setTheme(false)} style={seg(!dark)}>☀️ Light</button>
+          <button onClick={() => setTheme(true)} style={seg(dark)}>🌙 Night mode</button>
+        </div>
+      </div>
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: COLORS.navy }}>Phone notifications</div>
+        <NotificationsCard profile={profile} getToken={getToken} />
+      </div>
+      <div style={card}>
+        <div style={{ fontWeight: 700, color: COLORS.navy }}>Filters & saved views</div>
+        <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Every list remembers your last filters on this device. Clear them to start fresh.</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button style={btnGhost} onClick={() => setCleared(`${clearKeys((k) => k.startsWith("origin_filters:"))} filters cleared ✓`)}>Clear my filters</button>
+          <button style={btnGhost} onClick={() => { if (window.confirm("Delete all your saved views?")) setCleared(`${clearKeys((k) => k.startsWith("origin_views"))} saved views deleted ✓`); }}>Delete saved views</button>
+        </div>
+        {cleared && <div style={{ fontSize: 12.5, color: COLORS.success }}>{cleared} — open the page again to see it.</div>}
+      </div>
+      <div style={{ ...card, fontSize: 12.5, color: COLORS.textMuted }}>Version {BUILD_ID}</div>
+    </div>
+  );
+}
+
+// A photo that opens big when tapped
+function ZoomImg({ src, alt = "", style }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (!open) return; const k = (e) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [open]);
+  return (
+    <>
+      <img src={src} alt={alt} onClick={(e) => { e.stopPropagation(); setOpen(true); }} style={{ ...style, cursor: "zoom-in" }} />
+      {open && createPortal(
+        <div onClick={() => setOpen(false)} role="dialog" aria-label="Photo" style={{ position: "fixed", inset: 0, background: "rgba(10,16,32,.85)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <button onClick={() => setOpen(false)} aria-label="Close" style={{ position: "absolute", top: "calc(14px + env(safe-area-inset-top))", right: 14, width: 40, height: 40, borderRadius: 20, border: "none", background: "rgba(255,255,255,.18)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={22} /></button>
+          <img src={src} alt={alt} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "min(92vw, 640px)", maxHeight: "82vh", borderRadius: 18, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,.4)" }} />
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 // ---------- Manage users (admin only) ----------
 
 // ---------- Manage developers & projects (admin only) ----------
@@ -1531,7 +1584,7 @@ function SalesProfile({ person, units, canSeeOwnerFn, projectInfoFn, onOpen, onB
       <div style={{ display: "flex", alignItems: "center", gap: 16, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20, marginBottom: 20 }}>
         <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", background: COLORS.creamDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {person.avatarUrl ? (
-            <img src={person.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <ZoomImg src={person.avatarUrl} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
             <UserRound size={32} color={COLORS.textMuted} />
           )}
@@ -1605,7 +1658,7 @@ function EditProfile({ profile, currentEmail, onSave, onUploadAvatar, onUpdateEm
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
         <div style={{ width: 64, height: 64, borderRadius: "50%", overflow: "hidden", background: COLORS.creamDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {avatarPreview ? (
-            <img src={avatarPreview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <ZoomImg src={avatarPreview} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
             <UserRound size={28} color={COLORS.textMuted} />
           )}
@@ -2795,13 +2848,18 @@ async function readSheetFile(file) {
 // =====================================================================
 const COLD_OUTCOMES = [
   { id: "no_answer", label: "No answer", tone: "muted" },
+  { id: "off_busy", label: "Phone off / busy", tone: "muted" },
   { id: "call_later", label: "Call back later", tone: "muted", asksWhen: true },
+  { id: "selling", label: "Selling ✅", tone: "good" },
+  { id: "later", label: "For sale later 📅", tone: "gold" },
   { id: "not_selling", label: "Not selling", tone: "bad" },
+  { id: "sold", label: "Already sold", tone: "bad" },
+  { id: "with_us", label: "Already with us", tone: "muted" },
   { id: "dnc", label: "Don't call again", tone: "bad" },
   { id: "wrong", label: "Wrong number", tone: "bad" },
-  { id: "selling", label: "Selling ✅", tone: "good" },
 ];
-const COLD_STATUS_LABEL = { new: "Not called", no_answer: "No answer", call_later: "Call back later", not_selling: "Not selling", dnc: "Don't call again", wrong: "Wrong number", selling: "Selling" };
+const COLD_STATUS_LABEL = { new: "Not called", no_answer: "No answer", off_busy: "Phone off / busy", call_later: "Call back later", not_selling: "Not selling", dnc: "Don't call again", wrong: "Wrong number", selling: "Selling", later: "For sale later", sold: "Already sold", with_us: "Already with us" };
+const COLD_DONE = ["not_selling", "dnc", "wrong", "sold", "with_us"];
 const DEFAULT_COLD_WA = "{greeting} 🌷 معاك {sales} من Origin Real Estate، بكلم حضرتك بخصوص وحدتك{in_project}. هل حضرتك عارضها للبيع؟";
 const DEFAULT_OWNER_AR = "{greeting} {owner} 🌷 معاك {sales} من Origin Real Estate. بخصوص وحدة حضرتك ({type} {unit}) في {project}، هل لسه متاحة {listing}؟ ولو في أي تغيير في السعر يا ريت تبلغني. شكراً لحضرتك 🙏";
 const DEFAULT_OWNER_EN = "{greeting} {owner} 🌷 This is {sales} from Origin Real Estate. About your unit ({type} {unit}) in {project} — is it still available {listing}? Please let me know if anything changed in the price. Thank you 🙏";
@@ -2864,7 +2922,9 @@ function coldWaText(template, lead, salesName, lang = "ar") {
     .replace(/\{owner\}/g, lead.owner_name || "").replace(/\{unit\}/g, lead.unit_number || "");
 }
 const isTried = (l) => l.status !== "new" || l.attempts > 0;
-const needsRetry = (l) => l.status === "no_answer" || l.status === "call_later";
+const needsRetry = (l) => l.status === "no_answer" || l.status === "off_busy" || l.status === "call_later";
+const laterDue = (l) => l.status === "later" && (!l.callback_at || new Date(l.callback_at) <= new Date(new Date().setHours(23, 59, 59, 999)));
+const unitWaiting = (l) => l.status === "selling" && l.unit_pending && !l.unit_id;
 function sheetState(sheet, leads) {
   const mine = leads.filter((l) => l.sheet_id === sheet.id);
   const tried = mine.filter(isTried).length;
@@ -3155,53 +3215,104 @@ function ColdApprovals({ profile, users, cold, getToken, onRefresh, deepId }) {
   );
 }
 
-function ColdOutcomeModal({ lead, onSave, onClose }) {
+function ColdOutcomeModal({ lead, onSave, onClose, units = [], getProjectInfo }) {
   const [pending, setPending] = useState(null);
   const [when, setWhen] = useState("tomorrow");
   const [at, setAt] = useState("");
+  const inMonth = () => { const d = new Date(); d.setMonth(d.getMonth() + 1); return isoToDateInput(d.toISOString()); };
+  const [laterDate, setLaterDate] = useState(inMonth);
+  const [laterNote, setLaterNote] = useState(lead.note || "");
+  const [unitQ, setUnitQ] = useState(lead.unit_number || "");
+  const [unitId, setUnitId] = useState("");
   const [busy, setBusy] = useState(false);
   const save = async (status, extra = {}) => { setBusy(true); try { await onSave(lead, status, extra); onClose(); } finally { setBusy(false); } };
   const whenIso = () => (when === "custom" ? (at ? new Date(at).toISOString() : null) : (CALL_LATER_OPTIONS.find((o) => o.id === when)?.at() || atHour(1)));
+  const toneBg = { good: "#E6F4EA", bad: "#FCEBEB", gold: "#FBF1E6" }, toneFg = { good: COLORS.success, bad: COLORS.danger, gold: COLORS.gold };
+  const pick = (o) => (o.asksWhen ? setPending("call_later") : ["selling", "later", "with_us"].includes(o.id) ? setPending(o.id) : save(o.id));
+  const q = unitQ.trim().toLowerCase();
+  const unitMatches = q ? units.filter((u) => `${u.unitNumber} ${u.type} ${getProjectInfo ? getProjectInfo(u).name : ""}`.toLowerCase().includes(q)).slice(0, 25) : [];
+  const back = <button onClick={() => setPending(null)} style={btnGhost}>Back</button>;
   return (
-    <FinModal title={`How did it go with ${lead.owner_name || lead.phone}?`} onClose={onClose} width={500}>
+    <FinModal title={`How did it go with ${lead.owner_name || lead.phone}?`} onClose={onClose} width={520}>
       <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>{lead.phone}{lead.project_name ? ` · ${lead.project_name}` : ""}{lead.unit_number ? ` · ${lead.unit_number}` : ""}</div>
       {!pending && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {COLD_OUTCOMES.map((o) => (
-            <button key={o.id} disabled={busy} onClick={() => (o.asksWhen ? setPending("later") : o.id === "selling" ? setPending("selling") : save(o.id))} className="chip"
-              style={{ border: "none", borderRadius: 999, padding: "9px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", background: o.tone === "good" ? "#E6F4EA" : o.tone === "bad" ? "#FCEBEB" : COLORS.creamDark, color: o.tone === "good" ? COLORS.success : o.tone === "bad" ? COLORS.danger : COLORS.navy }}>{o.label}</button>
+            <button key={o.id} disabled={busy} onClick={() => pick(o)} className="chip"
+              style={{ border: "none", borderRadius: 999, padding: "9px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", background: toneBg[o.tone] || COLORS.creamDark, color: toneFg[o.tone] || COLORS.navy }}>{o.label}</button>
           ))}
         </div>
       )}
-      {pending === "later" && (
+      {pending === "call_later" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {CALL_LATER_OPTIONS.map((o) => <button key={o.id} onClick={() => setWhen(o.id)} className="chip" style={{ border: `1px solid ${when === o.id ? COLORS.navy : COLORS.border}`, background: when === o.id ? COLORS.navy : "#fff", color: when === o.id ? "#fff" : COLORS.navy, borderRadius: 999, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{o.label}</button>)}
           </div>
           {when === "custom" && <input type="datetime-local" style={inputStyle} value={at} onChange={(e) => setAt(e.target.value)} />}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => setPending(null)} style={btnGhost}>Back</button>
+            {back}
             <button disabled={busy} onClick={() => save("call_later", { callback_at: whenIso() })} style={btnPrimary}>Save</button>
+          </div>
+        </div>
+      )}
+      {pending === "later" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontWeight: 700, color: COLORS.gold }}>📅 Selling, but not now — when should you call again?</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[[1, "1 month"], [3, "3 months"], [6, "6 months"]].map(([m, l]) => {
+              const d = new Date(); d.setMonth(d.getMonth() + m); const v = isoToDateInput(d.toISOString());
+              return <button key={m} onClick={() => setLaterDate(v)} className="chip" style={{ border: `1px solid ${laterDate === v ? COLORS.navy : COLORS.border}`, background: laterDate === v ? COLORS.navy : "#fff", color: laterDate === v ? "#fff" : COLORS.navy, borderRadius: 999, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{l}</button>;
+            })}
+          </div>
+          <Field label="Call again on" required><input type="date" style={inputStyle} value={laterDate} min={todayKey()} onChange={(e) => setLaterDate(e.target.value)} /></Field>
+          <Field label="Note (optional)"><textarea dir="auto" rows={2} style={{ ...inputStyle, resize: "vertical" }} value={laterNote} onChange={(e) => setLaterNote(e.target.value)} placeholder="e.g. waiting for delivery, wants 8m" /></Field>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {back}
+            <button disabled={busy || !laterDate} onClick={() => save("later", { callback_at: new Date(`${laterDate}T10:00:00`).toISOString(), note: laterNote.trim() || null })} style={btnPrimary}>Save</button>
+          </div>
+        </div>
+      )}
+      {pending === "with_us" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontWeight: 700, color: COLORS.navy }}>This unit is already in the CRM. Which one? (optional)</div>
+          <input style={inputStyle} value={unitQ} onChange={(e) => { setUnitQ(e.target.value); setUnitId(""); }} placeholder="Search unit number or project" />
+          {unitMatches.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflowY: "auto" }}>
+              {unitMatches.map((u) => (
+                <label key={u.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, padding: "6px 8px", borderRadius: 10, background: unitId === u.id ? COLORS.cream : "transparent", cursor: "pointer" }}>
+                  <input type="radio" checked={unitId === u.id} onChange={() => setUnitId(u.id)} />
+                  {u.type} {u.unitNumber}{getProjectInfo ? ` · ${getProjectInfo(u).name}` : ""}
+                </label>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {back}
+            <button disabled={busy} onClick={() => save("with_us", { unit_id: unitId || null })} style={btnPrimary}>{unitId ? "Save & link the unit" : "Save"}</button>
           </div>
         </div>
       )}
       {pending === "selling" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontWeight: 700, color: COLORS.success }}>Great! Add the unit now or later?</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button disabled={busy} onClick={() => save("selling", { addNow: true })} className="btn-primary" style={{ border: "none", background: COLORS.success, color: "#fff", borderRadius: 999, padding: "10px 16px", fontWeight: 700, cursor: "pointer" }}>Add the unit now</button>
-            <button disabled={busy} onClick={() => save("selling", { unit_pending: true })} style={{ ...btnGhost, padding: "10px 16px" }}>I'll add it later</button>
-            <button onClick={() => setPending(null)} style={{ border: "none", background: "none", color: COLORS.textMuted, cursor: "pointer" }}>Back</button>
-          </div>
+          <div style={{ fontWeight: 700, color: COLORS.success }}>Great! Do you have the unit details now?</div>
+          <button disabled={busy} onClick={() => save("selling", { addNow: true })} className="card" style={{ textAlign: "left", border: `1.5px solid ${COLORS.success}`, background: "#E6F4EA", borderRadius: 14, padding: "12px 14px", cursor: "pointer" }}>
+            <div style={{ fontWeight: 800, color: COLORS.success }}>📝 Yes — add the unit now</div>
+            <div style={{ fontSize: 12, color: COLORS.textMuted }}>Opens the unit form with the owner's name and number filled in.</div>
+          </button>
+          <button disabled={busy} onClick={() => save("selling", { unit_pending: true })} className="card" style={{ textAlign: "left", border: `1.5px solid ${COLORS.gold}`, background: "#FBF1E6", borderRadius: 14, padding: "12px 14px", cursor: "pointer" }}>
+            <div style={{ fontWeight: 800, color: COLORS.gold }}>⏰ Not yet — I'll add it later</div>
+            <div style={{ fontSize: 12, color: COLORS.textMuted }}>e.g. the owner will send the details on WhatsApp. You'll see a reminder until the unit is added.</div>
+          </button>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>{back}</div>
         </div>
       )}
     </FinModal>
   );
 }
 
-function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp, onOutcome }) {
+function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp, onOutcome, onAddUnit, ownerLabel }) {
   const [waPick, setWaPick] = useState(false);
-  const tone = lead.status === "selling" ? COLORS.success : ["not_selling", "dnc", "wrong"].includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
+  const tone = lead.status === "selling" ? COLORS.success : lead.status === "later" ? COLORS.gold : COLD_DONE.includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
   const big = { flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 42, borderRadius: 12, fontWeight: 800, fontSize: 13.5, textDecoration: "none", cursor: "pointer" };
   return (
     <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${tone}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -3218,7 +3329,9 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
         )}
       </div>
       {lead.status === "call_later" && lead.callback_at && <div style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700 }}>⏰ Call back {formatDateTime(lead.callback_at)}</div>}
-      {lead.status === "selling" && lead.unit_pending && <div style={{ fontSize: 12, color: COLORS.success, fontWeight: 700 }}>🏠 Unit not added yet</div>}
+      {unitWaiting(lead) && <div style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700 }}>🏠 Unit not added yet{onAddUnit ? <button onClick={() => onAddUnit(lead)} style={{ marginLeft: 8, border: "none", background: COLORS.gold, color: "#fff", borderRadius: 999, padding: "3px 10px", fontWeight: 700, fontSize: 11.5, cursor: "pointer" }}>Add now</button> : null}</div>}
+      {lead.status === "later" && <div style={{ fontSize: 12, color: laterDue(lead) ? COLORS.danger : COLORS.gold, fontWeight: 700 }}>📅 {laterDue(lead) ? "Call again now" : `Call again ${formatDate(lead.callback_at)}`}</div>}
+      {lead.note && <div style={{ fontSize: 12, color: COLORS.text, background: "#FBF1E6", borderRadius: 8, padding: "4px 8px" }} dir="auto">{lead.note}</div>}
       {lead.extra && <div style={{ fontSize: 11.5, color: COLORS.textMuted, background: COLORS.cream, borderRadius: 8, padding: "4px 8px" }}>{lead.extra}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} aria-label="Call" style={{ ...big, background: COLORS.navy, color: "#fff" }}><Phone size={16} /> Call</a>
@@ -3228,6 +3341,33 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
       {waPick && <WaPickModal title="WhatsApp the owner" phone={lead.phone} onClose={() => setWaPick(false)} onSent={() => onWhatsApp(lead)}
         sub={`${lead.owner_name || "Owner"} · ${lead.phone}${lead.project_name ? ` · ${lead.project_name}` : ""}`}
         make={(lang) => coldWaText(lang === "ar" ? template : templateEn, lead, salesName, lang)} />}
+    </div>
+  );
+}
+
+// Today: my units waiting for details + owners to call again (sell later)
+function ColdTodayCard({ profile, leads, onAddUnit, onOpenCold }) {
+  const waiting = leads.filter((l) => l.assigned_to === profile.id && unitWaiting(l));
+  const due = leads.filter((l) => l.assigned_to === profile.id && laterDue(l));
+  if (!waiting.length && !due.length) return null;
+  const row = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13, background: "#fff", borderRadius: 12, padding: "8px 10px" };
+  return (
+    <div className="card" style={{ background: "#FBF1E6", border: `1.5px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+      {waiting.length > 0 && <div style={{ fontWeight: 800, color: COLORS.navy }}>🏠 {waiting.length} unit{waiting.length > 1 ? "s" : ""} waiting for you to add</div>}
+      {waiting.map((l) => (
+        <div key={l.id} style={row}>
+          <span style={{ flex: "1 1 180px" }}><b>{l.owner_name || "Owner"}</b> · <span dir="ltr">{l.phone}</span>{l.project_name ? ` · ${l.project_name}` : ""}</span>
+          <button onClick={() => onAddUnit(l)} style={{ ...btnPrimary, padding: "6px 12px" }}>Add unit</button>
+        </div>
+      ))}
+      {due.length > 0 && <div style={{ fontWeight: 800, color: COLORS.navy, marginTop: waiting.length ? 4 : 0 }}>📅 {due.length} owner{due.length > 1 ? "s" : ""} to call again (for sale later)</div>}
+      {due.map((l) => (
+        <div key={l.id} style={row}>
+          <span style={{ flex: "1 1 180px" }}><b>{l.owner_name || "Owner"}</b> · <span dir="ltr">{l.phone}</span>{l.project_name ? ` · ${l.project_name}` : ""}{l.note ? <span style={{ color: COLORS.textMuted }}> · {l.note}</span> : null}</span>
+          <a href={`tel:${l.phone}`} style={{ ...btnGhost, padding: "6px 10px", textDecoration: "none" }}>📞</a>
+          <button onClick={onOpenCold} style={{ ...btnGhost, padding: "6px 12px" }}>Open</button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -3245,9 +3385,9 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
   const n = {
     all: leads.filter((l) => l.status !== "selling").length,
     new: leads.filter((l) => l.status === "new").length,
-    retry: leads.filter((l) => ["no_answer", "call_later", "not_selling"].includes(l.status)).length,
-    everything: leads.length,
-    called: leads.filter((l) => l.status !== "new").length,
+    retry: leads.filter((l) => ["no_answer", "off_busy", "call_later", "not_selling"].includes(l.status)).length,
+    everything: leads.filter((l) => l.status !== "later").length,
+    called: leads.filter((l) => l.status !== "new" && l.status !== "later").length,
   };
   const Opt = ({ v, cur, set, label, sub }) => (
     <label style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 10px", border: `1px solid ${cur === v ? COLORS.navy : COLORS.border}`, borderRadius: 12, cursor: "pointer", background: cur === v ? COLORS.cream : "#fff" }}>
@@ -3273,8 +3413,8 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
             </Field>
             {people.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.danger }}>There's nobody else in your team to move these numbers to.</div>}
             <Opt v="new" cur={mode} set={setMode} label="Numbers nobody called yet" />
-            <Opt v="retry" cur={mode} set={setMode} label="Call them again" sub="No answer, call back later and not selling — they start fresh with the new person" />
-            <Opt v="all" cur={mode} set={setMode} label="All numbers" sub="Everything except owners who said they're selling" />
+            <Opt v="retry" cur={mode} set={setMode} label="Call them again" sub="No answer, phone off / busy, call back later and not selling — they start fresh with the new person" />
+            <Opt v="all" cur={mode} set={setMode} label="All numbers" sub="Everything except owners who said they're selling (for-sale-later numbers move too)" />
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Field label="How many (optional — to split)"><input type="number" min="1" style={{ ...inputStyle, width: 150 }} value={count} onChange={(e) => setCount(e.target.value)} placeholder={`all ${n[mode]}`} /></Field>
               <Field label="Due day"><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
@@ -3287,7 +3427,7 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
             <Opt v="everything" cur={delMode} set={setDelMode} label="The whole sheet" />
           </>
         )}
-        <div style={{ fontSize: 12, color: COLORS.textMuted, background: COLORS.cream, padding: 8, borderRadius: 10 }}>✅ Calls, WhatsApps and results already made stay counted for whoever made them, and units already added stay as they are.</div>
+        <div style={{ fontSize: 12, color: COLORS.textMuted, background: COLORS.cream, padding: 8, borderRadius: 10 }}>✅ Calls, WhatsApps and results already made stay counted for whoever made them, and units already added stay as they are.{action === "delete" ? " 📅 For-sale-later numbers are never deleted — they stay with whoever called them." : ""}</div>
         <FinError text={error} />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button style={btnGhost} onClick={onClose}>Cancel</button>
@@ -3311,8 +3451,9 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
 
 // Summary of a sheet for managers
 const COLD_SUMMARY_ROWS = [
-  ["new", "Not called yet", COLORS.navy], ["no_answer", "No answer", COLORS.gold], ["call_later", "Call back later", COLORS.gold],
-  ["not_selling", "Not selling", COLORS.danger], ["dnc", "Don't call again", COLORS.danger], ["wrong", "Wrong number", COLORS.danger], ["selling", "Selling 🎯", COLORS.success],
+  ["new", "Not called yet", COLORS.navy], ["no_answer", "No answer", COLORS.gold], ["off_busy", "Phone off / busy", COLORS.gold], ["call_later", "Call back later", COLORS.gold],
+  ["not_selling", "Not selling", COLORS.danger], ["sold", "Already sold", COLORS.danger], ["with_us", "Already with us", COLORS.textMuted], ["dnc", "Don't call again", COLORS.danger], ["wrong", "Wrong number", COLORS.danger],
+  ["later", "For sale later 📅", COLORS.gold], ["selling", "Selling 🎯", COLORS.success],
 ];
 function coldSummary(leads, activity) {
   const ids = new Set(leads.map((l) => l.id));
@@ -3347,7 +3488,7 @@ function ColdSheetSummary({ leads, activity, onPick }) {
   );
 }
 
-function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, getToken, settings, onRefresh, onAddUnit, onLog, onOutcome, deepId }) {
+function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, getToken, settings, onRefresh, onAddUnit, onLog, onOutcome, deepId, units = [], getProjectInfo }) {
   const isManager = profile.role !== "sales_agent";
   const [openSheet, setOpenSheet] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -3366,12 +3507,16 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const order = { late: 0, today: 1, upcoming: 2, done: 3 };
   const list = withState.filter(({ s, st }) => (!fv.salesId || s.assigned_to === fv.salesId) && (!fv.state || st.state === fv.state) && inDate(`${s.due_date}T12:00:00`, fv.due) && (!(fv.q || "").trim() || s.name.toLowerCase().includes(fv.q.trim().toLowerCase())))
     .sort((a, b) => order[a.st.state] - order[b.st.state] || (a.st.state === "upcoming" ? a.s.due_date.localeCompare(b.s.due_date) : b.s.due_date.localeCompare(a.s.due_date)));
-  const toAdd = cold.leads.filter((l) => l.status === "selling" && l.unit_pending && !l.unit_id && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id));
+  const toAdd = cold.leads.filter((l) => unitWaiting(l) && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id));
+  const laterList = cold.leads.filter((l) => l.status === "later" && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id)
+    && (!fv.salesId || l.assigned_to === fv.salesId)).sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0));
+  const laterDueN = laterList.filter(laterDue).length;
+  const [showLater, setShowLater] = useState(true);
   const template = settings?.wa_cold_template || DEFAULT_COLD_WA;
   const templateEn = settings?.wa_cold_en || DEFAULT_COLD_WA_EN;
   const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet && (s.status || "active") === "active");
 
-  const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} onClose={() => setOutcomeFor(null)} onSave={onOutcome} />;
+  const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} units={units} getProjectInfo={getProjectInfo} onClose={() => setOutcomeFor(null)} onSave={onOutcome} />;
 
   if (sheet) {
     const st = sheetState(sheet, cold.leads);
@@ -3380,7 +3525,8 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
       ["call", "To call", leads.filter((l) => l.status === "new")],
       ["retry", "Try again", leads.filter(needsRetry).sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
       ["selling", "Selling", leads.filter((l) => l.status === "selling")],
-      ["done", "Done", leads.filter((l) => ["not_selling", "dnc", "wrong"].includes(l.status))],
+      ["later", "Sell later", leads.filter((l) => l.status === "later").sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
+      ["done", "Done", leads.filter((l) => COLD_DONE.includes(l.status))],
     ];
     const shown = statusPick ? leads.filter((l) => l.status === statusPick) : (tabs.find((t) => t[0] === leadTab) || tabs[0])[2];
     const salesName = nm(sheet.assigned_to) || profile.name;
@@ -3427,7 +3573,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
-                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
+                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} onAddUnit={l.assigned_to === profile.id ? onAddUnit : null} />)}
               </div>
             )}
           </>
@@ -3449,14 +3595,38 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
       {uploading && <ColdUpload users={isManager ? (["admin", "ceo"].includes(profile.role) || sales.some((u) => u.id === profile.id) ? sales : [profile, ...sales]) : [profile]} selfOnly={!isManager} me={profile} projects={projects} getToken={getToken} onDone={async (m) => { setUploading(false); setMsg(`Uploaded ✓ ${m}`); await onRefresh(); }} />}
       <ColdApprovals profile={profile} users={users} cold={cold} getToken={getToken} onRefresh={onRefresh} deepId={deepId} />
       {toAdd.length > 0 && (
-        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontWeight: 800, color: COLORS.navy }}>🏠 Units to add · {toAdd.length}</div>
-          {toAdd.map((l) => (
-            <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
-              <span style={{ flex: "1 1 200px" }}><b>{l.owner_name || "Owner"}</b> · {l.phone} · {l.project_name || "—"}{isManager ? ` · ${nm(l.assigned_to)}` : ""}</span>
-              {l.assigned_to === profile.id && <button onClick={() => onAddUnit(l)} style={{ ...btnPrimary, padding: "6px 12px" }}>Add unit</button>}
+        <div className="card" style={{ background: "#FBF1E6", border: `1.5px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontWeight: 800, color: COLORS.navy }}>🏠 Units waiting for details · {toAdd.length}</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: -4 }}>Owners who said they're selling — the unit isn't in the CRM yet.</div>
+          {toAdd.map((l) => {
+            const days = l.last_contact_at ? Math.floor((Date.now() - new Date(l.last_contact_at)) / MS_DAY) : 0;
+            return (
+              <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13, background: "#fff", borderRadius: 12, padding: "8px 10px" }}>
+                <span style={{ flex: "1 1 200px" }}><b>{l.owner_name || "Owner"}</b> · <span dir="ltr">{l.phone}</span> · {l.project_name || "—"}{isManager ? ` · ${nm(l.assigned_to)}` : ""}
+                  <span style={{ color: days >= 1 ? COLORS.danger : COLORS.textMuted, fontWeight: 700 }}> · {days < 1 ? "today" : `${days} day${days > 1 ? "s" : ""} waiting`}</span></span>
+                <a href={`https://wa.me/${waNumber(l.phone)}`} target="_blank" rel="noreferrer" style={{ ...btnGhost, padding: "6px 10px", textDecoration: "none" }}>💬</a>
+                {l.assigned_to === profile.id && <button onClick={() => onAddUnit(l)} style={{ ...btnPrimary, padding: "6px 12px" }}>Add unit</button>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {laterList.length > 0 && (
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <button onClick={() => setShowLater((v) => !v)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "none", background: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+            <span style={{ fontWeight: 800, color: COLORS.navy }}>📅 For sale later · {laterList.length}{laterDueN ? <span style={{ color: COLORS.danger }}> · {laterDueN} to call now</span> : null}</span>
+            <span style={{ fontSize: 12, color: COLORS.textMuted }}>{showLater ? "Hide" : "Show"}</span>
+          </button>
+          {showLater && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
+              {laterList.map((l) => (
+                <div key={l.id}>
+                  {isManager && <div style={{ fontSize: 11.5, color: COLORS.textMuted, margin: "0 0 3px 4px" }}>{nm(l.assigned_to)}</div>}
+                  <ColdLeadRow lead={l} template={template} templateEn={templateEn} salesName={nm(l.assigned_to) || profile.name} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
       <FilterBar id="cold" values={fv} set={setF} reset={resetF} setAll={setAllF} count={list.length} noun="sheets" searchPlaceholder="Search sheet name…"
@@ -3479,7 +3649,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div style={{ height: 8, borderRadius: 8, background: COLORS.cream, overflow: "hidden" }}><div className="grow-bar" style={{ width: `${st.total ? (st.tried / st.total) * 100 : 0}%`, height: "100%", background: st.done ? COLORS.success : COLORS.gold }} /></div>
               <div style={{ fontSize: 12, color: COLORS.navy }}>{st.tried} / {st.total} called{st.selling ? ` · ${st.selling} selling 🎯` : ""}</div>
               {isManager && st.tried > 0 && (() => { const by = {}; cold.leads.forEach((l) => { if (l.sheet_id === s.id) by[l.status] = (by[l.status] || 0) + 1; }); return (
-                <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{[["no_answer", "no answer"], ["call_later", "call later"], ["not_selling", "not selling"], ["wrong", "wrong"], ["dnc", "don't call"]].filter(([k]) => by[k]).map(([k, l]) => `${by[k]} ${l}`).join(" · ")}</div>); })()}
+                <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{[["no_answer", "no answer"], ["off_busy", "off / busy"], ["call_later", "call later"], ["later", "sell later"], ["not_selling", "not selling"], ["sold", "sold"], ["with_us", "with us"], ["wrong", "wrong"], ["dnc", "don't call"]].filter(([k]) => by[k]).map(([k, l]) => `${by[k]} ${l}`).join(" · ")}</div>); })()}
             </button>
           ))}
         </div>
@@ -8656,7 +8826,7 @@ function FinTargets({ ctx, people }) {
       <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>
         Achieved = commission collected this quarter (by collection date), split by each person's share in the deal.
       </div>
-      {rows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No targets set yet. Set them from the Team tab.</div> : (
+      {rows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No targets set yet. Set them in Settings → Targets & salaries.</div> : (
         <TableWrap>
           <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Target</th><th style={thNum}>Achieved</th><th style={thStyle}>Progress</th><th style={thNum}>%</th><th style={thStyle}>Tier</th><th style={thStyle}>Next</th></tr></thead>
           <tbody>{rows.map((u) => <TargetRow key={u.id} u={u} q={q} ctx={ctx} />)}</tbody>
@@ -8762,7 +8932,7 @@ function FinExpenses({ ctx }) {
       </div>
 
       <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 8 }}>Salaries</div>
-      {salaryRows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No salaries set. Add them from the Team tab.</div> : (
+      {salaryRows.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 14 }}>No salaries set. Add them in Settings → Targets & salaries.</div> : (
         <div style={{ marginBottom: 16 }}>
           <TableWrap>
             <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Salary</th><th style={thStyle}>{monthLabel(month)} salary · due {salaryDueDate(month).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</th></tr></thead>
@@ -9271,7 +9441,7 @@ function FinTeam({ ctx, people }) {
   if (editing) return <TeamMemberPlan person={editing} ctx={ctx} onBack={() => setEditId(null)} />;
   return (
     <>
-      <FinTitle>Team plans</FinTitle>
+      <FinTitle>Targets, salaries & commission rates</FinTitle>
       <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>
         Each person's quarterly target, salary, and how their sales commission is split up the chain. The chain comes from "Manage users" (who reports to whom).
       </div>
@@ -9503,7 +9673,8 @@ function DealDefaultsSettings({ ctx }) {
   );
 }
 
-function FinSettings({ ctx }) {
+function FinSettings({ ctx, part = "all" }) {
+  const show = (p) => part === "all" || part === p;
   const { fin, act, thresholds, addCategory } = ctx;
   const [tiers, setTiers] = useState(thresholds.map(String));
   const tierAction = useAction();
@@ -9512,11 +9683,11 @@ function FinSettings({ ctx }) {
   const catName = (id) => fin.categories.find((c) => c.id === id)?.name || "—";
   return (
     <>
-      <FinTitle>Finance settings</FinTitle>
+      <FinTitle>{{ money: "Money", messages: "WhatsApp messages", team: "Team & alerts" }[part] || "Finance settings"}</FinTitle>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
-        <div style={finCard}>
+        {show("money") && <div style={finCard}>
           <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Commission tiers</div>
-          <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>% of quarterly target where each higher rate starts. Rates per person are set in the Team tab.</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>% of quarterly target where each higher rate starts. Rates per person are set in Settings → Targets & salaries.</div>
           {tiers.map((t, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 13, width: 60 }}>{i === 0 ? "Base" : `Tier ${i}`}</span>
@@ -9535,34 +9706,34 @@ function FinSettings({ ctx }) {
             })}>Save tiers</button>
           </div>
           <FinError text={tierAction.error} />
-        </div>
+        </div>}
 
-        <CharitySettings ctx={ctx} />
+        {show("money") && <CharitySettings ctx={ctx} />}
 
-        <DealDefaultsSettings ctx={ctx} />
+        {show("money") && <DealDefaultsSettings ctx={ctx} />}
 
-        <AttendanceSettings ctx={ctx} />
+        {show("team") && <AttendanceSettings ctx={ctx} />}
 
-        <WaTemplatesSettings ctx={ctx} />
+        {show("messages") && <WaTemplatesSettings ctx={ctx} />}
 
-        <ColdTemplateSettings ctx={ctx} />
-        <OwnerAskSettings ctx={ctx} />
-        <LateLeadSettings ctx={ctx} />
-        <BackupSettings ctx={ctx} />
+        {show("messages") && <ColdTemplateSettings ctx={ctx} />}
+        {show("messages") && <OwnerAskSettings ctx={ctx} />}
+        {show("team") && <LateLeadSettings ctx={ctx} />}
+        {show("team") && <BackupSettings ctx={ctx} />}
 
-        <CelebrationSettings ctx={ctx} uploadMedia={ctx.uploadMedia} />
+        {show("team") && <CelebrationSettings ctx={ctx} uploadMedia={ctx.uploadMedia} />}
 
-        <NamedListEditor title="Accounts (treasuries)" items={fin.accounts}
+        {show("money") && <NamedListEditor title="Accounts (treasuries)" items={fin.accounts}
           onAdd={(name) => act((t) => db.insert("finance_accounts", { name }, t))}
-          onToggleArchive={(it) => act((t) => db.update("finance_accounts", it.id, { archived: !it.archived }, t))} />
+          onToggleArchive={(it) => act((t) => db.update("finance_accounts", it.id, { archived: !it.archived }, t))} />}
 
-        <NamedListEditor title="Expense categories" items={fin.categories}
+        {show("money") && <NamedListEditor title="Expense categories" items={fin.categories}
           onAdd={(name) => addCategory(name)}
-          onToggleArchive={(it) => act((t) => db.update("expense_categories", it.id, { archived: !it.archived }, t))} />
+          onToggleArchive={(it) => act((t) => db.update("expense_categories", it.id, { archived: !it.archived }, t))} />}
 
-        <div style={finCard}>
+        {show("money") && <div style={finCard}>
           <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Fixed monthly items</div>
-          <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>Rent, internet, bills… They show up every month in Expenses with a "Mark paid" button. Salaries come from the Team tab.</div>
+          <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 10 }}>Rent, internet, bills… They show up every month in Expenses with a "Mark paid" button. Salaries come from Settings → Targets & salaries.</div>
           {fin.recurring.map((r) => (
             <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 6, opacity: r.archived ? 0.5 : 1 }}>
               <span>{r.name} · {catName(r.category_id)} · {egp(r.default_amount)}{r.archived ? " (hidden)" : ""}</span>
@@ -9581,7 +9752,7 @@ function FinSettings({ ctx }) {
             })}>Add fixed item</button>
           </div>
           <FinError text={recAction.error} />
-        </div>
+        </div>}
       </div>
     </>
   );
@@ -9765,7 +9936,7 @@ function MyEarnings({ ctx }) {
 // =====================================================================
 // ---------- FINANCE: the section itself ----------
 // =====================================================================
-function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal, deepLink, uploadMedia, clients, clientActivity }) {
+function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal, deepLink, uploadMedia, clients, clientActivity, only }) {
   const isAdmin = isFinanceAdmin(profile);
   const [tab, setTab] = useState(deepLink?.tab || (deepLink?.dealId ? "deals" : isAdmin ? "overview" : "earnings"));
   useEffect(() => { if (deepLink) setTab(deepLink.tab || "deals"); }, [deepLink]);
@@ -9812,6 +9983,10 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
     </div>
   );
 
+  if (only) {
+    if (!isAdmin) return null;
+    return only === "team" ? <FinTeam ctx={ctx} people={people} /> : <FinSettings ctx={ctx} part={only === "alerts" ? "team" : only} />;
+  }
   const pendingCount = fin.deals.filter((d) => d.status === "pending").length;
   const tabs = isAdmin
     ? [
@@ -9821,10 +9996,8 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
         { id: "targets", label: "Targets" },
         { id: "expenses", label: "Expenses" },
         { id: "treasury", label: "Treasury & reports" },
-        { id: "team", label: "Team plans" },
         { id: "marketing", label: "Campaigns" },
         { id: "earnings", label: "My finance" },
-        { id: "settings", label: "Settings" },
       ]
     : [
         { id: "earnings", label: "My finance" },
@@ -9847,9 +10020,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
       {tab === "targets" && isAdmin && <FinTargets ctx={ctx} people={people} />}
       {tab === "expenses" && isAdmin && <FinExpenses ctx={ctx} />}
       {tab === "treasury" && isAdmin && <FinTreasury ctx={ctx} />}
-      {tab === "team" && isAdmin && <FinTeam ctx={ctx} people={people} />}
       {tab === "marketing" && isAdmin && <CampaignReport ctx={ctx} />}
-      {tab === "settings" && isAdmin && <FinSettings ctx={ctx} />}
       {tab === "earnings" && <MyEarnings ctx={ctx} />}
     </div>
   );
@@ -9891,6 +10062,7 @@ export default function App() {
     else if (kind === "today") { setSection("clients"); setClientsTab("today"); setOpenClientId(null); }
     else if (kind === "contract" && id) { setSection("contracts"); setContractDeep(`${id}`); }
     else if (kind === "cold" && id) { setSection("cold"); setColdDeep(`${id}`); refreshCold(); }
+    else if (kind === "cold") { setSection("cold"); refreshCold(); }
   };
   useEffect(() => {
     try {
@@ -10238,7 +10410,9 @@ export default function App() {
   const saveColdOutcome = async (lead, status, extra = {}) => {
     const t = await getValidToken();
     const patch = { status, attempts: (lead.attempts || 0) + 1, last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-      callback_at: status === "call_later" ? extra.callback_at || null : null, unit_pending: status === "selling" ? !!extra.unit_pending || !!extra.addNow : false };
+      callback_at: ["call_later", "later"].includes(status) ? extra.callback_at || null : null, unit_pending: status === "selling" ? !!extra.unit_pending || !!extra.addNow : false,
+      note: status === "later" ? extra.note || null : lead.note || null,
+      ...(status === "with_us" && extra.unit_id ? { unit_id: extra.unit_id } : {}) };
     await db.update("cold_leads", lead.id, patch, t);
     await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: "outcome", value: status }, t);
     await refreshCold(t);
@@ -10811,7 +10985,7 @@ export default function App() {
 
   const finPending = isFinanceAdmin(profile) ? fin.deals.filter((d) => d.status === "pending").length : 0;
   const contractBadge = (contracts || []).filter((c) => (isFinanceAdmin(profile) ? c.status === "pending" : c.created_by === profile.id && c.status === "returned")).length;
-  const coldBadge = cold.sheets.filter((sh) => (sh.status || "active") === "active" && sh.assigned_to === profile.id && ["late", "today"].includes(sheetState(sh, cold.leads).state)).length
+  const coldBadge = cold.leads.filter((l) => l.assigned_to === profile.id && (unitWaiting(l) || laterDue(l))).length + cold.sheets.filter((sh) => (sh.status || "active") === "active" && sh.assigned_to === profile.id && ["late", "today"].includes(sheetState(sh, cold.leads).state)).length
     + new Set(cold.sheets.filter((sh) => sh.status === "pending" && sh.assigned_to !== profile.id && (isFinanceAdmin(profile) || profile.role !== "sales_agent")).map((sh) => sh.batch_id || sh.id)).size;
   const SECTIONS = [
     { id: "clients", label: "Clients", icon: MessageSquare },
@@ -10819,7 +10993,8 @@ export default function App() {
     { id: "cold", label: "Cold calls", short: "Cold", icon: Phone, badge: coldBadge || 0 },
     { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", short: "Finance", badge: finPending || 0, icon: Wallet },
     { id: "contracts", label: contractBadge ? `Contracts (${contractBadge})` : "Contracts", short: "Contracts", badge: contractBadge || 0, icon: FileText },
-    { id: "profile", label: "My Profile", short: "Profile", icon: UserRound },
+    { id: "profile", label: isFinanceAdmin(profile) ? "Reports" : "Attendance", short: isFinanceAdmin(profile) ? "Reports" : "Attendance", icon: isFinanceAdmin(profile) ? LayoutGrid : Clock },
+    { id: "settings", label: "Settings", short: "Settings", icon: SettingsIcon },
   ];
   const UNITS_SUBNAV = [
     { id: "home", label: "Home", icon: Home },
@@ -10830,23 +11005,30 @@ export default function App() {
     { id: "hold", label: "On hold", icon: PauseCircle },
     { id: "sold", label: "Sold", icon: CheckCircle },
   ];
-  const PROFILE_SUBNAV = [{ id: "profile", label: "My profile", icon: UserRound }, { id: "attendance", label: "Attendance", icon: Clock }];
+  const PROFILE_SUBNAV = [];
   if (profile.role === "admin" || profile.role === "ceo") {
     PROFILE_SUBNAV.push({ id: "dashboard", label: "Dashboard", icon: LayoutGrid });
     PROFILE_SUBNAV.push({ id: "reports", label: "Reports", icon: Users });
   }
-  if (profile.role === "admin") {
-    PROFILE_SUBNAV.push({ id: "users", label: "Manage users", icon: Users });
-    PROFILE_SUBNAV.push({ id: "catalog", label: "Developers & projects", icon: Building2 });
-    PROFILE_SUBNAV.push({ id: "deletions", label: "Deletion requests", icon: Trash2 });
+  PROFILE_SUBNAV.push({ id: "attendance", label: "Attendance", icon: Clock });
+  if (profile.role === "admin") PROFILE_SUBNAV.push({ id: "deletions", label: "Deletion requests", icon: Trash2 });
+  const SETTINGS_SUBNAV = [{ id: "me", label: "My profile", icon: UserRound }, { id: "app", label: "App", icon: SettingsIcon }];
+  if (isFinanceAdmin(profile)) {
+    SETTINGS_SUBNAV.push({ id: "money", label: "Money", icon: Wallet });
+    SETTINGS_SUBNAV.push({ id: "team", label: "Targets & salaries", icon: Users });
+    SETTINGS_SUBNAV.push({ id: "messages", label: "WhatsApp messages", icon: MessageSquare });
+    SETTINGS_SUBNAV.push({ id: "alerts", label: "Team & alerts", icon: Bell });
+    SETTINGS_SUBNAV.push({ id: "users", label: "Users", icon: Users });
+    SETTINGS_SUBNAV.push({ id: "catalog", label: "Developers & projects", icon: Building2 });
   }
   const goSection = (id) => {
     setSection(id);
     if (id === "units") setTab("home");
-    if (id === "profile") setTab("profile");
+    if (id === "profile") setTab(isFinanceAdmin(profile) ? "dashboard" : "attendance");
+    if (id === "settings") setTab("me");
     setOpenClientId(null);
   };
-  const currentSubNav = section === "units" ? UNITS_SUBNAV : section === "profile" ? PROFILE_SUBNAV : [];
+  const currentSubNav = section === "units" ? UNITS_SUBNAV : section === "profile" ? PROFILE_SUBNAV : section === "settings" ? SETTINGS_SUBNAV : [];
 
   return (
     <div className="app-shell">
@@ -10881,14 +11063,14 @@ export default function App() {
               visibleSalesIds={visibleSalesIds}
               onOpenClient={(c) => { setSection("clients"); setOpenClientId(c.id); }}
             />
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }} title={`${profile.name} · ${ROLE_LABEL[profile.role]}`}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} title={`${profile.name} · ${ROLE_LABEL[profile.role]}`} onClick={() => goSection("settings")}>
               <div className="avatar">{(profile.name || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}</div>
               <div className="hide-sm" style={{ lineHeight: 1.15 }}>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>{profile.name}</div>
                 <div style={{ color: COLORS.gold, fontSize: 11.5, fontWeight: 600 }}>{ROLE_LABEL[profile.role]}</div>
               </div>
             </div>
-            <button className="theme-btn" title="Light / dark" aria-label="Switch light or dark mode" onClick={() => { const d = document.documentElement.classList.toggle("dark"); try { localStorage.setItem("origin_theme", d ? "dark" : "light"); } catch (e) {} }}>🌓</button>
+            <button className="theme-btn" title="Settings" aria-label="Settings" onClick={() => goSection("settings")}><SettingsIcon size={17} /></button>
             <button onClick={signOut} title="Sign out" style={{ background: "rgba(255,255,255,.1)", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 600 }}>
               <LogOut size={14} /><span className="hide-sm">Sign out</span>
             </button>
@@ -11009,6 +11191,12 @@ export default function App() {
         {section === "units" && tab === "add" && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>{editingUnit ? "Edit unit" : "Add a new unit"}</div>
+            {unitPrefill?.coldLeadId && !editingUnit && (
+              <div className="card" style={{ background: "#FBF1E6", border: `1px solid ${COLORS.gold}`, padding: "10px 12px", marginBottom: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+                <span style={{ flex: "1 1 220px" }}>📞 From a cold call: <b>{unitPrefill.ownerName || unitPrefill.ownerNumber}</b>. Don't have the details yet?</span>
+                <button onClick={() => { setUnitPrefill(null); setSection("cold"); }} style={{ ...btnGhost, padding: "6px 12px" }}>Add it later</button>
+              </div>
+            )}
             <AddUnitForm
               onAdd={addUnit}
               onUpdate={updateUnit}
@@ -11122,6 +11310,7 @@ export default function App() {
                     heroExtra={<HeroExtras streak={streakDays(clientActivity, profile.id, workDaysOf(fin.settings))} target={myTarget} />}
                     topSlot={<>
                       <NotificationsCard profile={profile} compact getToken={getValidToken} />
+                      <ColdTodayCard profile={profile} leads={cold.leads} onAddUnit={startUnitFromCold} onOpenCold={() => { setSection("cold"); }} />
                       {isFinanceAdmin(profile) && <MorningBrief clients={clients} activity={clientActivity} fin={fin} attendance={attendance} users={users} visibleSalesIds={visibleSalesIds} settings={fin.settings} onOpen={openLink} />}
                     </>}
                     bottomSlot={<>
@@ -11240,11 +11429,11 @@ export default function App() {
         )}
         {section === "cold" && (
           <ColdCallsSection profile={profile} users={users} visibleSalesIds={visibleSalesIds} projects={projects} cold={cold} getToken={getValidToken} settings={fin.settings}
-            onRefresh={() => refreshCold()} onAddUnit={startUnitFromCold} onLog={logCold} onOutcome={saveColdOutcome} deepId={coldDeep} />
+            onRefresh={() => refreshCold()} onAddUnit={startUnitFromCold} onLog={logCold} onOutcome={saveColdOutcome} deepId={coldDeep} units={units} getProjectInfo={getProjectInfo} />
         )}
         {coldPrompt && (() => {
           const l = cold.leads.find((x) => x.id === coldPrompt);
-          return l ? <ColdOutcomeModal lead={l} onClose={() => setColdPrompt(null)} onSave={saveColdOutcome} /> : null;
+          return l ? <ColdOutcomeModal lead={l} units={units} getProjectInfo={getProjectInfo} onClose={() => setColdPrompt(null)} onSave={saveColdOutcome} /> : null;
         })()}
 
         {section === "finance" && (
@@ -11296,25 +11485,34 @@ export default function App() {
             title={profile.role === "sales_agent" ? "My attendance" : "Attendance"} storageKey="attendance:tab" />
         )}
 
-        {section === "profile" && tab === "profile" && (
+        {section === "settings" && tab === "app" && (
+          <>
+            <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>App settings</div>
+            <AppPrefs profile={profile} getToken={getValidToken} />
+          </>
+        )}
+        {section === "settings" && ["money", "team", "messages", "alerts"].includes(tab) && isFinanceAdmin(profile) && (
+          <FinanceSection only={tab} profile={profile} users={users} fin={fin} act={finAct} getProjectInfo={getProjectInfo} units={units}
+            onNewDeal={() => {}} onEditDeal={() => {}} uploadMedia={async (f) => storage.upload("unit-photos", `celebrations/${Date.now()}-${f.name.replace(/[^A-Za-z0-9._-]/g, "_")}`, f, await getValidToken())} clients={clients} clientActivity={clientActivity} />
+        )}
+        {section === "settings" && tab === "me" && (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14, gap: 8 }}>
               <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy }}>My profile</div>
               <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>Version {BUILD_ID}</div>
             </div>
-            <div style={{ marginBottom: 14 }}><NotificationsCard profile={profile} getToken={getValidToken} /></div>
             <EditProfile profile={profile} currentEmail={session.user.email} onSave={updateMyProfile} onUploadAvatar={uploadAvatar} onUpdateEmail={updateMyEmail} />
           </>
         )}
 
-        {section === "profile" && tab === "users" && profile.role === "admin" && (
+        {section === "settings" && tab === "users" && isFinanceAdmin(profile) && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Manage users</div>
             <ManageUsers users={users} onApprove={approveUser} onRemove={removeUser} onEdit={editUser} />
           </>
         )}
 
-        {section === "profile" && tab === "catalog" && profile.role === "admin" && (
+        {section === "settings" && tab === "catalog" && isFinanceAdmin(profile) && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Developers and projects</div>
             <ManageCatalog
