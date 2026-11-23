@@ -62,7 +62,7 @@ with fn as (
   ('32 Cold sheets: move / delete keep history', exists (select 1 from fn where proname = 'cold_move_leads') and exists (select 1 from fn where proname = 'cold_delete_leads')
       and exists (select 1 from pg_constraint where conname = 'cold_activity_lead_id_fkey' and confdeltype = 'n')),
   ('33 No back-dating (check-ins, clients, units, calls)', (select count(*) from pg_trigger where tgname = 'trg_stamp_real_time') = 5),
-  ('34 Admin edit + managers'' own sheets + owner messages', exists (select 1 from col where c = 'finance_settings.wa_owner_ar') and exists (select 1 from col where c = 'finance_settings.wa_owner_en')
+  ('34 Admin edit + managers'' own sheets + owner messages', exists (select 1 from col where c = 'finance_settings.wa_owner_ar') and exists (select 1 from col where c = 'finance_settings.wa_owner_en') and exists (select 1 from col where c = 'finance_settings.wa_cold_en')
       and exists (select 1 from fn where proname = 'admin_sync_deal_rates') and exists (select 1 from pg_trigger where tgname = 'trg_charity_follow_edit')
       and exists (select 1 from pg_policies where tablename = 'attendance' and policyname = 'admin delete attendance')
       and not exists (select 1 from pg_proc where proname = 'can_manage_cold_for' and prosrc like '%is distinct from auth.uid()%')),

@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Admin edit + managers' sheets + owner WhatsApp messages
 --  1) A sheet a manager uploads (for himself or his team) is active right away
---  2) Owner "is the unit still available?" messages (Arabic + English), editable in Settings
+--  2) WhatsApp messages in Arabic + English: cold calls and owner "is the unit still available?", editable in Settings
 --  3) Admin / CEO edits a live deal → new people get their rate chain, hand-adjusted rates are kept
 --  4) Admin / CEO edits a commission collected → Floos Rabna follows the new amount / date / account
 --  5) Admin / CEO can fix check-ins (add / change / remove)
@@ -19,6 +19,8 @@ grant execute on function public.can_manage_cold_for(uuid) to authenticated;
 -- 2) Owner WhatsApp messages
 alter table public.finance_settings add column if not exists wa_owner_ar text;
 alter table public.finance_settings add column if not exists wa_owner_en text;
+-- English cold-call WhatsApp message (the Arabic one is wa_cold_template)
+alter table public.finance_settings add column if not exists wa_cold_en text;
 
 -- 3) Keep the rate chains right after Admin / CEO changes the people on a reserved / done deal
 create or replace function public.admin_sync_deal_rates(p_deal uuid) returns void

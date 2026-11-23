@@ -791,7 +791,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meNa
                 <span style={{ color: COLORS.textMuted }}>Owner</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><UserRound size={14} /> {unit.ownerName}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Phone size={14} /> {unit.ownerNumber}<ContactButtons phone={unit.ownerNumber} /></span>
-                {askOwner && createPortal(<OwnerAskModal unit={unit} projectName={projectInfo.name} salesName={meName} settings={waSettings} onClose={() => setAskOwner(false)} />, document.body)}
+                {askOwner && <OwnerAskModal unit={unit} projectName={projectInfo.name} salesName={meName} settings={waSettings} onClose={() => setAskOwner(false)} />}
                 {unit.ownerNumber && <button onClick={() => setAskOwner(true)} style={{ border: "none", background: "#25D366", color: "#fff", borderRadius: 999, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Still available? 💬</button>}
               </div>
             ) : (
@@ -2459,7 +2459,7 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
         ))}
       </div>
       {list.length > 5 && <button onClick={() => setShowAll(!showAll)} style={{ ...btn, marginTop: 8 }}>{showAll ? "Show less" : `Show all ${list.length}`}</button>}
-      {ask && createPortal(<OwnerAskModal unit={ask} projectName={getProjectInfo(ask).name} salesName={profile.name} settings={waSettings} onClose={() => setAsk(null)} />, document.body)}
+      {ask && <OwnerAskModal unit={ask} projectName={getProjectInfo(ask).name} salesName={profile.name} settings={waSettings} onClose={() => setAsk(null)} />}
     </div>
   );
 }
@@ -2816,44 +2816,51 @@ function ownerAskText(template, lang, unit, projectName, salesName) {
     .replace(/\{project\}/g, projectName || "").replace(/\{unit\}/g, unit.unitNumber || "").replace(/\{type\}/g, unit.type || "")
     .replace(/\{listing\}/g, listing).replace(/ {2,}/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")");
 }
-// Pick the Arabic or English "is your unit still available?" message, edit it, send it on WhatsApp
-function OwnerAskModal({ unit, projectName, salesName, settings, onClose, onSent }) {
-  const make = (lang) => ownerAskText(lang === "ar" ? settings?.wa_owner_ar : settings?.wa_owner_en, lang, unit, projectName, salesName);
+// Pick an Arabic or English WhatsApp message, edit it, send it
+function WaPickModal({ title, sub, phone, make, onSent, onClose }) {
   const [lang, setLang] = useState("ar");
   const [texts, setTexts] = useState(() => ({ ar: make("ar"), en: make("en") }));
   const send = () => {
-    window.open(`https://wa.me/${waNumber(unit.ownerNumber)}?text=${encodeURIComponent(texts[lang])}`, "_blank");
-    if (onSent) onSent(unit);
+    window.open(`https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(texts[lang])}`, "_blank");
+    if (onSent) onSent();
     onClose();
   };
   const tab = (k, label) => (
     <button key={k} onClick={() => setLang(k)} style={{ flex: 1, border: `1px solid ${lang === k ? COLORS.navy : COLORS.border}`, background: lang === k ? COLORS.navy : "#fff", color: lang === k ? "#fff" : COLORS.navy, borderRadius: 999, padding: "8px 12px", fontWeight: 700, cursor: "pointer" }}>{label}</button>
   );
-  return (
+  return createPortal(
     <div style={{ position: "fixed", inset: 0, background: "rgba(14,24,48,.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
       <div className="card" style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(520px, 100%)", maxHeight: "90vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <div style={{ fontWeight: 800, color: COLORS.navy }}>Ask the owner on WhatsApp</div>
+          <div style={{ fontWeight: 800, color: COLORS.navy }}>{title}</div>
           <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>{unit.ownerName || "Owner"} · {unit.ownerNumber} · {unit.type} {unit.unitNumber}{projectName ? ` · ${projectName}` : ""}</div>
+        {sub && <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>{sub}</div>}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>{tab("ar", "عربي")}{tab("en", "English")}</div>
         <textarea dir={lang === "ar" ? "rtl" : "ltr"} rows={6} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} value={texts[lang]} onChange={(e) => { const v = e.target.value; setTexts((t) => ({ ...t, [lang]: v })); }} />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10, flexWrap: "wrap" }}>
           <button style={btnGhost} onClick={() => setTexts((t) => ({ ...t, [lang]: make(lang) }))}>Reset text</button>
-          <button style={{ ...btnPrimary, background: "#25D366" }} disabled={!texts[lang].trim() || !unit.ownerNumber} onClick={send}>Send on WhatsApp</button>
+          <button style={{ ...btnPrimary, background: "#25D366" }} disabled={!texts[lang].trim() || !phone} onClick={send}>Send on WhatsApp</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
-function coldWaText(template, lead, salesName) {
+function OwnerAskModal({ unit, projectName, salesName, settings, onClose, onSent }) {
+  return <WaPickModal title="Ask the owner on WhatsApp" phone={unit.ownerNumber} onClose={onClose} onSent={onSent && (() => onSent(unit))}
+    sub={`${unit.ownerName || "Owner"} · ${unit.ownerNumber} · ${unit.type} ${unit.unitNumber}${projectName ? ` · ${projectName}` : ""}`}
+    make={(lang) => ownerAskText(lang === "ar" ? settings?.wa_owner_ar : settings?.wa_owner_en, lang, unit, projectName, salesName)} />;
+}
+const DEFAULT_COLD_WA_EN = "{greeting} 🌷 This is {sales} from Origin Real Estate, reaching out about your unit{in_project}. Are you considering selling it?";
+function coldWaText(template, lead, salesName, lang = "ar") {
   const h = new Date().getHours();
-  const greeting = h < 12 ? "صباح الخير" : "مساء الخير";
+  const ar = lang !== "en";
+  const greeting = ar ? (h < 12 ? "صباح الخير" : "مساء الخير") : (h < 12 ? "Good morning" : "Good evening");
   const project = lead.project_name || "";
-  return String(template || DEFAULT_COLD_WA)
+  return String(template || (ar ? DEFAULT_COLD_WA : DEFAULT_COLD_WA_EN))
     .replace(/\{greeting\}/g, greeting).replace(/\{sales\}/g, salesName || "")
-    .replace(/\{in_project\}/g, project ? ` في ${project}` : "").replace(/\{project\}/g, project)
+    .replace(/\{in_project\}/g, project ? (ar ? ` في ${project}` : ` in ${project}`) : "").replace(/\{project\}/g, project)
     .replace(/\{owner\}/g, lead.owner_name || "").replace(/\{unit\}/g, lead.unit_number || "");
 }
 const isTried = (l) => l.status !== "new" || l.attempts > 0;
@@ -3192,7 +3199,8 @@ function ColdOutcomeModal({ lead, onSave, onClose }) {
   );
 }
 
-function ColdLeadRow({ lead, template, salesName, onCall, onWhatsApp, onOutcome }) {
+function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp, onOutcome }) {
+  const [waPick, setWaPick] = useState(false);
   const tone = lead.status === "selling" ? COLORS.success : ["not_selling", "dnc", "wrong"].includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
   const big = { flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 42, borderRadius: 12, fontWeight: 800, fontSize: 13.5, textDecoration: "none", cursor: "pointer" };
   return (
@@ -3214,9 +3222,12 @@ function ColdLeadRow({ lead, template, salesName, onCall, onWhatsApp, onOutcome 
       {lead.extra && <div style={{ fontSize: 11.5, color: COLORS.textMuted, background: COLORS.cream, borderRadius: 8, padding: "4px 8px" }}>{lead.extra}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} aria-label="Call" style={{ ...big, background: COLORS.navy, color: "#fff" }}><Phone size={16} /> Call</a>
-        <a href={`https://wa.me/${waNumber(lead.phone)}?text=${encodeURIComponent(coldWaText(template, lead, salesName))}`} target="_blank" rel="noreferrer" onClick={() => onWhatsApp(lead)} aria-label="WhatsApp" style={{ ...big, background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</a>
+        <button onClick={() => setWaPick(true)} aria-label="WhatsApp" style={{ ...big, border: "none", background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</button>
         <button onClick={() => onOutcome(lead)} style={{ ...big, border: `1.5px solid ${COLORS.navy}`, background: "#fff", color: COLORS.navy }}>📝 Feedback</button>
       </div>
+      {waPick && <WaPickModal title="WhatsApp the owner" phone={lead.phone} onClose={() => setWaPick(false)} onSent={() => onWhatsApp(lead)}
+        sub={`${lead.owner_name || "Owner"} · ${lead.phone}${lead.project_name ? ` · ${lead.project_name}` : ""}`}
+        make={(lang) => coldWaText(lang === "ar" ? template : templateEn, lead, salesName, lang)} />}
     </div>
   );
 }
@@ -3357,6 +3368,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
     .sort((a, b) => order[a.st.state] - order[b.st.state] || (a.st.state === "upcoming" ? a.s.due_date.localeCompare(b.s.due_date) : b.s.due_date.localeCompare(a.s.due_date)));
   const toAdd = cold.leads.filter((l) => l.status === "selling" && l.unit_pending && !l.unit_id && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id));
   const template = settings?.wa_cold_template || DEFAULT_COLD_WA;
+  const templateEn = settings?.wa_cold_en || DEFAULT_COLD_WA_EN;
   const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet && (s.status || "active") === "active");
 
   const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} onClose={() => setOutcomeFor(null)} onSave={onOutcome} />;
@@ -3415,7 +3427,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
-                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
+                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />)}
               </div>
             )}
           </>
@@ -5261,17 +5273,21 @@ function BackupSettings({ ctx }) {
 function ColdTemplateSettings({ ctx }) {
   const { fin, act } = ctx;
   const [text, setText] = useState(fin.settings?.wa_cold_template || DEFAULT_COLD_WA);
+  const [textEn, setTextEn] = useState(fin.settings?.wa_cold_en || DEFAULT_COLD_WA_EN);
   const [saved, setSaved] = useState(false);
   const { busy, error, run } = useAction();
   return (
     <div style={{ ...finCard, gridColumn: "1 / -1" }}>
-      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Cold call WhatsApp message</div>
+      <div style={{ fontWeight: 600, fontSize: 14, color: COLORS.navy, marginBottom: 4 }}>Cold call WhatsApp messages (Arabic / English)</div>
       <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 8 }}>{"{greeting}"} becomes صباح الخير before 12 and مساء الخير after · {"{sales}"} the sales person · {"{in_project}"} " في" + the project (empty if no project) · {"{project}"} · {"{owner}"} · {"{unit}"}</div>
       <textarea dir="auto" rows={3} style={{ ...inputStyle, resize: "vertical" }} value={text} onChange={(e) => setText(e.target.value)} />
       <div style={{ fontSize: 12, color: COLORS.textMuted, margin: "6px 0" }}>Preview: <span dir="auto">{coldWaText(text, { project_name: "Westown", owner_name: "Ahmed", unit_number: "B-12" }, ctx.profile?.name || "Omar")}</span></div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.navy, marginTop: 6 }}>English</div>
+      <textarea dir="ltr" rows={3} style={{ ...inputStyle, resize: "vertical" }} value={textEn} onChange={(e) => setTextEn(e.target.value)} />
+      <div style={{ fontSize: 12, color: COLORS.textMuted, margin: "6px 0" }}>Preview: {coldWaText(textEn, { project_name: "Westown", owner_name: "Ahmed", unit_number: "B-12" }, ctx.profile?.name || "Omar", "en")}</div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => { setSaved(false); await act((tk) => db.update("finance_settings", 1, { wa_cold_template: text.trim() || null, updated_at: new Date().toISOString() }, tk)); setSaved(true); })}>Save message</button>
-        <button style={btnGhost} onClick={() => setText(DEFAULT_COLD_WA)}>Reset</button>
+        <button style={btnPrimary} disabled={busy} onClick={() => run(async () => { setSaved(false); await act((tk) => db.update("finance_settings", 1, { wa_cold_template: text.trim() || null, wa_cold_en: textEn.trim() || null, updated_at: new Date().toISOString() }, tk)); setSaved(true); })}>Save message</button>
+        <button style={btnGhost} onClick={() => { setText(DEFAULT_COLD_WA); setTextEn(DEFAULT_COLD_WA_EN); }}>Reset</button>
         {saved && <span style={{ color: COLORS.success, fontSize: 12.5 }}>Saved ✓</span>}
       </div>
       <FinError text={error} />
