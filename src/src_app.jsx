@@ -2956,6 +2956,28 @@ const COLD_HEADER_KEYS = {
   project: ["project", "compound", "المشروع", "الكمبوند", "مشروع", "كمبوند"],
   unit: ["unit", "villa", "apartment", "الوحدة", "وحدة", "رقمالوحدة"],
 };
+// Excel turns a unit typed like "8-1" into a date (a number such as 45665). Turn it back.
+const excelSerialDate = (v) => { const n = typeof v === "number" ? v : /^\d{5}$/.test(String(v || "").trim()) ? Number(v) : NaN; return n >= 36526 && n <= 55153 && Number.isInteger(n) ? new Date(Date.UTC(1899, 11, 30) + n * MS_DAY) : null; };
+function excelDateUnit(v, mainYear) {
+  const d = excelSerialDate(v); if (!d) return "";
+  const day = d.getUTCDate(), month = d.getUTCMonth() + 1, year = d.getUTCFullYear();
+  // "8-21" → 1 Aug 2021 (month-year); "8-1" → 8 Jan of the year it was typed (day-month)
+  if (day === 1 && mainYear && year !== mainYear) return `${month}-${String(year).slice(-2)}`;
+  return `${day}-${month}`;
+}
+const isMobileCell = (v) => phonesInCell(v).some((p) => /^01[0125]\d{8}$/.test(p));
+// Some sheets have no title row — the first row is already an owner
+function coldFirstRowIsHeader(grid) {
+  const r0 = grid[0] || [];
+  if (r0.some(isMobileCell)) return false;
+  const norm = (h) => String(h || "").toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, "");
+  const keys = [...COLD_HEADER_KEYS.name, ...COLD_HEADER_KEYS.project, ...COLD_HEADER_KEYS.unit, "phone", "mobile", "tel", "whatsapp", "موبايل", "تليفون", "هاتف", "محمول", "رقم", "number", "notes", "ملاحظات", "status"];
+  if (r0.some((h) => { const n = norm(h); return n && n.length <= 25 && keys.some((k) => n.includes(k)); })) return true;
+  // no title words: if the first row repeats what's under it (same project on every row), it's data
+  const body = grid.slice(1, 201);
+  const repeats = r0.some((v, j) => { const t = String(v || "").trim(); return t && body.filter((r) => String(r[j] || "").trim() === t).length >= Math.max(2, body.length * 0.3); });
+  return !repeats;
+}
 function guessColdColumns(grid) {
   const H = (grid[0] || []).map((h) => String(h).toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, ""));
   const body = grid.slice(1, 301);
@@ -2965,14 +2987,53 @@ function guessColdColumns(grid) {
   for (let j = 0; j < width; j++) {
     const filled = body.filter((r) => String(r[j] || "").trim()).length;
     if (!filled) continue;
-    const ok = body.filter((r) => phonesInCell(r[j]).some((p) => /^01[0125]\d{8}$/.test(p))).length;
-    const score = ok / filled + (/(phone|mobile|tel|whatsapp|موبايل|تليفون|هاتف|محمول)/.test(H[j]) ? 0.05 : 0);
+    const ok = body.filter((r) => isMobileCell(r[j])).length;
+    const score = ok / filled + (/(phone|mobile|tel|whatsapp|موبايل|تليفون|هاتف|محمول)/.test(H[j]) ? 0.05 : 0) + ok / Math.max(1, body.length) * 0.01;
     if (ok >= Math.max(1, filled * 0.3) && score > best) { best = score; phone = j; }
   }
   const find = (keys, not) => H.findIndex((h, j) => !not.includes(j) && keys.some((k) => h.includes(k)));
-  const unit = find(COLD_HEADER_KEYS.unit, [phone]);
-  const name = find(COLD_HEADER_KEYS.name, [phone, unit]);
-  const project = find(COLD_HEADER_KEYS.project, [phone, unit, name]);
+  let unit = find(COLD_HEADER_KEYS.unit, [phone]);
+  let name = find(COLD_HEADER_KEYS.name, [phone, unit]);
+  let project = find(COLD_HEADER_KEYS.project, [phone, unit, name]);
+  // no title words → guess from what the cells look like
+  const vals = (j) => body.map((r) => String(r[j] ?? "").trim()).filter(Boolean);
+  const phoneCols = [];
+  for (let j = 0; j < width; j++) { const v = vals(j); if (v.length && v.filter(isMobileCell).length >= v.length * 0.3) phoneCols.push(j); }
+  const taken = () => [phone, unit, name, project, ...phoneCols];
+  if (project < 0) {
+    let bp = -1, bs = 0;
+    for (let j = 0; j < width; j++) {
+      if (taken().includes(j)) continue;
+      const v = vals(j); if (v.length < 3) continue;
+      const counts = {}; v.forEach((x) => { counts[x] = (counts[x] || 0) + 1; });
+      const top = Math.max(...Object.values(counts));
+      const topVal = Object.keys(counts).find((k) => counts[k] === top);
+      if (/[a-zA-Z؀-ۿ]{3}/.test(topVal) && top / v.length >= 0.5 && top / v.length > bs) { bs = top / v.length; bp = j; }
+    }
+    project = bp;
+  }
+  if (name < 0) {
+    let bn = -1, bs = 0;
+    for (let j = 0; j < width; j++) {
+      if (taken().includes(j)) continue;
+      const v = vals(j); if (v.length < 3) continue;
+      const looks = v.filter((x) => x.length >= 4 && x.length <= 70 && !/\d{3}/.test(x) && /[a-zA-Z؀-ۿ]/.test(x) && x.trim().split(/\s+/).length >= 2).length / v.length;
+      const distinct = new Set(v).size / v.length;
+      if (looks >= 0.5 && distinct >= 0.5 && looks > bs) { bs = looks; bn = j; }
+    }
+    name = bn;
+  }
+  if (unit < 0) {
+    let bu = -1, bs = 0;
+    for (let j = 0; j < width; j++) {
+      if (taken().includes(j)) continue;
+      const v = vals(j); if (v.length < 3) continue;
+      const looks = v.filter((x) => x.length <= 12 && /\d/.test(x) && !isMobileCell(x)).length / v.length;
+      const distinct = new Set(v).size / v.length;
+      if (looks >= 0.6 && distinct >= 0.6 && looks > bs) { bs = looks; bu = j; }
+    }
+    unit = bu;
+  }
   return { phone, name, unit, project };
 }
 function downloadColdSample() {
@@ -2981,8 +3042,16 @@ function downloadColdSample() {
 }
 
 function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
-  const [grid, setGrid] = useState(null);
+  const [raw, setRaw] = useState(null);
+  const [hasHeader, setHasHeader] = useState(true);
   const [cols, setCols] = useState({ phone: -1, name: -1, unit: -1, project: -1 });
+  const letter = (j) => (j < 26 ? String.fromCharCode(65 + j) : `${String.fromCharCode(64 + Math.floor(j / 26))}${String.fromCharCode(65 + (j % 26))}`);
+  const grid = useMemo(() => {
+    if (!raw) return null;
+    if (hasHeader) return raw;
+    const w = Math.max(...raw.slice(0, 50).map((r) => r.length), 0);
+    return [Array.from({ length: w }, (_, j) => `Column ${letter(j)}`), ...raw];
+  }, [raw, hasHeader]); // eslint-disable-line
   const [projectAll, setProjectAll] = useState("");
   const [known, setKnown] = useState({});
   const [fileName, setFileName] = useState("");
@@ -3000,20 +3069,33 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
     setErr(""); setFileName(f.name); setName(f.name.replace(/\.(xlsx|csv|txt|tsv)$/i, "")); setReading(true);
     try {
       const g = await readSheetFile(f);
-      if (g.length < 2) throw new Error("The file looks empty.");
-      const c = guessColdColumns(g);
+      if (g.length < 1) throw new Error("The file looks empty.");
+      const head = coldFirstRowIsHeader(g);
+      const w = Math.max(...g.slice(0, 50).map((r) => r.length), 0);
+      const full = head ? g : [Array.from({ length: w }, (_, j) => `Column ${letter(j)}`), ...g];
+      if (full.length < 2) throw new Error("The file looks empty.");
+      const c = guessColdColumns(full);
       if (c.phone < 0) throw new Error("Couldn't find a column with mobile numbers. Choose it below or check the file.");
-      setGrid(g); setCols(c);
-    } catch (e2) { setErr(e2.message || "Could not read the file"); setGrid(null); }
+      setRaw(g); setHasHeader(head); setCols(c);
+    } catch (e2) { setErr(e2.message || "Could not read the file"); setRaw(null); }
     setReading(false);
   };
   const headers = grid ? Array.from({ length: Math.max(...grid.slice(0, 50).map((r) => r.length)) }, (_, j) => String(grid[0][j] || "").trim() || `Column ${j + 1}`) : [];
   const rows = useMemo(() => {
     if (!grid || cols.phone < 0) return null;
     const seen = new Set();
-    const used = new Set([cols.phone, cols.name, cols.project, cols.unit]);
+    const width = Math.max(...grid.slice(0, 301).map((r) => r.length), 0);
+    const otherPhoneCols = [];
+    for (let j = 0; j < width; j++) { if (j === cols.phone) continue; const v = grid.slice(1, 301).map((r) => String(r[j] ?? "").trim()).filter(Boolean); if (v.length && v.filter(isMobileCell).length >= v.length * 0.3) otherPhoneCols.push(j); }
+    const used = new Set([cols.phone, cols.name, cols.project, cols.unit, ...otherPhoneCols]);
+    // units like "8-1" that Excel turned into dates: find the year most of them landed in
+    const yrs = {}; if (cols.unit >= 0) grid.slice(1).forEach((r) => { const d = excelSerialDate(r[cols.unit]); if (d) yrs[d.getUTCFullYear()] = (yrs[d.getUTCFullYear()] || 0) + 1; });
+    const unitTexts = cols.unit >= 0 ? grid.slice(1).map((r) => String(r[cols.unit] ?? "").trim()).filter((x) => x && !excelSerialDate(x)) : [];
+    const dashy = unitTexts.length > 0 && unitTexts.filter((x) => /^\d{1,3}\s*[-/]\s*\d{1,3}$/.test(x)).length >= unitTexts.length * 0.3;
+    const unitYear = Number(Object.keys(yrs).sort((a, b) => yrs[b] - yrs[a])[0]) || null;
     return grid.slice(1).map((r, i) => {
-      const all = phonesInCell(r[cols.phone]);
+      const all = [...phonesInCell(r[cols.phone]), ...otherPhoneCols.flatMap((j) => phonesInCell(r[j]).filter((p) => /^01[0125]\d{8}$/.test(p)))]
+        .filter((p, k, a) => a.indexOf(p) === k).sort((a, b) => (/^01[0125]\d{8}$/.test(b) ? 1 : 0) - (/^01[0125]\d{8}$/.test(a) ? 1 : 0));
       const phone = all[0] || "";
       const key = phoneKey(phone);
       const repeated = key && seen.has(key); if (key) seen.add(key);
@@ -3022,7 +3104,10 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
       if (all.length > 1) extraParts.unshift(`Other numbers: ${all.slice(1).join(" / ")}`);
       const project = projectAll || (cols.project >= 0 ? r[cols.project] : "");
       const reason = !phone ? "No number" : !/^0\d{9,10}$/.test(phone) ? "Not a phone number" : repeated ? "Repeated in this sheet" : "";
-      return { i, phone, key, owner_name: cols.name >= 0 ? r[cols.name] : "", project_name: project, unit_number: cols.unit >= 0 ? r[cols.unit] : "", extra: extraParts.join(" · "), reason, repeated, invalid: !!reason && !repeated };
+      let unitNo = cols.unit >= 0 ? r[cols.unit] : "";
+      const fixed = dashy ? excelDateUnit(unitNo, unitYear) : "";
+      if (fixed) { extraParts.unshift(`Unit was saved by Excel as a date (${unitNo}) — check it`); unitNo = fixed; }
+      return { i, phone, key, owner_name: cols.name >= 0 ? r[cols.name] : "", project_name: project, unit_number: unitNo, extra: extraParts.join(" · "), reason, repeated, invalid: !!reason && !repeated };
     });
   }, [grid, cols, projectAll]); // eslint-disable-line
   useEffect(() => { // check which numbers are already in the CRM
@@ -3078,11 +3163,17 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
         <div style={{ fontWeight: 800, color: COLORS.navy }}>{selfOnly ? "Upload my cold-call sheet" : "Upload a cold-call sheet"}</div>
         <button type="button" onClick={downloadColdSample} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>⬇ Download sample sheet</button>
       </div>
-      <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Excel (.xlsx) or CSV with headers in the first row. Numbers already in the CRM (clients, unit owners, other sheets) are skipped.{selfOnly ? " Your manager approves the sheet before you can call from it." : ""}</div>
+      <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Excel (.xlsx) or CSV — a title row (Name, Phone…) is optional. Numbers already in the CRM (clients, unit owners, other sheets) are skipped.{selfOnly ? " Your manager approves the sheet before you can call from it." : ""}</div>
       <label className="drop" style={{ border: `2px dashed ${COLORS.border}`, borderRadius: 14, padding: 18, textAlign: "center", cursor: "pointer", color: COLORS.navy, fontWeight: 700, fontSize: 13.5, background: COLORS.cream }}>
         {reading ? "Reading the file…" : fileName || "Choose the Excel file"}
         <input type="file" accept=".xlsx,.csv,.tsv,.txt" onChange={onFile} style={{ display: "none" }} />
       </label>
+      {grid && (
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, color: COLORS.navy }}>
+          <input type="checkbox" checked={hasHeader} onChange={(e) => { const h = e.target.checked; setHasHeader(h); const w = Math.max(...raw.slice(0, 50).map((r) => r.length), 0); const c = guessColdColumns(h ? raw : [Array.from({ length: w }, (_, j) => `Column ${letter(j)}`), ...raw]); setCols(c); }} />
+          The first row has titles (Name, Phone…){!hasHeader ? " — no titles found, so the first row is read as an owner" : ""}
+        </label>
+      )}
       {grid && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, background: COLORS.cream, padding: 10, borderRadius: 12 }}>
           {colSelect("phone", "Phone column")}
@@ -3104,7 +3195,7 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
           </div>
           {showBad && bad.length > 0 && (
             <div style={{ maxHeight: 160, overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 12, fontSize: 12.5 }}>
-              {bad.slice(0, 300).map((r) => <div key={r.i} style={{ padding: "5px 10px", borderBottom: `1px solid ${COLORS.border}` }}>Row {r.i + 2}: <b>{String(grid[r.i + 1][cols.phone] || "(empty)")}</b> — {r.reason}</div>)}
+              {bad.slice(0, 300).map((r) => <div key={r.i} style={{ padding: "5px 10px", borderBottom: `1px solid ${COLORS.border}` }}>Row {r.i + (hasHeader ? 2 : 1)}: <b>{String(grid[r.i + 1][cols.phone] || "(empty)")}</b> — {r.reason}</div>)}
             </div>
           )}
           {!projectAll && cols.project < 0 && <div style={{ fontSize: 12.5, color: COLORS.danger }}>⚠️ No project — the WhatsApp message won't say which project. Choose “Project for the whole sheet”.</div>}
