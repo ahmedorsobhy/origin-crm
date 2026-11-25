@@ -76,6 +76,9 @@ with fn as (
       and exists (select 1 from pg_proc where proname = 'is_client_feedback') and exists (select 1 from pg_constraint where conname like 'unit_activity_action%' and pg_get_constraintdef(oid) like '%checked%')),
   ('40 Cold numbers count once a day (phone saved on calls)', exists (select 1 from col where c = 'cold_activity.phone') and exists (select 1 from pg_trigger where tgname = 'trg_cold_activity_phone')
       and exists (select 1 from pg_proc where proname = 'sales_ranking' and prosrc like '%Africa/Cairo%')),
+  ('41 Moved numbers arrive new + Don''t call again list', exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'cold_dnc')
+      and exists (select 1 from pg_trigger where tgname = 'trg_cold_mark_dnc') and exists (select 1 from pg_proc where proname = 'cold_move_leads' and prosrc like '%attempts = 0%')
+      and exists (select 1 from pg_proc where proname = 'known_phones' and prosrc like '%cold_dnc%')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;

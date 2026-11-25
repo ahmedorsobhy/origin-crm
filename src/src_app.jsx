@@ -3219,14 +3219,16 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
       const keys = Array.from(new Set(rows.filter((x) => !x.reason).map((x) => x.phone)));
       const out = {};
       for (let k = 0; k < keys.length; k += 500) {
-        try { (await db.rpc("known_phones", { p_phones: keys.slice(k, k + 500) }, await getToken()) || []).forEach((x) => { out[x.phone_key] = out[x.phone_key] || x.kind; }); } catch (e2) {}
+        try { (await db.rpc("known_phones", { p_phones: keys.slice(k, k + 500) }, await getToken()) || []).forEach((x) => { out[x.phone_key] = x.kind === "dnc" ? "dnc" : out[x.phone_key] || x.kind; }); } catch (e2) {}
       }
       if (!off) setKnown(out);
     })();
     return () => { off = true; };
   }, [rows && rows.map((r) => r.key).join(",")]); // eslint-disable-line
   const withKnown = rows ? rows.map((x) => ({ ...x, known: !x.reason ? known[x.key] || null : null })) : [];
-  const usable = withKnown.filter((r) => !r.reason && (includeKnown || !r.known));
+  // Don't-call-again numbers are uploaded (with a warning), even when "already in the CRM" numbers are skipped
+  const usable = withKnown.filter((r) => !r.reason && (includeKnown || !r.known || r.known === "dnc"));
+  const dncRows = withKnown.filter((r) => r.known === "dnc");
   const bad = withKnown.filter((r) => r.reason);
   const projectIdFor = (n) => { const t = String(n || "").trim().toLowerCase(); return t ? projects.find((p) => p.name.toLowerCase() === t)?.id || null : null; };
   const upload = async () => {
@@ -3300,7 +3302,7 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
         <>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <FinStat label="Ready to upload" value={usable.length} tone="success" />
-            <FinStat label="Already in the CRM" value={withKnown.filter((r) => r.known).length} sub={includeKnown ? "included" : "skipped"} />
+            <FinStat label="Already in the CRM" value={withKnown.filter((r) => r.known && r.known !== "dnc").length} sub={includeKnown ? "included" : "skipped"} />
             <FinStat label="Bad or repeated" value={bad.length} sub={bad.length ? <button onClick={() => setShowBad(!showBad)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 11.5 }}>{showBad ? "Hide" : "See why"}</button> : null} />
           </div>
           {showBad && bad.length > 0 && (
@@ -3308,6 +3310,7 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
               {bad.slice(0, 300).map((r) => <div key={r.i} style={{ padding: "5px 10px", borderBottom: `1px solid ${COLORS.border}` }}>Row {r.i + (hasHeader ? 2 : 1)}: <b>{String(grid[r.i + 1][cols.phone] || "(empty)")}</b> — {r.reason}</div>)}
             </div>
           )}
+          {dncRows.length > 0 && <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", background: COLORS.danger, borderRadius: 12, padding: "9px 12px" }}>⛔ {dncRows.length} {dncRows.length === 1 ? "number in this file was" : "numbers in this file were"} marked DON'T CALL AGAIN before. They will be uploaded with a red warning on each one.</div>}
           {!projectAll && cols.project < 0 && <div style={{ fontSize: 12.5, color: COLORS.danger }}>⚠️ No project — the WhatsApp message won't say which project. Choose “Project for the whole sheet”.</div>}
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}><input type="checkbox" checked={includeKnown} onChange={(e) => setIncludeKnown(e.target.checked)} /> Include numbers already in the CRM</label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
@@ -3329,7 +3332,7 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
               <tbody>{withKnown.slice(0, 200).map((r) => (
                 <tr key={r.i}><td style={tdStyle}>{r.owner_name || "—"}</td><td style={tdStyle}>{r.phone || "—"}</td><td style={tdStyle}>{r.project_name || "—"}</td><td style={tdStyle}>{r.unit_number || "—"}</td>
                   <td style={{ ...tdStyle, maxWidth: 220, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.extra}>{r.extra || ""}</td>
-                  <td style={tdStyle}>{r.reason ? <Badge tone={r.repeated ? "neutral" : "hold"}>{r.reason}</Badge> : r.known ? <Badge tone="pending">In CRM ({r.known})</Badge> : <Badge tone="active">New</Badge>}</td></tr>
+                  <td style={tdStyle}>{r.reason ? <Badge tone={r.repeated ? "neutral" : "hold"}>{r.reason}</Badge> : r.known === "dnc" ? <Badge tone="hold">⛔ Don't call again</Badge> : r.known ? <Badge tone="pending">In CRM ({r.known})</Badge> : <Badge tone="active">New</Badge>}</td></tr>
               ))}</tbody>
             </table>
           </div>
@@ -3534,7 +3537,8 @@ const coldOtherPhones = (l) => {
   return m ? m[1].split("/").map((x) => cleanPhone(x)).filter((p) => isValidPhone(p) && phoneKey(p) !== phoneKey(l.phone)) : [];
 };
 const coldExtraText = (l) => String(l.extra || "").replace(/Other numbers: [^·]+(· )?/, "").trim().replace(/^·\s*|\s*·$/g, "");
-function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp, onOutcome, onAddUnit, ownerLabel }) {
+function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp, onOutcome, onAddUnit, ownerLabel, dnc, dncBy }) {
+  const dncAsk = (e) => { if (dnc && !window.confirm(`⛔ This number was marked DON'T CALL AGAIN${dncBy ? ` by ${dncBy}` : ""} on ${formatDate(dnc.marked_at)}.\n\nCall anyway?`)) { if (e) e.preventDefault(); return false; } return true; };
   const [waPick, setWaPick] = useState(false);
   const [waPhone, setWaPhone] = useState(lead.phone);
   const others = coldOtherPhones(lead);
@@ -3555,6 +3559,7 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
           </span>
         )}
       </div>
+      {dnc && <div style={{ fontSize: 12.5, fontWeight: 800, color: "#fff", background: COLORS.danger, borderRadius: 10, padding: "7px 10px" }}>⛔ Don't call again — marked{dncBy ? ` by ${dncBy}` : ""} on {formatDate(dnc.marked_at)}</div>}
       {lead.status === "call_later" && lead.callback_at && <div style={{ fontSize: 12, color: callbackDue(lead) ? COLORS.danger : COLORS.gold, fontWeight: 700 }}>⏰ {callbackDue(lead) ? "Call back now" : `Call back ${formatDateTime(lead.callback_at)}`}</div>}
       {unitWaiting(lead) && <div style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700 }}>🏠 Unit not added yet{onAddUnit ? <button onClick={() => onAddUnit(lead)} style={{ marginLeft: 8, border: "none", background: COLORS.gold, color: "#fff", borderRadius: 999, padding: "3px 10px", fontWeight: 700, fontSize: 11.5, cursor: "pointer" }}>Add now</button> : null}</div>}
       {lead.status === "later" && <div style={{ fontSize: 12, color: laterDue(lead) ? COLORS.danger : COLORS.gold, fontWeight: 700 }}>📅 {laterDue(lead) ? "Call again now" : `Call again ${formatDate(lead.callback_at)}`}</div>}
@@ -3563,13 +3568,13 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
       {others.map((p) => (
         <div key={p} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, background: "#FBF1E6", borderRadius: 10, padding: "5px 8px" }}>
           <span style={{ flex: 1, color: COLORS.navy }}>Other number: <b dir="ltr">{p}</b></span>
-          <a href={`tel:${p}`} onClick={() => onCall(lead)} aria-label="Call other number" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "4px 12px", fontWeight: 700, fontSize: 12, textDecoration: "none" }}>📞 Call</a>
-          <button onClick={() => { setWaPhone(p); setWaPick(true); }} aria-label="WhatsApp other number" style={{ border: "none", background: "#25D366", color: "#fff", borderRadius: 999, padding: "4px 10px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>💬</button>
+          <a href={`tel:${p}`} onClick={(e) => { if (dncAsk(e)) onCall(lead); }} aria-label="Call other number" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "4px 12px", fontWeight: 700, fontSize: 12, textDecoration: "none" }}>📞 Call</a>
+          <button onClick={() => { if (!dncAsk()) return; setWaPhone(p); setWaPick(true); }} aria-label="WhatsApp other number" style={{ border: "none", background: "#25D366", color: "#fff", borderRadius: 999, padding: "4px 10px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>💬</button>
         </div>
       ))}
       <div style={{ display: "flex", gap: 8 }}>
-        <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} aria-label="Call" style={{ ...big, background: COLORS.navy, color: "#fff" }}><Phone size={16} /> Call</a>
-        <button onClick={() => { setWaPhone(lead.phone); setWaPick(true); }} aria-label="WhatsApp" style={{ ...big, border: "none", background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</button>
+        <a href={`tel:${lead.phone}`} onClick={(e) => { if (dncAsk(e)) onCall(lead); }} aria-label="Call" style={{ ...big, background: COLORS.navy, color: "#fff" }}><Phone size={16} /> Call</a>
+        <button onClick={() => { if (!dncAsk()) return; setWaPhone(lead.phone); setWaPick(true); }} aria-label="WhatsApp" style={{ ...big, border: "none", background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</button>
         <button onClick={() => onOutcome(lead)} style={{ ...big, border: `1.5px solid ${COLORS.navy}`, background: "#fff", color: COLORS.navy }}>📝 Feedback</button>
       </div>
       {waPick && <WaPickModal title="WhatsApp the owner" phone={waPhone} onClose={() => setWaPick(false)} onSent={() => onWhatsApp(lead)}
@@ -3617,7 +3622,7 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
   const { busy, error, run } = useAction();
   const people = users.filter((u) => u.id !== profile.id && u.id !== sheet.assigned_to && visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
   const n = {
-    all: leads.filter((l) => l.status !== "selling").length,
+    all: leads.filter((l) => !["selling", "dnc"].includes(l.status)).length,
     new: leads.filter((l) => l.status === "new").length,
     retry: leads.filter((l) => ["no_answer", "off_busy", "call_later", "not_selling"].includes(l.status)).length,
     everything: leads.filter((l) => l.status !== "later").length,
@@ -3648,7 +3653,8 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
             {people.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.danger }}>There's nobody else in your team to move these numbers to.</div>}
             <Opt v="new" cur={mode} set={setMode} label="Numbers nobody called yet" />
             <Opt v="retry" cur={mode} set={setMode} label="Call them again" sub="No answer, phone off / busy, call back later and not selling — they start fresh with the new person" />
-            <Opt v="all" cur={mode} set={setMode} label="All numbers" sub="Everything except owners who said they're selling (for-sale-later numbers move too)" />
+            <Opt v="all" cur={mode} set={setMode} label="All numbers" sub="Everything except owners who said they're selling and Don't call again" />
+            <div style={{ fontSize: 12, color: COLORS.navy, background: "#EEF3FB", padding: 8, borderRadius: 10 }}>🔄 Moved numbers arrive <b>new</b> — no feedback, no tries, no callback, like nobody called them before.</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Field label="How many (optional — to split)"><input type="number" min="1" style={{ ...inputStyle, width: 150 }} value={count} onChange={(e) => setCount(e.target.value)} placeholder={`all ${n[mode]}`} /></Field>
               <Field label="Due day"><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
@@ -3755,6 +3761,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const [fv, setF, resetF, setAllF] = useFilters("cold", { q: "", salesId: isManager ? "" : profile.id, state: "", due: { p: "" } });
   const sales = users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
   const nm = (id) => users.find((u) => u.id === id)?.name || "";
+  const dncMap = useMemo(() => Object.fromEntries((cold.dnc || []).map((d) => [d.phone_key, d])), [cold.dnc]);
   const withState = cold.sheets.filter((s) => (s.status || "active") === "active").map((s) => ({ s, st: sheetState(s, cold.leads) }));
   const order = { late: 0, today: 1, upcoming: 2, done: 3 };
   const list = withState.filter(({ s, st }) => (!fv.salesId || s.assigned_to === fv.salesId) && (!fv.state || st.state === fv.state) && inDate(`${s.due_date}T12:00:00`, fv.due) && (!(fv.q || "").trim() || s.name.toLowerCase().includes(fv.q.trim().toLowerCase())))
@@ -3833,7 +3840,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick.length ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
-                {shown.slice(0, leadLimit).map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} onAddUnit={l.assigned_to === profile.id ? onAddUnit : null} />)}
+                {shown.slice(0, leadLimit).map((l) => <ColdLeadRow key={l.id} lead={l} dnc={coldDncFor(l, dncMap)} dncBy={nm(coldDncFor(l, dncMap)?.marked_by)} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} onAddUnit={l.assigned_to === profile.id ? onAddUnit : null} />)}
               </div>
             )}
             {shown.length > leadLimit && (
@@ -3887,7 +3894,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               {laterList.map((l) => (
                 <div key={l.id}>
                   {isManager && <div style={{ fontSize: 11.5, color: COLORS.textMuted, margin: "0 0 3px 4px" }}>{nm(l.assigned_to)}</div>}
-                  <ColdLeadRow lead={l} template={template} templateEn={templateEn} salesName={nm(l.assigned_to) || profile.name} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />
+                  <ColdLeadRow lead={l} dnc={coldDncFor(l, dncMap)} dncBy={nm(coldDncFor(l, dncMap)?.marked_by)} template={template} templateEn={templateEn} salesName={nm(l.assigned_to) || profile.name} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} />
                 </div>
               ))}
             </div>
@@ -6611,6 +6618,12 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
 }
 
 // A feedback on a client (not the automatic lines) — same rule as the ranking (is_client_feedback in SQL)
+// Don't-call-again info for a lead (its main number or any other number), or null
+const coldDncFor = (lead, dncMap) => {
+  if (!lead || !dncMap) return null;
+  for (const p of [lead.phone, ...(Array.isArray(lead.other_phones) ? lead.other_phones : [])]) { const d = dncMap[phoneKey(p)]; if (d) return d; }
+  return null;
+};
 const cairoDay = (iso) => { try { return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" }); } catch (e) { return String(iso).slice(0, 10); } };
 const isClientFeedback = (a) => ["quick_reply", "stage_change", "note", "voice", "closed", "outcome"].includes(a.action)
   && !/^(Sent a unit|Lead came in again|Changed by Admin)/.test(a.note || "");
@@ -6638,7 +6651,7 @@ function DailyReport({ profile, users, visibleSalesIds, clients, activity, units
           db.selectAll("cold_activity", q, t).catch(() => []),
           db.selectAll("unit_activity", q, t).catch(() => []),
         ]);
-        const ids = [...new Set(cold.map((a) => a.lead_id))];
+        const ids = [...new Set(cold.map((a) => a.lead_id).filter(Boolean))]; // numbers from deleted sheets have no id
         const leads = {};
         for (let k = 0; k < ids.length; k += 150) {
           const rows = await db.select("cold_leads", `&id=in.(${ids.slice(k, k + 150).join(",")})&select=id,owner_name,phone,project_name`, t).catch(() => []);
@@ -10845,7 +10858,7 @@ export default function App() {
   }, [fin.loaded, fin.deals]); // eslint-disable-line
 
   // ---- cold calls ----
-  const [cold, setCold] = useState({ sheets: [], leads: [], activity: [], loaded: false, error: "" });
+  const [cold, setCold] = useState({ sheets: [], leads: [], activity: [], dnc: [], loaded: false, error: "" });
   const coldSyncRef = useRef({ running: null, last: 0 });
   // Changes made on this phone are shown at once and kept until a reload that started after them comes back,
   // so a reload that was already on its way can't put old data back on the screen.
@@ -10866,10 +10879,11 @@ export default function App() {
       try {
         const t = tk || await getValidToken();
         const since = new Date(Date.now() - 120 * MS_DAY).toISOString();
-        const [sheets, leads, activity] = await Promise.all([
+        const [sheets, leads, activity, dnc] = await Promise.all([
           db.selectAll("cold_sheets", "&order=due_date.desc", t),
           db.selectAll("cold_leads", "&order=position", t),
           db.selectAll("cold_activity", `&created_at=gte.${since}&order=created_at.desc`, t),
+          db.selectAll("cold_dnc", "&order=phone_key", t).catch(() => []),
         ]);
         const loc = coldLocalRef.current;
         Object.keys(loc.patches).forEach((id) => { if (loc.patches[id].at < startedAt - 1000) delete loc.patches[id]; });
@@ -10877,7 +10891,7 @@ export default function App() {
         const seenActs = new Set((activity || []).map((a) => a.id));
         const freshLeads = (leads || []).map((l) => (loc.patches[l.id] ? { ...l, ...loc.patches[l.id].patch } : l));
         const freshActs = [...loc.acts.map((x) => x.act).filter((a) => !seenActs.has(a.id)), ...(activity || [])];
-        setCold({ sheets: sheets || [], leads: freshLeads, activity: freshActs, loaded: true, error: "" });
+        setCold({ sheets: sheets || [], leads: freshLeads, activity: freshActs, dnc: dnc || [], loaded: true, error: "" });
         coldSyncRef.current.last = Date.now();
       } catch (e) {
         setCold((c) => ({ ...c, loaded: true, error: e.message || "Couldn't load the sheets" }));
@@ -10967,6 +10981,7 @@ export default function App() {
     const rows = await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: "outcome", value: status }, t);
     const row = (Array.isArray(rows) ? rows[0] : rows) || { id: `local-${Date.now()}`, lead_id: lead.id, user_id: profile.id, action: "outcome", value: status, created_at: new Date().toISOString() };
     applyColdLocal(lead.id, patch, row);
+    if (status === "dnc") setCold((c) => ({ ...c, dnc: [...(c.dnc || []), ...[lead.phone, ...(lead.other_phones || [])].map((p) => ({ phone_key: phoneKey(p), phone: p, marked_by: profile.id, marked_at: new Date().toISOString() }))] }));
     bumpDaily(profile.id, "update");
     if (status === "selling") celebrate("deal", `${lead.owner_name || lead.phone} wants to sell${lead.project_name ? ` · ${lead.project_name}` : ""}`);
     if (extra.addNow) startUnitFromCold(lead);
