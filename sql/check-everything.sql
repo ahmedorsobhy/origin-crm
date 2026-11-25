@@ -69,6 +69,7 @@ with fn as (
   ('35 Cold results (sell later, sold, with us, off/busy) + reminders + CEO manages users', exists (select 1 from pg_constraint where conname = 'cold_leads_status_check' and pg_get_constraintdef(oid) like '%with_us%')
       and exists (select 1 from col where c = 'cold_leads.note') and exists (select 1 from fn where proname = 'cold_reminders')
       and exists (select 1 from pg_policies where tablename = 'projects' and policyname = 'admin write projects' and with_check like '%is_finance_admin%')),
+  ('36 Cold calls: second numbers', exists (select 1 from col where c = 'cold_leads.other_phones')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
