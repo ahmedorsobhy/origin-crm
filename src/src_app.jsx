@@ -11,7 +11,7 @@ const SUPABASE_URL = "https://sinfiowpvosyfgopmfka.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpbmZpb3dwdm9zeWZnb3BtZmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4NjU2MDYsImV4cCI6MjEwNDQ0MTYwNn0.Atv_b_hWN8zSF5GgDPgwFL1rO2xzrUthYX7w2InMM9U";
 
 // ---------- Minimal Supabase REST client (no external libraries) ----------
-async function sbRequest(path, { method = "GET", body, accessToken, headers = {} } = {}) {
+async function sbRequest(path, { method = "GET", body, accessToken, headers = {}, withCount = false } = {}) {
   const res = await fetch(`${SUPABASE_URL}${path}`, {
     method,
     headers: {
@@ -29,6 +29,7 @@ async function sbRequest(path, { method = "GET", body, accessToken, headers = {}
     const msg = (data && (data.msg || data.message || data.error_description || data.error)) || res.statusText;
     throw new Error(msg);
   }
+  if (withCount) { const m = /\/(\d+)$/.exec(res.headers.get("content-range") || ""); return { data, total: m ? Number(m[1]) : null }; }
   return data;
 }
 
@@ -66,16 +67,32 @@ const db = {
     sbRequest(`/rest/v1/${table}?on_conflict=${onConflict}`, { method: "POST", body: rows, accessToken, headers: { Prefer: "resolution=merge-duplicates,return=representation" } }),
   rpc: (fn, args, accessToken) => sbRequest(`/rest/v1/rpc/${fn}`, { method: "POST", body: args, accessToken }),
   // Reads every row (Supabase returns max 1000 per request)
+  // Every row of a table, 1000 at a time. A tie-breaker on id keeps the pages from skipping or repeating
+  // rows, and after the first page the rest are fetched in parallel (much faster on big tables).
   selectAll: async (table, query = "", accessToken) => {
-    const out = [];
-    for (let offset = 0; ; offset += 1000) {
-      const rows = await sbRequest(`/rest/v1/${table}?select=*${query}&limit=1000&offset=${offset}`, { accessToken });
-      out.push(...(rows || []));
-      if (!rows || rows.length < 1000) break;
+    const q = /&order=/.test(query) && !/[,=]id\.(asc|desc)/.test(query) && SELECT_ALL_HAS_ID.has(table) ? query.replace(/(&order=[^&]*)/, "$1,id.asc") : query;
+    const url = (offset) => `/rest/v1/${table}?select=*${q}&limit=1000&offset=${offset}`;
+    const first = await sbRequest(url(0), { accessToken, withCount: true, headers: { Prefer: "count=exact" } });
+    const out = [...(first.data || [])];
+    if (!first.data || first.data.length < 1000) return out;
+    if (first.total == null) {
+      for (let offset = 1000; ; offset += 1000) {
+        const rows = await sbRequest(url(offset), { accessToken });
+        out.push(...(rows || []));
+        if (!rows || rows.length < 1000) break;
+      }
+      return out;
     }
-    return out;
+    const offsets = []; for (let o = 1000; o < first.total; o += 1000) offsets.push(o);
+    const pages = new Array(offsets.length);
+    let next = 0;
+    const worker = async () => { while (next < offsets.length) { const k = next++; pages[k] = (await sbRequest(url(offsets[k]), { accessToken })) || []; } };
+    await Promise.all(Array.from({ length: Math.min(4, offsets.length) }, worker));
+    pages.forEach((rows) => out.push(...rows));
+    const seen = new Set(); return out.filter((r) => (r && r.id ? (seen.has(r.id) ? false : (seen.add(r.id), true)) : true));
   },
 };
+const SELECT_ALL_HAS_ID = new Set(["units", "clients", "client_activity", "cold_leads", "cold_sheets", "cold_activity", "finance_transactions", "deals", "profiles"]);
 
 // Phone photos are 3–6 MB; shrink to max 1600px JPEG (~250 KB) so the free 1 GB lasts for thousands of photos
 async function shrinkImage(file, maxSide = 1600, quality = 0.82) {
@@ -3006,8 +3023,12 @@ function lateText(st) { return st.state === "late" ? (st.daysLate === 1 ? "from 
 function phonesInCell(raw) {
   const str = String(raw || "");
   const found = [];
-  const re = /(?:\+?\s*20|0020)?[\s-]*0?1[0125](?:[\s.-]?\d){8}/g; let m;
-  while ((m = re.exec(str))) { const p = cleanPhone(m[0]); if (phoneKey(p).length >= 10 && !found.includes(p)) found.push(p); }
+  // (a number must not sit inside a longer run of digits — 971551112222 is not 01551112222)
+  const re = /(^|[^\d+])((?:\+?\s*20|0020)?[\s-]*0?1[0125](?:[\s.-]?\d){8})(?!\d)/g; let m;
+  while ((m = re.exec(str))) { const p = cleanPhone(m[2]); if (phoneKey(p).length >= 10 && !found.includes(p)) found.push(p); }
+  // international numbers (+971…, 00966…)
+  const intl = /(^|[^\d])((?:\+|00)\s*[1-9][\d\s().-]{7,18}\d)/g;
+  while ((m = intl.exec(str))) { const p = cleanPhone(m[2]); if (isIntlPhone(p) && !p.startsWith("+20") && !found.includes(p)) found.push(p); }
   if (!found.length) { const p = cleanPhone(str); if (p) found.push(p); }
   return found;
 }
@@ -3025,7 +3046,7 @@ function excelDateUnit(v, mainYear) {
   if (day === 1 && mainYear && year !== mainYear) return `${month}-${String(year).slice(-2)}`;
   return `${day}-${month}`;
 }
-const isMobileCell = (v) => phonesInCell(v).some((p) => /^01[0125]\d{8}$/.test(p));
+const isMobileCell = (v) => phonesInCell(v).some((p) => /^01[0125]\d{8}$/.test(p) || isIntlPhone(p));
 // Some sheets have no title row — the first row is already an owner
 function coldFirstRowIsHeader(grid) {
   const r0 = grid[0] || [];
@@ -3154,20 +3175,21 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
     const dashy = unitTexts.length > 0 && unitTexts.filter((x) => /^\d{1,3}\s*[-/]\s*\d{1,3}$/.test(x)).length >= unitTexts.length * 0.3;
     const unitYear = Number(Object.keys(yrs).sort((a, b) => yrs[b] - yrs[a])[0]) || null;
     return grid.slice(1).map((r, i) => {
-      const all = [...phonesInCell(r[cols.phone]), ...otherPhoneCols.flatMap((j) => phonesInCell(r[j]).filter((p) => /^01[0125]\d{8}$/.test(p)))]
-        .filter((p, k, a) => a.indexOf(p) === k).sort((a, b) => (/^01[0125]\d{8}$/.test(b) ? 1 : 0) - (/^01[0125]\d{8}$/.test(a) ? 1 : 0));
+      const good = (p) => /^01[0125]\d{8}$/.test(p) || isIntlPhone(p);
+      const all = [...phonesInCell(r[cols.phone]), ...otherPhoneCols.flatMap((j) => phonesInCell(r[j]).filter(good))]
+        .filter((p, k, a) => a.findIndex((x) => phoneKey(x) === phoneKey(p)) === k).sort((a, b) => (good(b) ? 1 : 0) - (good(a) ? 1 : 0));
       const phone = all[0] || "";
       const key = phoneKey(phone);
       const repeated = key && seen.has(key); if (key) seen.add(key);
       const taken = new Set([...used].filter((j) => j >= 0).map((j) => String(r[j] || "").trim()));
       const extraParts = headers.map((h, j) => (used.has(j) || !String(r[j] || "").trim() || taken.has(String(r[j]).trim()) ? null : `${h}: ${r[j]}`)).filter(Boolean);
-      if (all.length > 1) extraParts.unshift(`Other numbers: ${all.slice(1).join(" / ")}`);
       const project = projectAll || (cols.project >= 0 ? r[cols.project] : "");
-      const reason = !phone ? "No number" : !/^0\d{9,10}$/.test(phone) ? "Not a phone number" : repeated ? "Repeated in this sheet" : "";
+      const reason = !phone ? "No number" : !isValidPhone(phone) ? "Not a phone number" : repeated ? "Repeated in this sheet" : "";
+      const others = all.slice(1).filter(isValidPhone);
       let unitNo = cols.unit >= 0 ? r[cols.unit] : "";
       const fixed = dashy ? excelDateUnit(unitNo, unitYear) : "";
       if (fixed) { extraParts.unshift(`Unit was saved by Excel as a date (${unitNo}) — check it`); unitNo = fixed; }
-      return { i, phone, key, owner_name: cols.name >= 0 ? r[cols.name] : "", project_name: project, unit_number: unitNo, extra: extraParts.join(" · "), reason, repeated, invalid: !!reason && !repeated };
+      return { i, phone, key, owner_name: cols.name >= 0 ? r[cols.name] : "", project_name: project, unit_number: unitNo, extra: extraParts.join(" · "), others, reason, repeated, invalid: !!reason && !repeated };
     });
   }, [grid, cols, projectAll]); // eslint-disable-line
   useEffect(() => { // check which numbers are already in the CRM
@@ -3202,7 +3224,7 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
         const chunk = usable.slice(p * size, (p + 1) * size);
         const [sheet] = await db.insert("cold_sheets", { name: parts > 1 ? `${name || "Sheet"} · ${p + 1}/${parts}` : name || "Sheet", assigned_to: salesId, due_date: isoToDateInput(day.toISOString()), batch_id: batch, batch_part: p + 1, ...(selfOnly ? { status: "pending" } : {}) }, t);
         for (let k = 0; k < chunk.length; k += 200) {
-          await db.insert("cold_leads", chunk.slice(k, k + 200).map((r, j) => ({ sheet_id: sheet.id, assigned_to: salesId, owner_name: String(r.owner_name || "").trim() || null, phone: r.phone, project_name: String(r.project_name || "").trim() || null, project_id: projectIdFor(r.project_name), unit_number: String(r.unit_number || "").trim() || null, extra: r.extra || null, position: k + j })), t);
+          await db.insert("cold_leads", chunk.slice(k, k + 200).map((r, j) => ({ sheet_id: sheet.id, assigned_to: salesId, owner_name: String(r.owner_name || "").trim() || null, phone: r.phone, project_name: String(r.project_name || "").trim() || null, project_id: projectIdFor(r.project_name), unit_number: String(r.unit_number || "").trim() || null, extra: r.extra || null, ...(r.others && r.others.length ? { other_phones: r.others } : {}), position: k + j })), t);
         }
         day = nextWork(day);
       }
@@ -3366,7 +3388,7 @@ function ColdApprovals({ profile, users, cold, getToken, onRefresh, deepId }) {
   );
 }
 
-function ColdOutcomeModal({ lead, onSave, onClose, units = [], getProjectInfo }) {
+function ColdOutcomeModal({ lead, onSave, onClose, units = [], getProjectInfo, onCallOther }) {
   const [pending, setPending] = useState(null);
   const [when, setWhen] = useState("tomorrow");
   const [at, setAt] = useState("");
@@ -3379,7 +3401,9 @@ function ColdOutcomeModal({ lead, onSave, onClose, units = [], getProjectInfo })
   const save = async (status, extra = {}) => { setBusy(true); try { await onSave(lead, status, extra); onClose(); } finally { setBusy(false); } };
   const whenIso = () => (when === "custom" ? (at ? new Date(at).toISOString() : null) : (CALL_LATER_OPTIONS.find((o) => o.id === when)?.at() || atHour(1)));
   const toneBg = { good: "#E6F4EA", bad: "#FCEBEB", gold: "#FBF1E6" }, toneFg = { good: COLORS.success, bad: COLORS.danger, gold: COLORS.gold };
-  const pick = (o) => (o.asksWhen ? setPending("call_later") : ["selling", "later", "with_us"].includes(o.id) ? setPending(o.id) : save(o.id));
+  const otherNums = coldOtherPhones(lead);
+  const pick = (o) => (o.asksWhen ? setPending("call_later") : ["selling", "later", "with_us"].includes(o.id) ? setPending(o.id)
+    : ["no_answer", "off_busy"].includes(o.id) && otherNums.length ? setPending(`other:${o.id}`) : save(o.id));
   const q = unitQ.trim().toLowerCase();
   const unitMatches = q ? units.filter((u) => `${u.unitNumber} ${u.type} ${getProjectInfo ? getProjectInfo(u).name : ""}`.toLowerCase().includes(q)).slice(0, 25) : [];
   const back = <button onClick={() => setPending(null)} style={btnGhost}>Back</button>;
@@ -3403,6 +3427,21 @@ function ColdOutcomeModal({ lead, onSave, onClose, units = [], getProjectInfo })
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             {back}
             <button disabled={busy} onClick={() => save("call_later", { callback_at: whenIso() })} style={btnPrimary}>Save</button>
+          </div>
+        </div>
+      )}
+      {pending && pending.startsWith("other:") && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontWeight: 700, color: COLORS.navy }}>📱 This owner has another number — try it before you move on:</div>
+          {otherNums.map((p) => (
+            <div key={p} style={{ display: "flex", gap: 8, alignItems: "center", background: COLORS.cream, borderRadius: 12, padding: "8px 10px" }}>
+              <b dir="ltr" style={{ flex: 1 }}>{p}</b>
+              <a href={`tel:${p}`} onClick={() => { if (onCallOther) onCallOther(lead); onClose(); }} style={{ ...btnPrimary, textDecoration: "none", padding: "7px 14px" }}>📞 Call it</a>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {back}
+            <button disabled={busy} onClick={() => save(pending.slice(6))} style={btnGhost}>Save as {COLD_STATUS_LABEL[pending.slice(6)]}</button>
           </div>
         </div>
       )}
@@ -3461,8 +3500,17 @@ function ColdOutcomeModal({ lead, onSave, onClose, units = [], getProjectInfo })
   );
 }
 
+const coldOtherPhones = (l) => {
+  if (Array.isArray(l.other_phones) && l.other_phones.length) return l.other_phones.filter((p) => p && phoneKey(p) !== phoneKey(l.phone));
+  const m = /Other numbers: ([^·]+)/.exec(l.extra || "");
+  return m ? m[1].split("/").map((x) => cleanPhone(x)).filter((p) => isValidPhone(p) && phoneKey(p) !== phoneKey(l.phone)) : [];
+};
+const coldExtraText = (l) => String(l.extra || "").replace(/Other numbers: [^·]+(· )?/, "").trim().replace(/^·\s*|\s*·$/g, "");
 function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp, onOutcome, onAddUnit, ownerLabel }) {
   const [waPick, setWaPick] = useState(false);
+  const [waPhone, setWaPhone] = useState(lead.phone);
+  const others = coldOtherPhones(lead);
+  const extraText = coldExtraText(lead);
   const tone = lead.status === "selling" ? COLORS.success : lead.status === "later" ? COLORS.gold : COLD_DONE.includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
   const big = { flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 42, borderRadius: 12, fontWeight: 800, fontSize: 13.5, textDecoration: "none", cursor: "pointer" };
   return (
@@ -3470,7 +3518,7 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 15.5, overflow: "hidden", textOverflow: "ellipsis" }}>{lead.owner_name || "Owner"}</div>
-          <div style={{ fontSize: 13, color: COLORS.text, marginTop: 1 }} dir="ltr">{lead.phone}</div>
+          <div style={{ fontSize: 13, color: COLORS.text, marginTop: 1 }} dir="ltr">{lead.phone}{others.length ? <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 800, color: COLORS.gold, background: "#FBF1E6", borderRadius: 999, padding: "1px 8px" }}>📱 {others.length + 1} numbers</span> : null}</div>
           {(lead.project_name || lead.unit_number) && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{[lead.project_name, lead.unit_number && `Unit ${lead.unit_number}`].filter(Boolean).join(" · ")}</div>}
         </div>
         {lead.status !== "new" && (
@@ -3483,14 +3531,21 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
       {unitWaiting(lead) && <div style={{ fontSize: 12, color: COLORS.gold, fontWeight: 700 }}>🏠 Unit not added yet{onAddUnit ? <button onClick={() => onAddUnit(lead)} style={{ marginLeft: 8, border: "none", background: COLORS.gold, color: "#fff", borderRadius: 999, padding: "3px 10px", fontWeight: 700, fontSize: 11.5, cursor: "pointer" }}>Add now</button> : null}</div>}
       {lead.status === "later" && <div style={{ fontSize: 12, color: laterDue(lead) ? COLORS.danger : COLORS.gold, fontWeight: 700 }}>📅 {laterDue(lead) ? "Call again now" : `Call again ${formatDate(lead.callback_at)}`}</div>}
       {lead.note && <div style={{ fontSize: 12, color: COLORS.text, background: "#FBF1E6", borderRadius: 8, padding: "4px 8px" }} dir="auto">{lead.note}</div>}
-      {lead.extra && <div style={{ fontSize: 11.5, color: COLORS.textMuted, background: COLORS.cream, borderRadius: 8, padding: "4px 8px" }}>{lead.extra}</div>}
+      {extraText && <div style={{ fontSize: 11.5, color: COLORS.textMuted, background: COLORS.cream, borderRadius: 8, padding: "4px 8px" }}>{extraText}</div>}
+      {others.map((p) => (
+        <div key={p} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, background: "#FBF1E6", borderRadius: 10, padding: "5px 8px" }}>
+          <span style={{ flex: 1, color: COLORS.navy }}>Other number: <b dir="ltr">{p}</b></span>
+          <a href={`tel:${p}`} onClick={() => onCall(lead)} aria-label="Call other number" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "4px 12px", fontWeight: 700, fontSize: 12, textDecoration: "none" }}>📞 Call</a>
+          <button onClick={() => { setWaPhone(p); setWaPick(true); }} aria-label="WhatsApp other number" style={{ border: "none", background: "#25D366", color: "#fff", borderRadius: 999, padding: "4px 10px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>💬</button>
+        </div>
+      ))}
       <div style={{ display: "flex", gap: 8 }}>
         <a href={`tel:${lead.phone}`} onClick={() => onCall(lead)} aria-label="Call" style={{ ...big, background: COLORS.navy, color: "#fff" }}><Phone size={16} /> Call</a>
-        <button onClick={() => setWaPick(true)} aria-label="WhatsApp" style={{ ...big, border: "none", background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</button>
+        <button onClick={() => { setWaPhone(lead.phone); setWaPick(true); }} aria-label="WhatsApp" style={{ ...big, border: "none", background: "#25D366", color: "#fff" }}><MessageSquare size={16} /> WhatsApp</button>
         <button onClick={() => onOutcome(lead)} style={{ ...big, border: `1.5px solid ${COLORS.navy}`, background: "#fff", color: COLORS.navy }}>📝 Feedback</button>
       </div>
-      {waPick && <WaPickModal title="WhatsApp the owner" phone={lead.phone} onClose={() => setWaPick(false)} onSent={() => onWhatsApp(lead)}
-        sub={`${lead.owner_name || "Owner"} · ${lead.phone}${lead.project_name ? ` · ${lead.project_name}` : ""}`}
+      {waPick && <WaPickModal title="WhatsApp the owner" phone={waPhone} onClose={() => setWaPick(false)} onSent={() => onWhatsApp(lead)}
+        sub={`${lead.owner_name || "Owner"} · ${waPhone}${lead.project_name ? ` · ${lead.project_name}` : ""}`}
         make={(lang) => coldWaText(lang === "ar" ? template : templateEn, lead, salesName, lang)} />}
     </div>
   );
@@ -3667,7 +3722,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const templateEn = settings?.wa_cold_en || DEFAULT_COLD_WA_EN;
   const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet && (s.status || "active") === "active");
 
-  const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} units={units} getProjectInfo={getProjectInfo} onClose={() => setOutcomeFor(null)} onSave={onOutcome} />;
+  const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} units={units} getProjectInfo={getProjectInfo} onClose={() => setOutcomeFor(null)} onSave={onOutcome} onCallOther={(x) => onLog(x, "call")} />;
 
   if (sheet) {
     const st = sheetState(sheet, cold.leads);
@@ -3787,7 +3842,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
           { id: "due", label: "Due day", type: "date", primary: true },
         ]} />
       {list.length === 0 ? (
-        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{cold.sheets.length ? "No sheets match these filters." : isManager ? "No sheets yet — upload one for your team." : "No sheets yet. Your team leader uploads your numbers here — or upload your own sheet."}</div>
+        <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{!cold.loaded ? "Loading your sheets…" : cold.error && !cold.sheets.length ? <span style={{ color: COLORS.danger }}>Couldn't load the sheets ({cold.error}). <button onClick={() => onRefresh()} style={{ ...btnGhost, padding: "4px 12px", marginLeft: 6 }}>Try again</button></span> : cold.sheets.length ? "No sheets match these filters." : isManager ? "No sheets yet — upload one for your team." : "No sheets yet. Your team leader uploads your numbers here — or upload your own sheet."}</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12 }}>
           {list.map(({ s, st }) => (
@@ -4876,12 +4931,20 @@ function LabeledSelect({ value, onChange, options, placeholder }) {
 // =====================================================================
 // Egyptian numbers saved one way: 01xxxxxxxxx
 function cleanPhone(raw) {
-  const d = String(raw || "").replace(/[^0-9]/g, "");
+  const str = String(raw || "").trim();
+  const d = str.replace(/[^0-9]/g, "");
   if (d.length === 12 && d.startsWith("20")) return "0" + d.slice(2);
   if (d.length === 14 && d.startsWith("0020")) return "0" + d.slice(4);
   if (d.length === 10 && d.startsWith("1")) return "0" + d;
-  return String(raw || "").trim();
+  if (d.length === 11 && d.startsWith("01") && !/^\s*\+/.test(str)) return d;
+  // international: +971…, 00971…, or 11–15 digits with a country code
+  if (/^\s*\+/.test(str) && d.length >= 8 && d.length <= 15) return "+" + d;
+  if (d.startsWith("00") && d.length >= 10 && d.length <= 17) return "+" + d.slice(2);
+  if (!d.startsWith("0") && d.length >= 11 && d.length <= 15 && !(d.length === 14 && /^[23]/.test(d)) && /^[\d\s()+.-]+$/.test(str)) return "+" + d; // (14 digits starting 2/3 = an Egyptian national ID, not a phone)
+  return str;
 }
+const isIntlPhone = (p) => /^\+[1-9]\d{7,14}$/.test(String(p || ""));
+const isValidPhone = (p) => /^0\d{9,10}$/.test(String(p || "")) || isIntlPhone(p);
 function findByPhone(clients, phone) {
   const k = phoneKey(phone);
   if (k.length < 9) return null;
@@ -10507,19 +10570,36 @@ export default function App() {
   }, [fin.loaded, fin.deals]); // eslint-disable-line
 
   // ---- cold calls ----
-  const [cold, setCold] = useState({ sheets: [], leads: [], activity: [] });
-  const refreshCold = async (tk) => {
-    try {
-      const t = tk || await getValidToken();
-      const since = new Date(Date.now() - 120 * MS_DAY).toISOString();
-      const [sheets, leads, activity] = await Promise.all([
-        db.selectAll("cold_sheets", "&order=due_date.desc", t),
-        db.selectAll("cold_leads", "&order=position", t),
-        db.selectAll("cold_activity", `&created_at=gte.${since}&order=created_at.desc`, t),
-      ]);
-      setCold({ sheets: sheets || [], leads: leads || [], activity: activity || [] });
-    } catch (e) { /* table not there yet */ }
+  const [cold, setCold] = useState({ sheets: [], leads: [], activity: [], loaded: false, error: "" });
+  const coldSyncRef = useRef({ running: null, last: 0 });
+  const refreshCold = (tk) => {
+    // one load at a time; a second call while loading waits for the same load
+    if (coldSyncRef.current.running) return coldSyncRef.current.running;
+    const job = (async () => {
+      try {
+        const t = tk || await getValidToken();
+        const since = new Date(Date.now() - 120 * MS_DAY).toISOString();
+        const [sheets, leads, activity] = await Promise.all([
+          db.selectAll("cold_sheets", "&order=due_date.desc", t),
+          db.selectAll("cold_leads", "&order=position", t),
+          db.selectAll("cold_activity", `&created_at=gte.${since}&order=created_at.desc`, t),
+        ]);
+        setCold({ sheets: sheets || [], leads: leads || [], activity: activity || [], loaded: true, error: "" });
+        coldSyncRef.current.last = Date.now();
+      } catch (e) {
+        setCold((c) => ({ ...c, loaded: true, error: e.message || "Couldn't load the sheets" }));
+      } finally { coldSyncRef.current.running = null; }
+    })();
+    coldSyncRef.current.running = job;
+    return job;
   };
+  // Cold calls page: fresh numbers when you open it, and every 90 seconds while you're on it
+  useEffect(() => {
+    if (!session || section !== "cold") return;
+    if (Date.now() - coldSyncRef.current.last > 60000) refreshCold();
+    const t = setInterval(() => { if (document.visibilityState !== "hidden") refreshCold(); }, 90000);
+    return () => clearInterval(t);
+  }, [section, session && session.user && session.user.id]); // eslint-disable-line
   const [contracts, setContracts] = useState(null);
   const [contractDeep, setContractDeep] = useState(null);
   const [coldDeep, setColdDeep] = useState(null);
@@ -10544,8 +10624,10 @@ export default function App() {
   refreshAllRef.current = refreshAll;
   useEffect(() => {
     if (!session) return;
-    const onBack = () => { if (document.visibilityState !== "hidden") refreshAllRef.current(false); };
-    const tick = setInterval(() => { if (document.visibilityState !== "hidden") refreshAllRef.current(false); }, 45000);
+    // Full reload every 4 minutes, or when coming back to the app after 3+ minutes away
+    // (not after every phone call — that made the app slow for people on cold calls)
+    const onBack = () => { if (document.visibilityState !== "hidden" && Date.now() - syncRef.current.last > 180000) refreshAllRef.current(false); };
+    const tick = setInterval(() => { if (document.visibilityState !== "hidden") refreshAllRef.current(false); }, 240000);
     document.addEventListener("visibilitychange", onBack);
     window.addEventListener("focus", onBack);
     window.addEventListener("online", onBack);
@@ -11606,7 +11688,7 @@ export default function App() {
         )}
         {coldPrompt && (() => {
           const l = cold.leads.find((x) => x.id === coldPrompt);
-          return l ? <ColdOutcomeModal lead={l} units={units} getProjectInfo={getProjectInfo} onClose={() => setColdPrompt(null)} onSave={saveColdOutcome} /> : null;
+          return l ? <ColdOutcomeModal lead={l} units={units} getProjectInfo={getProjectInfo} onClose={() => setColdPrompt(null)} onSave={saveColdOutcome} onCallOther={(x) => logCold(x, "call")} /> : null;
         })()}
 
         {section === "finance" && (
