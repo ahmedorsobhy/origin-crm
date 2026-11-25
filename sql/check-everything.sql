@@ -71,7 +71,7 @@ with fn as (
       and exists (select 1 from pg_policies where tablename = 'projects' and policyname = 'admin write projects' and with_check like '%is_finance_admin%')),
   ('36 Cold calls: second numbers', exists (select 1 from col where c = 'cold_leads.other_phones')),
   ('37 Daily report: unit activity log', exists (select 1 from pg_trigger where tgname = 'trg_log_unit_activity') and exists (select 1 from pg_policies where tablename = 'unit_activity')),
-  ('38 Ranking counts numbers called (like the sheets)', exists (select 1 from fn where proname = 'sales_ranking' and prosrc like '%cold_tries%' or (proname = 'sales_ranking' and pg_get_function_result(oid) like '%cold_tries%'))),
+  ('38 Ranking counts numbers called (like the sheets)', exists (select 1 from pg_proc where proname = 'sales_ranking' and pg_get_function_result(oid) like '%cold_tries%')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
