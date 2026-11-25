@@ -6642,7 +6642,7 @@ function DailyReport({ profile, users, visibleSalesIds, clients, activity, units
     const firstIn = st.days.find((x) => x.inAt);
     const items = {
       calls: act.filter((a) => a.action === "call").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
-      cold: Object.values(cold.filter((a) => a.action === "call").reduce((m, a) => { const x = m[a.lead_id]; if (!x) m[a.lead_id] = { at: a.created_at, label: leadName(a.lead_id), n: 1 }; else { x.n++; if (a.created_at > x.at) x.at = a.created_at; } return m; }, {}))
+      cold: Object.values(cold.filter((a) => a.action === "call").reduce((m, a) => { const key = a.lead_id || a.id; const x = m[key]; if (!x) m[key] = { at: a.created_at, label: a.lead_id ? leadName(a.lead_id) : "Number from a deleted sheet", n: 1 }; else { x.n++; if (a.created_at > x.at) x.at = a.created_at; } return m; }, {}))
         .map((x) => ({ ...x, label: x.n > 1 ? `${x.label} (${x.n} tries)` : x.label })),
       wa: [...act.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })), ...cold.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.created_at, label: `${leadName(a.lead_id)} (cold)` }))],
       mBooked: act.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),

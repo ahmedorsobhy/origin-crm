@@ -3,6 +3,7 @@
 --  * Cold calls  = how many different numbers were called (a number called 3 times = 1)
 --  * Cold tries  = every call attempt (taps on the same number within 2 minutes count once)
 --  * Calls       = calls to clients only (cold calls are no longer added on top)
+--  * Calls on numbers from a deleted sheet still count (their number is gone, so each call counts once)
 -- Safe to run more than once. Run the whole file in Supabase → SQL Editor.
 -- =====================================================================
 drop function if exists public.sales_ranking(timestamptz, timestamptz);
@@ -30,8 +31,9 @@ language sql stable security definer set search_path = public as $$
     from public.client_activity where changed_at >= p_from and changed_at < p_to group by changed_by),
   co as (
     select user_id as uid,
-           count(distinct lead_id) filter (where action = 'call') as numbers,
-           count(distinct (lead_id::text || ':' || floor(extract(epoch from created_at) / 120)::text)) filter (where action = 'call') as tries,
+           -- calls on numbers whose sheet was later deleted have no lead any more: each such call still counts
+           count(distinct coalesce(lead_id::text, id::text)) filter (where action = 'call') as numbers,
+           count(distinct (coalesce(lead_id::text, id::text) || ':' || floor(extract(epoch from created_at) / 120)::text)) filter (where action = 'call') as tries,
            count(*) filter (where action = 'whatsapp') as wa
     from public.cold_activity where created_at >= p_from and created_at < p_to group by user_id),
   un as (select created_by as uid, count(*) as n from public.units where created_at >= p_from and created_at < p_to group by created_by),
