@@ -2582,8 +2582,8 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
 
 // ---------- Sales ranking: activity only (deals and money live in Finance) ----------
 const RANK_BOARDS = [
-  { id: "calls", label: "Client calls", icon: "📞", key: "calls" },
-  { id: "cold", label: "Cold calls (numbers)", icon: "🧊", key: "cold_calls", extraKey: "cold_tries", extraLabel: "tries" },
+  { id: "calls", label: "Calls (by feedback)", icon: "📞", key: "calls",
+    extra: (r) => r.cold_calls != null ? `${r.cold_calls || 0} cold · ${r.client_calls || 0} clients · ${r.seller_updates || 0} seller updates · ${r.tries || 0} tries` : "" },
   { id: "meetings", label: "Meetings", icon: "📅", key: "meetings" },
   { id: "units", label: "Units added", icon: "🏠", key: "units_added" },
   { id: "clients", label: "New clients", icon: "👤", key: "new_clients" },
@@ -2695,12 +2695,15 @@ function RankingPage({ profile, getToken }) {
                         <div style={{ flex: 1, height: 7, borderRadius: 7, background: COLORS.cream, overflow: "hidden", minWidth: 30 }}>
                           <div className="grow-bar" style={{ width: `${b.lowWins ? 100 - Math.min(90, ((r[b.key] || 0) / Math.max(1, ...list.map((x) => x.r[b.key] || 0))) * 90) : ((r[b.key] || 0) / max) * 100}%`, height: "100%", borderRadius: 7, background: pos === 1 ? COLORS.gold : COLORS.navy }} />
                         </div>
-                        <span style={{ minWidth: 46, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.lowWins ? fmtMins(r[b.key]) : r[b.key]}{b.extraKey && r[b.extraKey] != null && r[b.extraKey] !== r[b.key] ? <span style={{ fontSize: 10.5, color: COLORS.textMuted, fontWeight: 500 }}> · {r[b.extraKey]} {b.extraLabel}</span> : null}</span>
+                        <span style={{ minWidth: 46, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.lowWins ? fmtMins(r[b.key]) : r[b.key]}</span>
                       </>
                     )}
                     {b.rankOnly && <span style={{ flex: 1 }} />}
                   </div>
-                ))}
+                )).flatMap((el, i) => {
+                  const r = list[i].r; const t = b.extra ? b.extra(r) : "";
+                  return t ? [el, <div key={`${r.user_id}-x`} style={{ fontSize: 11, color: COLORS.textMuted, margin: "-5px 0 2px 32px" }}>{t}</div>] : [el];
+                })}
               </div>
             );
           })}
@@ -3237,13 +3240,21 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
       const nextWork = (d) => { const x = new Date(d.getTime() + MS_DAY); while (!DEFAULT_WORK_DAYS.includes(x.getDay())) x.setTime(x.getTime() + MS_DAY); return x; };
       const parts = Math.ceil(usable.length / size);
       const batch = (crypto.randomUUID && crypto.randomUUID()) || null;
+      const made = [];
+      try {
       for (let p = 0; p < parts; p++) {
         const chunk = usable.slice(p * size, (p + 1) * size);
         const [sheet] = await db.insert("cold_sheets", { name: parts > 1 ? `${name || "Sheet"} · ${p + 1}/${parts}` : name || "Sheet", assigned_to: salesId, due_date: isoToDateInput(day.toISOString()), batch_id: batch, batch_part: p + 1, ...(selfOnly ? { status: "pending" } : {}) }, t);
+        made.push(sheet.id);
         for (let k = 0; k < chunk.length; k += 200) {
           await db.insert("cold_leads", chunk.slice(k, k + 200).map((r, j) => ({ sheet_id: sheet.id, assigned_to: salesId, owner_name: String(r.owner_name || "").trim() || null, phone: r.phone, project_name: String(r.project_name || "").trim() || null, project_id: projectIdFor(r.project_name), unit_number: String(r.unit_number || "").trim() || null, extra: r.extra || null, other_phones: r.others && r.others.length ? r.others : null, position: k + j })), t);
         }
         day = nextWork(day);
+      }
+      } catch (upErr) {
+        // nothing half-uploaded is left behind: remove the sheets this upload made, then show the error
+        for (const id of made) { try { await db.removeWhere("cold_leads", `sheet_id=eq.${id}`, t); await db.remove("cold_sheets", id, t); } catch (e3) {} }
+        throw upErr;
       }
       onDone(selfOnly ? `${usable.length} numbers sent for approval` : `${usable.length} numbers in ${parts} sheet${parts > 1 ? "s" : ""}`);
     } catch (e2) { setErr(e2.message || "Upload failed"); } finally { setBusy(false); }
@@ -3643,6 +3654,8 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
               <Field label="Due day"><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
             </div>
           </>
+        ) : leads.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: COLORS.danger, background: COLORS.cream, padding: 8, borderRadius: 10 }}>This sheet has no numbers in it (an upload that didn't finish). You can delete it.</div>
         ) : (
           <>
             <Opt v="new" cur={delMode} set={setDelMode} label="Only numbers nobody called yet" />
@@ -3659,6 +3672,12 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
               const moved = await db.rpc("cold_move_leads", { p_sheet: sheet.id, p_to: to, p_mode: mode, p_count: Number(count) > 0 ? Math.round(Number(count)) : null, p_due: due || null }, await getToken());
               await onDone(`Moved ${moved} numbers to ${users.find((u) => u.id === to)?.name || ""}`);
             })}>{busy ? "Moving…" : `Move ${Number(count) > 0 ? Math.min(Number(count), n[mode]) : n[mode]} numbers`}</button>
+          ) : leads.length === 0 ? (
+            <button style={btnDanger} disabled={busy} onClick={() => run(async () => {
+              if (!window.confirm(`Delete the empty sheet “${sheet.name}”?`)) return;
+              await db.rpc("cold_delete_leads", { p_sheet: sheet.id, p_mode: "everything" }, await getToken());
+              await onDone("Empty sheet deleted");
+            })}>{busy ? "Deleting…" : "Delete this empty sheet"}</button>
           ) : (
             <button style={btnDanger} disabled={busy || !n[delMode]} onClick={() => run(async () => {
               if (!window.confirm(`Delete ${n[delMode]} numbers? This can't be undone.`)) return;
@@ -6591,10 +6610,13 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
   );
 }
 
+// A feedback on a client (not the automatic lines) — same rule as the ranking (is_client_feedback in SQL)
+const isClientFeedback = (a) => ["quick_reply", "stage_change", "note", "voice", "closed", "outcome"].includes(a.action)
+  && !/^(Sent a unit|Lead came in again|Changed by Admin)/.test(a.note || "");
 // ---------- Daily report: one row per person, like a spreadsheet ----------
 const DAILY_COLS = [
-  ["checkin", "Check-in"], ["calls", "Client calls"], ["cold", "Cold numbers called"], ["wa", "WhatsApp"], ["mBooked", "Meetings booked"], ["mDone", "Meetings done"],
-  ["newClients", "New clients"], ["clientUpd", "Client updates"], ["newUnits", "New units"], ["unitUpd", "Unit updates"], ["selling", "Selling (cold)"],
+  ["checkin", "Check-in"], ["cold", "Cold calls"], ["clientCalls", "Client calls"], ["seller", "Seller updates"], ["total", "Total calls"], ["tries", "Tries"],
+  ["wa", "WhatsApp"], ["mBooked", "Meetings booked"], ["mDone", "Meetings done"], ["newClients", "New clients"], ["newUnits", "New units"], ["selling", "Selling (cold)"],
   ["resv", "Reservations"], ["deals", "Deals done"],
 ];
 function DailyReport({ profile, users, visibleSalesIds, clients, activity, units, attendance, settings, fin, getToken, onOpenClient, onOpenUnit }) {
@@ -6641,20 +6663,21 @@ function DailyReport({ profile, users, visibleSalesIds, clients, activity, units
     const st = attendanceStats(attendance, u.id, range, settings);
     const firstIn = st.days.find((x) => x.inAt);
     const items = {
-      calls: act.filter((a) => a.action === "call").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
-      cold: Object.values(cold.filter((a) => a.action === "call").reduce((m, a) => { const x = m[a.lead_id]; if (!x) m[a.lead_id] = { at: a.created_at, label: leadName(a.lead_id), n: 1 }; else { x.n++; if (a.created_at > x.at) x.at = a.created_at; } return m; }, {}))
-        .map((x) => ({ ...x, label: x.n > 1 ? `${x.label} (${x.n} tries)` : x.label })),
+      cold: cold.filter((a) => a.action === "outcome").map((a) => ({ at: a.created_at, label: `${a.lead_id ? leadName(a.lead_id) : "Number from a deleted sheet"} — ${COLD_STATUS_LABEL[a.value] || a.value}` })),
+      clientCalls: act.filter((a) => isClientFeedback(a)).map((a) => ({ at: a.changedAt, label: `${clientName(a.clientId)} — ${a.action === "stage_change" ? `stage → ${STAGE_LABEL[a.newValue] || a.newValue}` : a.action === "quick_reply" ? (a.fieldName || "update").replace(/_/g, " ") : a.action === "voice" ? "voice note" : a.action}`, client: a.clientId })),
+      seller: extra.unitAct.filter((a) => a.user_id === u.id && (a.action === "updated" || a.action === "checked")).map((a) => ({ at: a.created_at, label: `${a.unit_id ? unitName(a.unit_id) : "Deleted unit"} — ${a.action === "checked" ? "still available" : Array.isArray(a.fields) && a.fields.length ? a.fields.slice(0, 4).join(", ").replace(/_/g, " ") : "updated"}`, unit: a.unit_id })),
+      tries: [...act.filter((a) => a.action === "call").map((a) => ({ at: a.changedAt, label: `${clientName(a.clientId)} (client)`, client: a.clientId })),
+        ...Object.values(cold.filter((a) => a.action === "call").reduce((m, a) => { const k = `${a.lead_id || a.id}:${Math.floor(new Date(a.created_at) / 120000)}`; if (!m[k]) m[k] = { at: a.created_at, label: a.lead_id ? leadName(a.lead_id) : "Number from a deleted sheet" }; return m; }, {}))],
       wa: [...act.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })), ...cold.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.created_at, label: `${leadName(a.lead_id)} (cold)` }))],
       mBooked: act.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
       mDone: act.filter(isMeetingDone).map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
       newClients: clients.filter((c) => (c.createdBy || c.assignedTo) === u.id && inR(c.createdAt)).map((c) => ({ at: c.createdAt, label: c.name, client: c.id })),
-      clientUpd: act.filter((a) => !["call", "whatsapp", "created"].includes(a.action)).map((a) => ({ at: a.changedAt, label: `${clientName(a.clientId)} — ${a.action === "stage_change" ? `stage → ${STAGE_LABEL[a.newValue] || a.newValue}` : a.action === "quick_reply" ? (a.fieldName || "update").replace(/_/g, " ") : a.action}`, client: a.clientId })),
       newUnits: units.filter((x) => (x.createdBy ? x.createdBy === u.id : x.salesIds.includes(u.id)) && inR(x.createdAt)).map((x) => ({ at: x.createdAt, label: unitName(x.id), unit: x.id })),
-      unitUpd: extra.unitAct.filter((a) => a.user_id === u.id && a.action === "updated").map((a) => ({ at: a.created_at, label: `${unitName(a.unit_id)}${Array.isArray(a.fields) && a.fields.length ? ` — ${a.fields.slice(0, 4).join(", ").replace(/_/g, " ")}` : ""}`, unit: a.unit_id })),
       selling: cold.filter((a) => a.action === "outcome" && a.value === "selling").map((a) => ({ at: a.created_at, label: leadName(a.lead_id) })),
       resv: dealsOf(u.id, "reserved_at").map((d) => ({ at: d.reserved_at, label: d.unit_label || d.client_label || "Deal" })),
       deals: dealsOf(u.id, "done_at").map((d) => ({ at: d.done_at, label: d.unit_label || d.client_label || "Deal" })),
     };
+    items.total = [...items.cold, ...items.clientCalls, ...items.seller];
     const checkin = oneDay ? (firstIn ? new Date(firstIn.inAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—") : `${st.present} days${st.late ? ` · ${st.late} late` : ""}`;
     return { u, items, checkin, late: oneDay ? !!(firstIn && firstIn.late) : st.late > 0, checkinSort: oneDay ? (firstIn ? new Date(firstIn.inAt).getTime() : Infinity) : -st.present };
   });
