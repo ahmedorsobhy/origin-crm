@@ -142,6 +142,9 @@ body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helv
 .orbs i:nth-child(3) { top: 30%; left: 35%; width: 42vmax; height: 42vmax; background: radial-gradient(circle, rgba(205,184,236,.5) 0%, rgba(205,184,236,0) 62%); animation: orbC 38s ease-in-out infinite alternate; }
 .app-shell > *:not(.orbs):not(.celebrate):not(.bottom-nav):not(.topbar) { position: relative; z-index: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.app-shell .lite-card, .app-shell .lite-card div, .app-shell .lite-card span { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.app-shell .lite-card { background: rgba(255,255,255,.94) !important; }
+@media (max-width: 760px) { .app-shell table, .app-shell table div { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; } }
 @keyframes drawerIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media print { .rank-tab { display: none !important; } }
 @keyframes orbA { to { transform: translate(18vmax, 12vmax) scale(1.15); } }
@@ -559,6 +562,23 @@ function UnitsBrowser({ id, units, title, empty, projects, developers, users, ge
   const usedDevelopers = developers.filter((d) => projects.some((p) => p.developerId === d.id && units.some((u) => u.projectId === p.id)));
   const dests = [...new Set(units.map((u) => getProjectInfo(u).destination))].filter((d) => d && d !== "—").sort();
   const sales = users.filter((usr) => units.some((u) => u.salesIds.includes(usr.id)));
+  // Show units a page at a time — hundreds of photos at once crash Safari on iPhone
+  const PAGE = view === "table" ? 100 : 24;
+  const [shown, setShown] = useState(PAGE);
+  const fkey = JSON.stringify(fv) + view;
+  useEffect(() => { setShown(PAGE); }, [fkey]); // eslint-disable-line
+  const more = useRef(null);
+  useEffect(() => {
+    const el = more.current; if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) setShown((n) => n + PAGE); }, { rootMargin: "600px" });
+    io.observe(el); return () => io.disconnect();
+  }, [shown, list.length, view]); // eslint-disable-line
+  const page = list.slice(0, shown);
+  const moreBtn = list.length > shown && (
+    <div ref={more} style={{ display: "flex", justifyContent: "center", padding: "16px 0" }}>
+      <button onClick={() => setShown((n) => n + PAGE)} style={btnGhost}>Show more ({list.length - shown} left)</button>
+    </div>
+  );
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
@@ -597,11 +617,14 @@ function UnitsBrowser({ id, units, title, empty, projects, developers, users, ge
       {list.length === 0 ? (
         <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 22, color: COLORS.textMuted, fontSize: 14 }}>{units.length === 0 ? empty : "No units match these filters."}</div>
       ) : view === "table" ? (
-        <UnitsTable list={list} getProjectInfo={getProjectInfo} users={users} canSeeOwner={canSeeOwner} onOpen={onOpen} />
+        <><UnitsTable list={page} getProjectInfo={getProjectInfo} users={users} canSeeOwner={canSeeOwner} onOpen={onOpen} />{moreBtn}</>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
-          {list.map((u) => <UnitCard key={u.id} unit={u} projectInfo={getProjectInfo(u)} canSeeOwner={canSeeOwner(u)} handledBy={getHandledBy(u)} onOpen={onOpen} onViewProfile={onViewProfile} />)}
-        </div>
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+            {page.map((u) => <UnitCard key={u.id} unit={u} projectInfo={getProjectInfo(u)} canSeeOwner={canSeeOwner(u)} handledBy={getHandledBy(u)} onOpen={onOpen} onViewProfile={onViewProfile} />)}
+          </div>
+          {moreBtn}
+        </>
       )}
     </>
   );
@@ -610,6 +633,7 @@ function UnitsBrowser({ id, units, title, empty, projects, developers, users, ge
 function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewProfile }) {
   return (
     <div
+      className="lite-card"
       onClick={() => onOpen(unit)}
       style={{
         border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden",
@@ -617,7 +641,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
       }}
     >
       <div style={{ position: "relative", height: 150, background: COLORS.creamDark }}>
-        <img src={unit.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        <img src={unit.photos[0]} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         <div style={{ position: "absolute", top: 8, left: 8 }}>
           <Badge tone={unit.status === "hold" ? "hold" : unit.status === "pending_delete" ? "pending" : unit.status === "sold" ? "neutral" : "active"}>
             {unit.status === "hold" ? (unit.holdReason === "Rented" ? "Rented" : "On hold") : unit.status === "pending_delete" ? "Deletion pending" : unit.status === "sold" ? "Sold" : "Available"}
@@ -7348,7 +7372,7 @@ function HoldList({ units, projects, getProjectInfo, onRelease, onOpen }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {list.map((u) => (
             <div key={u.id} className="card lift" style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, padding: 12, alignItems: "center" }}>
-              <img src={u.photos[0]} alt="" onClick={() => onOpen(u)} style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 10, cursor: "pointer", background: COLORS.creamDark }} />
+              <img src={u.photos[0]} alt="" loading="lazy" decoding="async" onClick={() => onOpen(u)} style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 10, cursor: "pointer", background: COLORS.creamDark }} />
               <div style={{ flex: 1, cursor: "pointer" }} onClick={() => onOpen(u)}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: COLORS.navy }}>{u.type} · {u.unitNumber}</div>
                 <div style={{ fontSize: 12, color: COLORS.textMuted }}>{getProjectInfo(u).destination} · {getProjectInfo(u).name}</div>
@@ -7455,7 +7479,7 @@ function SoldUnits({ units, projects, getProjectInfo, canSeeOwner, getHandledBy,
             return (
               <div key={u.id} className="card lift" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                 <div onClick={() => onOpen(u)} style={{ position: "relative", height: 120, background: COLORS.creamDark, cursor: "pointer" }}>
-                  {u.photos[0] && <img src={u.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "saturate(.75)" }} />}
+                  {u.photos[0] && <img src={u.photos[0]} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "saturate(.75)" }} />}
                   <span className="pill" style={{ position: "absolute", top: 8, left: 8, fontSize: 11, fontWeight: 800, padding: "4px 10px", borderRadius: 999, background: us ? COLORS.success : COLORS.navy, color: "#fff" }}>{us ? "Sold through us" : "Sold without us"}</span>
                 </div>
                 <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
@@ -7554,7 +7578,7 @@ function UnitGridPicker({ units, getProjectInfo, isRent, selectedId, onPick, onC
             const info = getProjectInfo(u); const on = u.id === selectedId;
             return (
               <button key={u.id} onClick={() => { onPick(u); onClose(); }} className="card lift" style={{ textAlign: "left", padding: 0, overflow: "hidden", cursor: "pointer", background: "#fff", border: `2px solid ${on ? COLORS.gold : COLORS.border}`, display: "flex", flexDirection: "column" }}>
-                <div style={{ height: 110, width: "100%", background: COLORS.creamDark }}>{u.photos[0] && <img src={u.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
+                <div style={{ height: 110, width: "100%", background: COLORS.creamDark }}>{u.photos[0] && <img src={u.photos[0]} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
                 <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 3 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}><b style={{ color: COLORS.navy, fontSize: 13.5 }}>{u.type}</b><span style={{ fontSize: 12, color: COLORS.textMuted }}>{u.unitNumber}</span></div>
                   <div style={{ fontSize: 12, color: COLORS.textMuted }}>{info.name} · {info.destination}</div>
@@ -11685,7 +11709,7 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {pendingDeleteUnits.map((u) => (
                   <div key={u.id} style={{ display: "flex", gap: 14, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 12 }}>
-                    <img src={u.photos[0]} alt="" style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 6 }} />
+                    <img src={u.photos[0]} alt="" loading="lazy" decoding="async" style={{ width: 90, height: 70, objectFit: "cover", borderRadius: 6 }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 500, fontSize: 14, color: COLORS.navy }}>{u.type} · {u.unitNumber}</div>
                       <div style={{ fontSize: 12, color: COLORS.textMuted }}>{getProjectInfo(u).destination} · {getProjectInfo(u).name}</div>
