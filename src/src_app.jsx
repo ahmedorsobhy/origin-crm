@@ -375,16 +375,36 @@ const inputStyle = {
 };
 
 // Amount field that understands 5m, 2.5m, 500k and commas; stores plain digits
-function MoneyInput({ value, onChange, placeholder = "e.g. 5m or 500k", style, ...rest }) {
-  const [raw, setRaw] = useState(value === null || value === undefined ? "" : String(value));
-  useEffect(() => { const n = parseAmount(raw); if (String(value ?? "") !== String(n ?? "") && String(value ?? "") !== raw) setRaw(value === null || value === undefined ? "" : String(value)); }, [value]);
+// Money box: shows 2,500,000 while you type (commas every 3 digits); "5m" / "500k" also work
+const commaDigits = (t) => {
+  const str = String(t ?? "");
+  if (!/^-?[\d,]*\.?\d*$/.test(str.trim()) || !/\d/.test(str)) return str;
+  const neg = str.trim().startsWith("-"), clean = str.replace(/[-,\s]/g, "");
+  const [i, d] = clean.split(".");
+  return `${neg ? "-" : ""}${(i || "0").replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${d !== undefined ? `.${d}` : ""}`;
+};
+function MoneyInput({ value, onChange, placeholder = "e.g. 5m or 500k", style, wrapStyle, ...rest }) {
+  const [raw, setRaw] = useState(value === null || value === undefined ? "" : commaDigits(String(value)));
+  const ref = useRef(null);
+  useEffect(() => { const n = parseAmount(raw); if (String(value ?? "") !== String(n ?? "") && String(value ?? "") !== raw) setRaw(value === null || value === undefined ? "" : commaDigits(String(value))); }, [value]); // eslint-disable-line
   const n = parseAmount(raw);
+  const change = (e) => {
+    const el = e.target, typed = el.value;
+    const digitsBefore = typed.slice(0, el.selectionStart ?? typed.length).replace(/[^\d.]/g, "").length;
+    const shown = commaDigits(typed);
+    setRaw(shown);
+    const v = parseAmount(shown); onChange(v === null ? "" : String(v));
+    if (shown !== typed) requestAnimationFrame(() => { // keep the cursor after the same digit
+      const inp = ref.current; if (!inp) return;
+      let pos = 0, seen = 0; while (pos < shown.length && seen < digitsBefore) { if (/[\d.]/.test(shown[pos])) seen++; pos++; }
+      try { inp.setSelectionRange(pos, pos); } catch (err) {}
+    });
+  };
   return (
-    <div style={{ position: "relative" }}>
-      <input {...rest} inputMode="decimal" style={{ ...inputStyle, ...style }} value={raw} placeholder={placeholder}
-        onChange={(e) => { setRaw(e.target.value); const v = parseAmount(e.target.value); onChange(v === null ? "" : String(v)); }}
-        onBlur={() => { if (n !== null) setRaw(String(n)); }} />
-      {n !== null && /[a-z,]/i.test(raw) && <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>= {n.toLocaleString("en-US")} EGP</div>}
+    <div style={{ position: "relative", ...wrapStyle }}>
+      <input {...rest} ref={ref} inputMode="decimal" style={{ ...inputStyle, ...style }} value={raw} placeholder={placeholder}
+        onChange={change} onBlur={() => { if (n !== null) setRaw(commaDigits(String(n))); }} />
+      {n !== null && /[a-z]/i.test(raw) && <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 2 }}>= {n.toLocaleString("en-US")} EGP</div>}
     </div>
   );
 }
@@ -2560,11 +2580,8 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
   );
 }
 
-// ---------- Sales ranking: deals and money show positions only ----------
+// ---------- Sales ranking: activity only (deals and money live in Finance) ----------
 const RANK_BOARDS = [
-  { id: "deals", label: "Deals done", icon: "🤝", rankOnly: true, key: "deals_rank" },
-  { id: "reservations", label: "Reservations", icon: "📝", rankOnly: true, key: "reservations_rank" },
-  { id: "money", label: "Commission collected", icon: "💰", rankOnly: true, key: "money_rank" },
   { id: "calls", label: "Calls", icon: "📞", key: "calls" },
   { id: "cold", label: "Cold calls", icon: "🧊", key: "cold_calls" },
   { id: "meetings", label: "Meetings", icon: "📅", key: "meetings" },
@@ -3702,10 +3719,11 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const [outcomeFor, setOutcomeFor] = useState(null);
   const [leadTab, setLeadTab] = useState("call");
   const [sheetView, setSheetView] = useState("numbers");
-  const [statusPick, setStatusPick] = useState(null);
+  const [statusPick, setStatusPick] = useState([]); // feedback chips (one or several)
+  useEffect(() => { setStatusPick([]); }, [openSheet]); // eslint-disable-line
   const [manage, setManage] = useState(false);
   useEffect(() => { const sh = deepId && cold.sheets.find((x) => x.id === deepId && (x.status || "active") === "active"); if (sh) openSheetFn(sh); }, [deepId, cold.sheets.length]); // eslint-disable-line
-  const openSheetFn = (s) => { setOpenSheet(s.id); setLeadTab("call"); setStatusPick(null); setSheetView(isManager && s.assigned_to !== profile.id ? "summary" : "numbers"); };
+  const openSheetFn = (s) => { setOpenSheet(s.id); setLeadTab("call"); setStatusPick([]); setSheetView(isManager && s.assigned_to !== profile.id ? "summary" : "numbers"); };
   const [fv, setF, resetF, setAllF] = useFilters("cold", { q: "", salesId: isManager ? "" : profile.id, state: "", due: { p: "" } });
   const sales = users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
   const nm = (id) => users.find((u) => u.id === id)?.name || "";
@@ -3734,7 +3752,9 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
       ["later", "Sell later", leads.filter((l) => l.status === "later").sort((a, b) => new Date(a.callback_at || 0) - new Date(b.callback_at || 0))],
       ["done", "Done", leads.filter((l) => COLD_DONE.includes(l.status)).sort(byRecent)],
     ];
-    const shown = statusPick ? leads.filter((l) => l.status === statusPick) : (tabs.find((t) => t[0] === leadTab) || tabs[0])[2];
+    const shown = statusPick.length ? leads.filter((l) => statusPick.includes(l.status)).sort(byRecent) : (tabs.find((t) => t[0] === leadTab) || tabs[0])[2];
+    const fbCounts = {}; leads.forEach((l) => { fbCounts[l.status] = (fbCounts[l.status] || 0) + 1; });
+    const fbAll = ["new", ...COLD_OUTCOMES.map((o) => o.id)];
     const salesName = nm(sheet.assigned_to) || profile.name;
     const pill = (active) => ({ border: "none", borderRadius: 999, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: active ? "#fff" : "transparent", color: active ? COLORS.navy : COLORS.textMuted });
     return (
@@ -3757,26 +3777,32 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
         {msg && <div style={{ fontSize: 13, color: COLORS.success, fontWeight: 700 }}>{msg}</div>}
         {isManager && (
           <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, alignSelf: "flex-start" }}>
-            <button onClick={() => { setSheetView("summary"); setStatusPick(null); }} style={pill(sheetView === "summary")}>📊 Summary</button>
+            <button onClick={() => { setSheetView("summary"); setStatusPick([]); }} style={pill(sheetView === "summary")}>📊 Summary</button>
             <button onClick={() => setSheetView("numbers")} style={pill(sheetView === "numbers")}>📋 Numbers</button>
           </div>
         )}
         {isManager && sheetView === "summary" ? (
-          <ColdSheetSummary leads={leads} activity={cold.activity} onPick={(id) => { setStatusPick(id); setSheetView("numbers"); }} />
+          <ColdSheetSummary leads={leads} activity={cold.activity} onPick={(id) => { setStatusPick([id]); setSheetView("numbers"); }} />
         ) : (
           <>
-            {statusPick ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-                <b style={{ color: COLORS.navy }}>{COLD_STATUS_LABEL[statusPick]} · {shown.length}</b>
-                <button onClick={() => setStatusPick(null)} style={{ ...btnGhost, padding: "4px 10px" }}>✕ Show all</button>
-              </div>
-            ) : (
-              <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, overflowX: "auto", maxWidth: "100%" }}>
-                {tabs.map(([id, label, g]) => <button key={id} onClick={() => setLeadTab(id)} style={pill(leadTab === id)}>{label} ({g.length})</button>)}
-              </div>
-            )}
+            <div className="seg" style={{ display: "flex", gap: 2, padding: 3, borderRadius: 999, overflowX: "auto", maxWidth: "100%", opacity: statusPick.length ? 0.55 : 1 }}>
+              {tabs.map(([id, label, g]) => <button key={id} onClick={() => { setLeadTab(id); setStatusPick([]); }} style={pill(leadTab === id && !statusPick.length)}>{label} ({g.length})</button>)}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: COLORS.textMuted, fontWeight: 600 }}>Feedback:</span>
+              {fbAll.map((id) => {
+                const on = statusPick.includes(id), n = fbCounts[id] || 0;
+                return (
+                  <button key={id} disabled={!n && !on} onClick={() => setStatusPick((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]))} className="chip"
+                    style={{ border: `1px solid ${on ? COLORS.navy : COLORS.border}`, background: on ? COLORS.navy : "#fff", color: on ? "#fff" : n ? COLORS.navy : "#BBB", borderRadius: 999, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: n || on ? "pointer" : "default" }}>
+                    {COLD_STATUS_LABEL[id]} ({n})
+                  </button>
+                );
+              })}
+              {statusPick.length > 0 && <button onClick={() => setStatusPick([])} style={{ ...btnGhost, padding: "4px 10px", fontSize: 12 }}>✕ Clear · {shown.length} shown</button>}
+            </div>
             {shown.length === 0 ? (
-              <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
+              <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick.length ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
                 {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} onAddUnit={l.assigned_to === profile.id ? onAddUnit : null} />)}
@@ -4014,29 +4040,42 @@ function zipStore(files) {
   return new Blob([...chunks, ...central, new Uint8Array(end.buffer)], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }
 const xmlEsc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// Money of a promise of sale: deposit (at signing) + rest (at transfer) = advance to the seller;
+// total = advance + developer installments + maintenance + club (each optional)
+function contractMoney(d) {
+  const advance = num(d.down) + num(d.rest);
+  return { advance, total: advance + num(d.dev_rest) + num(d.maint) + num(d.club) };
+}
 function contractValues(d, ids) {
   const day = d.date ? AR_DAYS[new Date(`${d.date}T12:00:00`).getDay()] : "";
-  const garden = num(d.garden) > 0 ? ` و حق انتفاع بالمساحة الخضراء الملحقة بالوحدة المبيعة و البالغ مساحتها ${fmtNum(d.garden)} متر مربع تحت العجز و الزيادة` : "";
+  const m = contractMoney(d);
+  const money = (k, v) => ({ [k]: fmtNum(v), [`${k}_W`]: arMoneyWords(v) });
   return {
     DATE: toDMY(d.date), DAY: day, UNIT: d.unit_number || "", PROJECT: d.project || "", DEVELOPER: d.developer || "",
-    UNIT_DESC: d.unit_desc || "", AREA: fmtNum(d.area), GARDEN: garden,
-    S_NAME: d.seller_name || "", S_ID: ids.seller || "", S_ADDR: d.seller_addr || "",
-    B_NAME: d.buyer_name || "", B_ID: ids.buyer || "", B_ADDR: d.buyer_addr || "",
+    UNIT_DESC: d.unit_desc || "", AREA: fmtNum(d.area), GARDEN_AREA: fmtNum(d.garden),
+    S_NAME: d.seller_name || "", S_ID: ids.seller || "..........................", S_ADDR: d.seller_addr || "",
+    B_NAME: d.buyer_name || "", B_ID: ids.buyer || "..........................", B_ADDR: d.buyer_addr || "",
     DURATION: String(num(d.duration) || 30), DURATION_W: arNumberWords(num(d.duration) || 30),
-    TOTAL: fmtNum(d.total), TOTAL_W: arMoneyWords(d.total),
-    DOWN: fmtNum(d.down), DOWN_W: arMoneyWords(d.down),
-    REST: fmtNum(d.rest), REST_W: arMoneyWords(d.rest),
-    DEV: fmtNum(d.dev_rest), DEV_W: arMoneyWords(d.dev_rest), IF_DEV: "",
-    PENALTY: fmtNum(d.penalty), PENALTY_W: arMoneyWords(d.penalty),
-    COURT: d.court || "شمال القاهرة", COPIES: String(num(d.copies) || 2), PAGES: String(num(d.pages) || 3),
+    ...money("TOTAL", m.total), ...money("ADVANCE", m.advance), ...money("DOWN", d.down), ...money("REST", d.rest),
+    ...money("DEV", d.dev_rest), ...money("MAINT", d.maint), ...money("CLUB", d.club), ...money("PENALTY", d.penalty),
+    COURT: d.court || "شمال القاهرة", COPIES: String(num(d.copies) || 2),
+    IF_DEV: "", IF_MAINT: "", IF_CLUB: "", IF_GARDEN: "", IF_TAX: "",
   };
 }
 function fillContractXml(xml, d, ids) {
   const v = contractValues(d, ids);
-  // drop paragraphs that are not needed (merged lines, no developer installments)
+  // take out the table rows / paragraphs that don't apply (no installments, no garden, …)
+  const drop = (key) => {
+    xml = xml.replace(new RegExp(`<w:tr>(?:(?!</w:tr>).)*?\\{\\{${key}\\}\\}(?:(?!</w:tr>).)*?</w:tr>`, "gs"), "");
+    xml = xml.replace(new RegExp(`<w:p>(?:(?!</w:p>).)*?\\{\\{${key}\\}\\}(?:(?!</w:p>).)*?</w:p>`, "gs"), "");
+  };
+  if (!(num(d.dev_rest) > 0)) drop("IF_DEV");
+  if (!(num(d.maint) > 0)) drop("IF_MAINT");
+  if (!(num(d.club) > 0)) drop("IF_CLUB");
+  if (!(num(d.garden) > 0)) drop("IF_GARDEN");
+  if (d.seller_tax === false) drop("IF_TAX");
   xml = xml.replace(/<w:p[ >](?:(?!<\/w:p>).)*?\{\{DROP\}\}(?:(?!<\/w:p>).)*?<\/w:p>/gs, "");
-  if (!(num(d.dev_rest) > 0)) xml = xml.replace(/<w:p[ >](?:(?!<\/w:p>).)*?\{\{IF_DEV\}\}(?:(?!<\/w:p>).)*?<\/w:p>/gs, "");
-  return xml.replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in v ? xmlEsc(v[k]) : ""));
+  return xml.replace(/\{\{([A-Z_]+)\}\}/g, (m0, k) => (k in v ? xmlEsc(v[k]) : ""));
 }
 async function templateEntries() {
   const bin = atob(PROMISE_TEMPLATE_B64);
@@ -4053,32 +4092,61 @@ async function makeContractDocx(d, ids) {
   }
   return zipStore(files);
 }
-// Print / PDF: the same filled text as an Arabic page
+// Print / PDF: the same filled document as an Arabic page (tables, centred headings, watermark, signatures on every page)
 async function contractHtml(d, ids) {
   const z = await templateEntries();
   const xml = fillContractXml(await z.read("word/document.xml"), d, ids);
-  const body = xml.split(/<w:body>/)[1] || xml;
+  const body = (xml.split(/<w:body>/)[1] || xml).split("<w:sectPr")[0];
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const unesc = (t) => t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  const runs = (p) => (p.match(/<w:r>.*?<\/w:r>/gs) || []).map((r) => {
+    const t = (r.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((x) => unesc(x.replace(/<[^>]+>/g, ""))).join("");
+    if (!t) return /<w:drawing>/.test(r) ? `<img class="logo" src="${LOGO_SRC}" alt="">` : "";
+    const sz = /<w:sz w:val="(\d+)"/.exec(r); const col = /<w:color w:val="([0-9A-F]{6})"/i.exec(r);
+    const st = `${sz ? `font-size:${Number(sz[1]) / 2}pt;` : ""}${col ? `color:#${col[1]};` : ""}${/<w:b\/>/.test(r) ? "font-weight:700;" : ""}`;
+    return `<span style="${st}"${/<w:rtl\/>/.test(r) ? "" : ' dir="auto"'}>${esc(t)}</span>`;
+  }).join("");
+  const para = (p) => {
+    const jc = /<w:jc w:val="(\w+)"/.exec(p); const align = jc ? { center: "center", both: "justify", end: "left", left: "right", right: "right", start: "right" }[jc[1]] || "right" : "right";
+    const inner = runs(p);
+    return `<p style="text-align:${align}">${inner || "&nbsp;"}</p>`;
+  };
   const out = [];
   body.replace(/<w:tbl>.*?<\/w:tbl>|<w:p[ >].*?<\/w:p>/gs, (blk) => {
-    const paraText = (p) => (p.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, "")).join("");
     if (blk.startsWith("<w:tbl")) {
-      const cells = (blk.match(/<w:tc>.*?<\/w:tc>/gs) || []).map((c) => (c.match(/<w:p[ >].*?<\/w:p>/gs) || []).map(paraText));
-      out.push(`<table class="parties"><tr>${cells.map((c) => `<td>${c.map((l, i) => (i ? `<div>${l}</div>` : `<div><b>${l}</b></div>`)).join("")}</td>`).join("")}</tr></table>`);
-    } else {
-      const t = paraText(blk); if (!t.trim()) { out.push("<p>&nbsp;</p>"); return ""; }
-      const center = /<w:jc w:val="center"\/>/.test(blk), b = /<w:b\/>/.test(blk);
-      out.push(`<p style="${center ? "text-align:center;" : ""}${b ? "font-weight:700;" : ""}">${t}</p>`);
-    }
+      const lined = /<w:insideH w:val="single"/.test(blk);
+      const rowsHtml = (blk.match(/<w:tr>.*?<\/w:tr>/gs) || []).map((tr) => `<tr>${(tr.match(/<w:tc>.*?<\/w:tc>/gs) || []).map((tc) => {
+        const span = /<w:gridSpan w:val="(\d+)"/.exec(tc); const fill = /<w:shd [^>]*w:fill="([0-9A-F]{6})"/i.exec(tc);
+        return `<td${span ? ` colspan="${span[1]}"` : ""}${fill ? ` style="background:#${fill[1]}"` : ""}>${(tc.match(/<w:p[ >].*?<\/w:p>/gs) || []).map(para).join("")}</td>`;
+      }).join("")}</tr>`).join("");
+      out.push(`<table class="${lined ? "lined" : "plain"}">${rowsHtml}</table>`);
+    } else out.push(para(blk));
     return "";
   });
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>وعد بالبيع</title><style>
-    body{font-family:"Times New Roman","Arial",sans-serif;font-size:15px;line-height:1.7;max-width:780px;margin:24px auto;padding:0 20px;color:#111}
-    p{margin:2px 0} table.parties{width:100%;border-collapse:collapse;margin:6px 0} table.parties td{width:50%;vertical-align:top;padding:4px 8px}
-    @media print{body{margin:0 auto}}</style></head><body>${out.join("\n")}<script>window.onload=function(){setTimeout(function(){window.print()},300)}</script></body></html>`;
+    @page{size:A4;margin:14mm 18mm 12mm}
+    body{font-family:"Segoe UI","Tahoma","Arial",sans-serif;font-size:10.5pt;line-height:1.55;max-width:760px;margin:20px auto 90px;padding:0 18px;color:#111}
+    p{margin:2px 0} .logo{width:90px} table{width:100%;border-collapse:collapse;margin:4px 0 6px}
+    table.lined{border-top:1px solid #000;border-bottom:1px solid #000} table.lined td{border-top:1px solid #d0d0d0}
+    td{vertical-align:top;padding:3px 6px} table.plain td{width:50%}
+    .wm{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:-1}
+    .wm img{width:380px;opacity:.06;filter:grayscale(1)}
+    .foot{font-size:8.5pt;color:#777;padding:6px 0;background:#fff;height:34px;box-sizing:border-box}
+    .foot .sig{display:flex;justify-content:space-between}
+    table.page,table.page>tbody>tr>td,table.page>tfoot>tr>td{border:none;padding:0;margin:0}
+    .foot-space{height:40px}
+    @media screen{.foot{margin-top:24px}.foot-space{display:none}}
+    @media print{body{margin:0 auto;padding:0}.foot{position:fixed;bottom:0;left:0;right:0}}</style></head><body>
+    <div class="wm"><img src="${LOGO_SRC}" alt=""></div>
+    <table class="page"><tfoot><tr><td><div class="foot-space"></div></td></tr></tfoot><tbody><tr><td>
+    ${out.join("\n")}
+    </td></tr></tbody></table>
+    <div class="foot"><div class="sig"><span>توقيع الطرف الأول: ..............................</span><span>توقيع الطرف الثاني: ..............................</span></div><div style="text-align:center">Origin Real Estate</div></div>
+    <script>window.onload=function(){setTimeout(function(){window.print()},400)}</script></body></html>`;
 }
 
 const CONTRACT_STATUS = { pending: { label: "Waiting for approval", tone: "pending" }, returned: { label: "Returned for changes", tone: "hold" }, approved: { label: "Approved", tone: "active" } };
-const EMPTY_CONTRACT = { date: "", unit_number: "", project: "", developer: "", unit_desc: "", area: "", garden: "", seller_name: "", seller_addr: "", buyer_name: "", buyer_addr: "", total: "", down: "", rest: "", dev_rest: "", penalty: "", duration: "30", court: "شمال القاهرة", copies: "2", pages: "3" };
+const EMPTY_CONTRACT = { date: "", unit_number: "", project: "", developer: "", unit_desc: "", area: "", garden: "", seller_name: "", seller_addr: "", buyer_name: "", buyer_addr: "", total: "", down: "", rest: "", dev_rest: "", maint: "", club: "", penalty: "", seller_tax: true, duration: "30", court: "شمال القاهرة", copies: "2" };
 function contractFromSources({ deal, unit, client, getProjectInfo }) {
   const info = unit ? getProjectInfo(unit) : {};
   const total = num(deal?.sale_price) || num(unit?.totalPrice) || "";
@@ -4088,7 +4156,8 @@ function contractFromSources({ deal, unit, client, getProjectInfo }) {
     unit_number: unit?.unitNumber || "", project: info.name || "", developer: info.developerName || "",
     unit_desc: arUnitDesc(unit), area: unit?.bua || "", garden: num(unit?.extraArea) || "",
     seller_name: unit?.ownerName || "", buyer_name: deal?.buyer_name || client?.name || "",
-    total: total ? String(total) : "", dev_rest: dev ? String(dev) : "",
+    deal_price: total ? String(total) : "", dev_rest: dev ? String(dev) : "",
+    rest: total ? String(Math.max(0, total - dev)) : "",
   };
 }
 
@@ -4128,21 +4197,27 @@ function ContractIdsModal({ data, onClose }) {
 
 function ContractForm({ initial, sources, onSave, onCancel, saving, isAdmin, readOnly }) {
   const [d, setD] = useState(initial);
-  const [auto, setAuto] = useState({ rest: !initial.rest, penalty: !initial.penalty });
-  useEffect(() => { setD(initial); setAuto({ rest: !initial.rest, penalty: !initial.penalty }); }, [initial]); // eslint-disable-line
+  const [auto, setAuto] = useState({ penalty: !initial.penalty });
+  useEffect(() => { setD(initial); setAuto({ penalty: !initial.penalty }); }, [initial]); // eslint-disable-line
   const set = (k) => (v) => setD((x) => {
     const n = { ...x, [k]: v };
-    if (auto.rest && ["total", "down", "dev_rest"].includes(k)) { const r = num(n.total) - num(n.down) - num(n.dev_rest); n.rest = r > 0 ? String(r) : ""; }
     if (auto.penalty && k === "down") n.penalty = v;
+    // the deposit comes out of the advance: keep deposit + rest = the advance agreed with the seller
+    if (k === "down" && num(x.down) + num(x.rest) > 0 && num(x.rest) > 0) { const adv = num(x.down) + num(x.rest); const r = adv - num(v); if (r >= 0) n.rest = String(r); }
     return n;
   });
-  const sum = num(d.down) + num(d.rest) + num(d.dev_rest);
-  const mismatch = num(d.total) > 0 && Math.abs(sum - num(d.total)) > 0.5;
+  const m = contractMoney(d);
+  const dealPrice = num(d.deal_price);
+  const mismatch = dealPrice > 0 && Math.abs(m.total - dealPrice) > 0.5 && Math.abs(m.advance + num(d.dev_rest) - dealPrice) > 0.5;
   const F = ({ k, label, type = "text", wide, hint }) => (
     <Field label={label}>
-      <input disabled={readOnly} type={type} inputMode={type === "number" ? "decimal" : undefined} style={{ ...inputStyle, ...(wide ? {} : {}) }} value={d[k] ?? ""} placeholder={hint}
-        onChange={(e) => { if (k === "rest") setAuto((a) => ({ ...a, rest: false })); if (k === "penalty") setAuto((a) => ({ ...a, penalty: false })); set(k)(e.target.value); }} dir={/[؀-ۿ]/.test(String(d[k] || "")) ? "rtl" : undefined} />
-      {type === "number" && num(d[k]) > 0 && <div dir="rtl" style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 3 }}>{arMoneyWords(d[k])}</div>}
+      {type === "money" ? (
+        <MoneyInput disabled={readOnly} value={d[k] ?? ""} placeholder={hint || "e.g. 500k"} onChange={(v) => { if (k === "penalty") setAuto((a) => ({ ...a, penalty: false })); set(k)(v); }} />
+      ) : (
+        <input disabled={readOnly} type={type} inputMode={type === "number" ? "decimal" : undefined} style={{ ...inputStyle, ...(wide ? {} : {}) }} value={d[k] ?? ""} placeholder={hint}
+          onChange={(e) => { if (k === "penalty") setAuto((a) => ({ ...a, penalty: false })); set(k)(e.target.value); }} dir={/[؀-ۿ]/.test(String(d[k] || "")) ? "rtl" : undefined} />
+      )}
+      {type === "money" && num(d[k]) > 0 && <div dir="rtl" style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 3 }}>{arMoneyWords(d[k])}</div>}
     </Field>
   );
   const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 };
@@ -4161,18 +4236,31 @@ function ContractForm({ initial, sources, onSave, onCancel, saving, isAdmin, rea
       <div style={grid}>{F({ k: "buyer_name", label: "Name" })}{F({ k: "buyer_addr", label: "Address (مقيم في)" })}</div>
       <div style={{ fontSize: 12, color: COLORS.textMuted }}>🔒 National IDs aren't saved — they're asked for when the file is made.</div>
       <H>Money</H>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: -4 }}>Advance to the seller = deposit at signing + the rest at transfer. Total = advance + whatever is filled below it.</div>
       <div style={grid}>
-        {F({ k: "total", label: "Total price (EGP)", type: "number" })}
-        {F({ k: "down", label: "Paid at signing (EGP)", type: "number" })}
-        {F({ k: "rest", label: "To the seller at transfer (EGP)", type: "number" })}
-        {F({ k: "dev_rest", label: "Left with the developer (EGP, optional)", type: "number" })}
-        {F({ k: "penalty", label: "Seller's penalty (EGP)", type: "number" })}
+        {F({ k: "down", label: "Deposit — paid at signing (EGP)", type: "money" })}
+        {F({ k: "rest", label: "Rest of the advance — at transfer (EGP)", type: "money" })}
       </div>
-      {mismatch && <div style={{ fontSize: 12.5, color: COLORS.danger, background: "#FDECEC", padding: 8, borderRadius: 10 }}>⚠️ Paid at signing + to the seller + developer = {fmtNum(sum)} — but the total is {fmtNum(d.total)}. Check the numbers.</div>}
+      <div style={grid}>
+        {F({ k: "dev_rest", label: "Installments left with the developer (optional)", type: "money", hint: "Empty = cash unit" })}
+        {F({ k: "maint", label: "Maintenance fee / deposit (optional)", type: "money" })}
+        {F({ k: "club", label: "Club membership (optional)", type: "money" })}
+        {F({ k: "penalty", label: "Seller's penalty (EGP)", type: "money" })}
+      </div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", background: COLORS.cream, borderRadius: 12, padding: "10px 12px", fontSize: 13 }}>
+        <span>Advance: <b>{fmtNum(m.advance)}</b></span>
+        <span>Total in the contract: <b>{fmtNum(m.total)}</b></span>
+        {dealPrice > 0 && <span style={{ color: COLORS.textMuted }}>Deal price: {fmtNum(dealPrice)}</span>}
+      </div>
+      {mismatch && <div style={{ fontSize: 12.5, color: COLORS.danger, background: "#FDECEC", padding: 8, borderRadius: 10 }}>⚠️ The total here ({fmtNum(m.total)}) isn't the deal price ({fmtNum(dealPrice)}). Check the numbers.</div>}
+      <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: COLORS.navy }}>
+        <input type="checkbox" disabled={readOnly} checked={d.seller_tax !== false} onChange={(e) => setD((x) => ({ ...x, seller_tax: e.target.checked }))} />
+        The seller pays the real-estate disposal tax (ضريبة التصرفات العقارية)
+      </label>
       {!readOnly && (
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
           <button style={btnGhost} onClick={onCancel}>Cancel</button>
-          <button style={btnPrimary} disabled={saving} onClick={() => onSave(d)}>{saving ? "Saving…" : isAdmin ? "Save" : "Send for approval"}</button>
+          <button style={btnPrimary} disabled={saving} onClick={() => onSave({ ...d, total: String(contractMoney(d).total) })}>{saving ? "Saving…" : isAdmin ? "Save" : "Send for approval"}</button>
         </div>
       )}
     </div>
@@ -6488,6 +6576,148 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
   );
 }
 
+// ---------- Daily report: one row per person, like a spreadsheet ----------
+const DAILY_COLS = [
+  ["checkin", "Check-in"], ["calls", "Calls"], ["cold", "Cold calls"], ["wa", "WhatsApp"], ["mBooked", "Meetings booked"], ["mDone", "Meetings done"],
+  ["newClients", "New clients"], ["clientUpd", "Client updates"], ["newUnits", "New units"], ["unitUpd", "Unit updates"], ["selling", "Selling (cold)"],
+  ["resv", "Reservations"], ["deals", "Deals done"],
+];
+function DailyReport({ profile, users, visibleSalesIds, clients, activity, units, attendance, settings, fin, getToken, onOpenClient, onOpenUnit }) {
+  const [fv, setF, resetF, setAllF] = useFilters("daily-report", { when: { p: "today" }, person: "" });
+  const range = dateRangeOf(fv.when) || [new Date(2024, 0, 1), new Date(Date.now() + MS_DAY)];
+  const [extra, setExtra] = useState({ cold: [], unitAct: [], leads: {}, key: "", loading: true, err: "" });
+  const [sort, setSort] = useState({ k: "", dir: -1 });
+  const [drill, setDrill] = useState(null);
+  const rkey = `${range[0].toISOString()}|${range[1].toISOString()}`;
+  useEffect(() => {
+    let off = false;
+    (async () => {
+      setExtra((x) => ({ ...x, loading: true, err: "" }));
+      try {
+        const t = await getToken();
+        const q = `&created_at=gte.${range[0].toISOString()}&created_at=lt.${range[1].toISOString()}&order=created_at.desc`;
+        const [cold, unitAct] = await Promise.all([
+          db.selectAll("cold_activity", q, t).catch(() => []),
+          db.selectAll("unit_activity", q, t).catch(() => []),
+        ]);
+        const ids = [...new Set(cold.map((a) => a.lead_id))];
+        const leads = {};
+        for (let k = 0; k < ids.length; k += 150) {
+          const rows = await db.select("cold_leads", `&id=in.(${ids.slice(k, k + 150).join(",")})&select=id,owner_name,phone,project_name`, t).catch(() => []);
+          (rows || []).forEach((r) => { leads[r.id] = r; });
+        }
+        if (!off) setExtra({ cold, unitAct, leads, key: rkey, loading: false, err: "" });
+      } catch (e) { if (!off) setExtra((x) => ({ ...x, loading: false, err: e.message || "Couldn't load" })); }
+    })();
+    return () => { off = true; };
+  }, [rkey]); // eslint-disable-line
+  const inR = (iso) => { if (!iso) return false; const d = new Date(iso); return d >= range[0] && d < range[1]; };
+  const people = users.filter((u) => !["pending", "admin", "ceo"].includes(u.role) && (isFinanceAdmin(profile) || visibleSalesIds.includes(u.id)) && (!fv.person || u.id === fv.person));
+  const oneDay = range[1] - range[0] <= MS_DAY + 3600000;
+  const cut = lateCutoff(settings);
+  const clientName = (id) => (clients.find((c) => c.id === id) || {}).name || "Client";
+  const unitName = (id) => { const u = units.find((x) => x.id === id); return u ? `${u.type || "Unit"} ${u.unitNumber || ""}` : "Unit"; };
+  const leadName = (id) => { const l = extra.leads[id]; return l ? `${l.owner_name || "Owner"} · ${l.phone}${l.project_name ? ` · ${l.project_name}` : ""}` : "Cold number"; };
+  const isMeetingDone = (a) => (a.action === "quick_reply" && a.fieldName === "meeting_done") || (a.action === "stage_change" && (a.newValue === "meeting_done" || (a.oldValue === "meeting_generated" && a.newValue !== "meeting_generated" && a.newValue !== "lost")));
+  const dealsOf = (uid, field) => (fin?.deals || []).filter((d) => inR(d[field]) && d.status !== "cancelled" && (fin.dealAgents || []).some((a) => a.deal_id === d.id && a.agent_id === uid));
+  const rows = people.map((u) => {
+    const act = activity.filter((a) => a.changedBy === u.id && inR(a.changedAt));
+    const cold = extra.cold.filter((a) => a.user_id === u.id);
+    const st = attendanceStats(attendance, u.id, range, settings);
+    const firstIn = st.days.find((x) => x.inAt);
+    const items = {
+      calls: act.filter((a) => a.action === "call").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
+      cold: cold.filter((a) => a.action === "call").map((a) => ({ at: a.created_at, label: leadName(a.lead_id) })),
+      wa: [...act.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })), ...cold.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.created_at, label: `${leadName(a.lead_id)} (cold)` }))],
+      mBooked: act.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
+      mDone: act.filter(isMeetingDone).map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
+      newClients: clients.filter((c) => (c.createdBy || c.assignedTo) === u.id && inR(c.createdAt)).map((c) => ({ at: c.createdAt, label: c.name, client: c.id })),
+      clientUpd: act.filter((a) => !["call", "whatsapp", "created"].includes(a.action)).map((a) => ({ at: a.changedAt, label: `${clientName(a.clientId)} — ${a.action === "stage_change" ? `stage → ${STAGE_LABEL[a.newValue] || a.newValue}` : a.action === "quick_reply" ? (a.fieldName || "update").replace(/_/g, " ") : a.action}`, client: a.clientId })),
+      newUnits: units.filter((x) => (x.createdBy ? x.createdBy === u.id : x.salesIds.includes(u.id)) && inR(x.createdAt)).map((x) => ({ at: x.createdAt, label: unitName(x.id), unit: x.id })),
+      unitUpd: extra.unitAct.filter((a) => a.user_id === u.id && a.action === "updated").map((a) => ({ at: a.created_at, label: `${unitName(a.unit_id)}${Array.isArray(a.fields) && a.fields.length ? ` — ${a.fields.slice(0, 4).join(", ").replace(/_/g, " ")}` : ""}`, unit: a.unit_id })),
+      selling: cold.filter((a) => a.action === "outcome" && a.value === "selling").map((a) => ({ at: a.created_at, label: leadName(a.lead_id) })),
+      resv: dealsOf(u.id, "reserved_at").map((d) => ({ at: d.reserved_at, label: d.unit_label || d.client_label || "Deal" })),
+      deals: dealsOf(u.id, "done_at").map((d) => ({ at: d.done_at, label: d.unit_label || d.client_label || "Deal" })),
+    };
+    const checkin = oneDay ? (firstIn ? new Date(firstIn.inAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—") : `${st.present} days${st.late ? ` · ${st.late} late` : ""}`;
+    return { u, items, checkin, late: oneDay ? !!(firstIn && firstIn.late) : st.late > 0, checkinSort: oneDay ? (firstIn ? new Date(firstIn.inAt).getTime() : Infinity) : -st.present };
+  });
+  const val = (r, k) => (k === "checkin" ? r.checkinSort : r.items[k].length);
+  const cmp = (x, y) => (x === y ? 0 : x > y ? 1 : -1);
+  const sorted = sort.k ? [...rows].sort((a, b) => cmp(val(b, sort.k), val(a, sort.k)) * (sort.dir < 0 ? 1 : -1) || a.u.name.localeCompare(b.u.name)) : [...rows].sort((a, b) => a.u.name.localeCompare(b.u.name));
+  const total = (k) => rows.reduce((s, r) => s + r.items[k].length, 0);
+  const label = fv.when?.p === "custom" ? `${fv.when.from || "…"} → ${fv.when.to || "…"}` : DATE_PRESET_LABEL[fv.when?.p] || "Any time";
+  const download = () => {
+    const headers = ["Name", "Role", ...DAILY_COLS.map(([, l]) => l)];
+    const data = sorted.map((r) => [r.u.name, ROLE_LABEL[r.u.role] || r.u.role, r.checkin, ...DAILY_COLS.slice(1).map(([k]) => r.items[k].length)]);
+    data.push(["Total", "", "", ...DAILY_COLS.slice(1).map(([k]) => total(k))]);
+    saveBlob(makeXlsx(headers, data, "Report"), `Daily-report_${label.replace(/[^\w-]+/g, "-")}_${todayKey()}.xlsx`);
+  };
+  const th = { padding: "8px 10px", fontSize: 12, fontWeight: 700, color: COLORS.navy, whiteSpace: "nowrap", cursor: "pointer", textAlign: "center", borderBottom: `1.5px solid ${COLORS.navy}`, position: "sticky", top: 0, background: "#fff" };
+  const td = { padding: "7px 10px", fontSize: 13, textAlign: "center", borderBottom: `1px solid ${COLORS.border}`, whiteSpace: "nowrap" };
+  const peopleOpts = users.filter((u) => !["pending", "admin", "ceo"].includes(u.role) && (isFinanceAdmin(profile) || visibleSalesIds.includes(u.id)));
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: COLORS.navy }}>Daily report <span style={{ fontWeight: 500, fontSize: 13, color: COLORS.textMuted }}>· {label}{extra.loading ? " · loading…" : ""}</span></div>
+        <button onClick={download} style={{ ...btnGhost, padding: "6px 12px" }}>⬇ Download Excel</button>
+      </div>
+      <FilterBar id="daily-report" values={fv} set={setF} reset={resetF} setAll={setAllF} count={rows.length} noun={rows.length === 1 ? "person" : "people"}
+        defs={[
+          { id: "when", label: "Period", type: "date", primary: true },
+          { id: "person", label: "Person", type: "select", primary: true, all: "Everyone", options: opt(peopleOpts, "id", "name") },
+        ]} />
+      {extra.err && <div style={{ color: COLORS.danger, fontSize: 12.5, marginBottom: 8 }}>Some numbers couldn't load ({extra.err}).</div>}
+      <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "auto", maxHeight: "70vh" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 1100 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left", position: "sticky", left: 0, zIndex: 2 }} onClick={() => setSort({ k: "", dir: -1 })}>Name</th>
+              {DAILY_COLS.map(([k, l]) => (
+                <th key={k} style={th} onClick={() => setSort((x) => ({ k, dir: x.k === k ? -x.dir : -1 }))}>{l}{sort.k === k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => (
+              <tr key={r.u.id}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 700, color: COLORS.navy, position: "sticky", left: 0, background: "#fff" }}>{r.u.name}<div style={{ fontSize: 11, fontWeight: 400, color: COLORS.textMuted }}>{ROLE_LABEL[r.u.role]}</div></td>
+                <td style={{ ...td, color: r.late ? COLORS.danger : r.checkin === "—" ? COLORS.textMuted : COLORS.success, fontWeight: 700 }} title={oneDay ? `Late after ${cut.label}` : ""}>{r.checkin}</td>
+                {DAILY_COLS.slice(1).map(([k, l]) => {
+                  const n = r.items[k].length;
+                  return <td key={k} style={{ ...td, cursor: n ? "pointer" : "default", fontWeight: n ? 700 : 400, color: n ? COLORS.text : "#BBB" }} onClick={() => n && setDrill({ title: `${r.u.name} · ${l} · ${label}`, list: r.items[k] })}>{n}</td>;
+                })}
+              </tr>
+            ))}
+            {sorted.length > 1 && (
+              <tr style={{ background: COLORS.cream }}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 800, position: "sticky", left: 0, background: COLORS.cream }}>Total</td>
+                <td style={td}>—</td>
+                {DAILY_COLS.slice(1).map(([k]) => <td key={k} style={{ ...td, fontWeight: 800 }}>{total(k)}</td>)}
+              </tr>
+            )}
+            {sorted.length === 0 && <tr><td colSpan={DAILY_COLS.length + 1} style={{ ...td, color: COLORS.textMuted, padding: 20 }}>No one to show.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 6 }}>Tap a number to see the details. Tap a column title to sort.</div>
+      {drill && (
+        <FinModal title={drill.title} onClose={() => setDrill(null)} width={560}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: "60vh", overflowY: "auto" }}>
+            {[...drill.list].sort((a, b) => new Date(b.at) - new Date(a.at)).map((x, i) => (
+              <div key={i} onClick={() => { if (x.client && onOpenClient) { setDrill(null); onOpenClient(x.client); } else if (x.unit && onOpenUnit) { const u = units.find((y) => y.id === x.unit); if (u) { setDrill(null); onOpenUnit(u); } } }}
+                style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "7px 8px", borderRadius: 10, background: i % 2 ? "#fff" : COLORS.cream, cursor: x.client || x.unit ? "pointer" : "default" }}>
+                <span dir="auto">{x.label}</span>
+                <span style={{ color: COLORS.textMuted, whiteSpace: "nowrap" }}>{formatDateTime(x.at)}</span>
+              </div>
+            ))}
+          </div>
+        </FinModal>
+      )}
+    </div>
+  );
+}
+
 // ---------- Attendance report: present / late / absent per person ----------
 const DEFAULT_WORK_DAYS = [0, 1, 2, 3, 4]; // Sunday → Thursday (Friday and Saturday off)
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -7469,7 +7699,7 @@ function SoldDetailsModal({ unit, mode, onSave, onClose }) {
         {mode === "outside" && <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>The unit moves to the Sold list and leaves the available units. Nothing goes to Finance.</div>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Field label="Sold on"><input type="date" style={inputStyle} value={f.soldAt} onChange={set("soldAt")} /></Field>
-          <Field label="Price (EGP)"><input type="number" min="0" style={inputStyle} value={f.soldPrice} onChange={set("soldPrice")} placeholder="If known" /></Field>
+          <Field label="Price (EGP)"><MoneyInput value={f.soldPrice} onChange={(v) => set("soldPrice")({ target: { value: v } })} placeholder="If known" /></Field>
         </div>
         {(via === "us" || mode === "edit") && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -7961,12 +8191,12 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
                 {hasBuyer && (
                   <Field label={`Collected from ${partyName(dealType, "buyer")}`}>
-                    <input type="number" min="0" style={inputStyle} value={collBuyer ?? commBuyer} onChange={(e) => setCollBuyer(e.target.value)} />
+                    <MoneyInput value={collBuyer ?? commBuyer} onChange={(v) => setCollBuyer(v)} />
                   </Field>
                 )}
                 {hasSeller && (
                   <Field label={`Collected from ${partyName(dealType, "seller")}`}>
-                    <input type="number" min="0" style={inputStyle} value={collSeller ?? commSeller} onChange={(e) => setCollSeller(e.target.value)} />
+                    <MoneyInput value={collSeller ?? commSeller} onChange={(v) => setCollSeller(v)} />
                   </Field>
                 )}
                 <Field label="Money received into">
@@ -8571,7 +8801,7 @@ function CancelDealForm({ deal, ctx, onDone }) {
         <div style={{ background: COLORS.cream, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 12.5 }}>We collected <b>{egpFull(collected)}</b> on this deal{refunded > 0 ? ` (already refunded ${egpFull(refunded)})` : ""}. It drops out of targets and the ranking either way. Refund the client? (0 = the company keeps it)</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Field label="Refund (EGP)"><input type="number" min="0" style={{ ...inputStyle, width: 130 }} value={refund} onChange={(e) => setRefund(e.target.value)} /></Field>
+            <Field label="Refund (EGP)"><MoneyInput wrapStyle={{ width: 150 }} value={refund} onChange={(v) => setRefund(v)} /></Field>
             {num(refund) > 0 && <Field label="Paid from"><select value={refundAcc} onChange={(e) => setRefundAcc(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>{activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
             {num(refund) > 0 && <Field label="Date"><input type="date" style={inputStyle} value={refundDate} onChange={(e) => setRefundDate(e.target.value)} /></Field>}
           </div>
@@ -8722,7 +8952,7 @@ function CollectionModal({ deal, ctx, collected, onClose }) {
             </select>
           </Field>
         )}
-        <Field label="Amount (EGP)"><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Amount (EGP)"><MoneyInput value={amount} onChange={(v) => setAmount(v)} /></Field>
         <Field label="Received into">
           <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
             {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -9322,7 +9552,7 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
             </select>
           </Field>
         )}
-        <Field label="Amount (EGP)" required><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Amount (EGP)" required><MoneyInput value={amount} onChange={(v) => setAmount(v)} /></Field>
         <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <Field label="Note"><input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         <FinError text={error} />
@@ -9636,7 +9866,7 @@ function TreasuryModal({ mode, ctx, onClose }) {
             </Field>
           </>
         )}
-        <Field label="Amount (EGP)"><input type="number" style={inputStyle} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Amount (EGP)"><MoneyInput value={amount} onChange={(v) => setAmount(v)} /></Field>
         <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <Field label="Note"><input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         <FinError text={error} />
@@ -9721,10 +9951,10 @@ function TeamMemberPlan({ person, ctx, onBack }) {
         <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 12 }}>{ROLE_LABEL[person.role]} · {chain.map((p) => p.name).join(" → ")}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
           <Field label="Quarterly target (EGP of collected commission)">
-            <input type="number" style={inputStyle} value={target} onChange={(e) => setTarget(e.target.value)} />
+            <MoneyInput value={target} onChange={(v) => setTarget(v)} />
           </Field>
           <Field label="Monthly salary (EGP)">
-            <input type="number" style={inputStyle} value={salary} onChange={(e) => setSalary(e.target.value)} />
+            <MoneyInput value={salary} onChange={(v) => setSalary(v)} />
           </Field>
         </div>
         <div style={{ fontWeight: 600, fontSize: 13.5, color: COLORS.navy, marginBottom: 4 }}>When {person.name} closes a deal — % of the total commission</div>
@@ -11249,7 +11479,7 @@ export default function App() {
     { id: "cold", label: "Cold calls", short: "Cold", icon: Phone, badge: coldBadge || 0 },
     { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", short: "Finance", badge: finPending || 0, icon: Wallet },
     { id: "contracts", label: contractBadge ? `Contracts (${contractBadge})` : "Contracts", short: "Contracts", badge: contractBadge || 0, icon: FileText },
-    { id: "profile", label: isFinanceAdmin(profile) ? "Reports" : "Attendance", short: isFinanceAdmin(profile) ? "Reports" : "Attendance", icon: isFinanceAdmin(profile) ? LayoutGrid : Clock },
+    { id: "profile", label: profile.role !== "sales_agent" ? "Reports" : "Attendance", short: profile.role !== "sales_agent" ? "Reports" : "Attendance", icon: profile.role !== "sales_agent" ? LayoutGrid : Clock },
     { id: "settings", label: "Settings", short: "Settings", icon: SettingsIcon },
   ];
   const UNITS_SUBNAV = [
@@ -11262,6 +11492,7 @@ export default function App() {
     { id: "sold", label: "Sold", icon: CheckCircle },
   ];
   const PROFILE_SUBNAV = [];
+  if (profile.role !== "sales_agent") PROFILE_SUBNAV.push({ id: "daily", label: "Daily report", icon: FileText });
   if (profile.role === "admin" || profile.role === "ceo") {
     PROFILE_SUBNAV.push({ id: "dashboard", label: "Dashboard", icon: LayoutGrid });
     PROFILE_SUBNAV.push({ id: "reports", label: "Reports", icon: Users });
@@ -11280,7 +11511,7 @@ export default function App() {
   const goSection = (id) => {
     setSection(id);
     if (id === "units") setTab("home");
-    if (id === "profile") setTab(isFinanceAdmin(profile) ? "dashboard" : "attendance");
+    if (id === "profile") setTab(profile.role !== "sales_agent" ? "daily" : "attendance");
     if (id === "settings") setTab("me");
     setOpenClientId(null);
   };
@@ -11720,6 +11951,11 @@ export default function App() {
           />
         )}
 
+        {section === "profile" && tab === "daily" && profile.role !== "sales_agent" && (
+          <DailyReport profile={profile} users={users} visibleSalesIds={visibleSalesIds} clients={clients} activity={clientActivity} units={units}
+            attendance={attendance} settings={fin.settings} fin={fin} getToken={getValidToken}
+            onOpenClient={(id) => { setSection("clients"); setClientsTab("all"); setOpenClientId(id); }} onOpenUnit={setOpenUnit} />
+        )}
         {section === "profile" && tab === "reports" && (profile.role === "admin" || profile.role === "ceo") && (
           <ReportsTab
             clients={clients}
