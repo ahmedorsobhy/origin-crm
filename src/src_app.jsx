@@ -2582,8 +2582,8 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
 
 // ---------- Sales ranking: activity only (deals and money live in Finance) ----------
 const RANK_BOARDS = [
-  { id: "calls", label: "Calls", icon: "📞", key: "calls" },
-  { id: "cold", label: "Cold calls", icon: "🧊", key: "cold_calls" },
+  { id: "calls", label: "Client calls", icon: "📞", key: "calls" },
+  { id: "cold", label: "Cold calls (numbers)", icon: "🧊", key: "cold_calls", extraKey: "cold_tries", extraLabel: "tries" },
   { id: "meetings", label: "Meetings", icon: "📅", key: "meetings" },
   { id: "units", label: "Units added", icon: "🏠", key: "units_added" },
   { id: "clients", label: "New clients", icon: "👤", key: "new_clients" },
@@ -2695,7 +2695,7 @@ function RankingPage({ profile, getToken }) {
                         <div style={{ flex: 1, height: 7, borderRadius: 7, background: COLORS.cream, overflow: "hidden", minWidth: 30 }}>
                           <div className="grow-bar" style={{ width: `${b.lowWins ? 100 - Math.min(90, ((r[b.key] || 0) / Math.max(1, ...list.map((x) => x.r[b.key] || 0))) * 90) : ((r[b.key] || 0) / max) * 100}%`, height: "100%", borderRadius: 7, background: pos === 1 ? COLORS.gold : COLORS.navy }} />
                         </div>
-                        <span style={{ minWidth: 46, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.lowWins ? fmtMins(r[b.key]) : r[b.key]}</span>
+                        <span style={{ minWidth: 46, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{b.lowWins ? fmtMins(r[b.key]) : r[b.key]}{b.extraKey && r[b.extraKey] != null && r[b.extraKey] !== r[b.key] ? <span style={{ fontSize: 10.5, color: COLORS.textMuted, fontWeight: 500 }}> · {r[b.extraKey]} {b.extraLabel}</span> : null}</span>
                       </>
                     )}
                     {b.rankOnly && <span style={{ flex: 1 }} />}
@@ -3241,7 +3241,7 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
         const chunk = usable.slice(p * size, (p + 1) * size);
         const [sheet] = await db.insert("cold_sheets", { name: parts > 1 ? `${name || "Sheet"} · ${p + 1}/${parts}` : name || "Sheet", assigned_to: salesId, due_date: isoToDateInput(day.toISOString()), batch_id: batch, batch_part: p + 1, ...(selfOnly ? { status: "pending" } : {}) }, t);
         for (let k = 0; k < chunk.length; k += 200) {
-          await db.insert("cold_leads", chunk.slice(k, k + 200).map((r, j) => ({ sheet_id: sheet.id, assigned_to: salesId, owner_name: String(r.owner_name || "").trim() || null, phone: r.phone, project_name: String(r.project_name || "").trim() || null, project_id: projectIdFor(r.project_name), unit_number: String(r.unit_number || "").trim() || null, extra: r.extra || null, ...(r.others && r.others.length ? { other_phones: r.others } : {}), position: k + j })), t);
+          await db.insert("cold_leads", chunk.slice(k, k + 200).map((r, j) => ({ sheet_id: sheet.id, assigned_to: salesId, owner_name: String(r.owner_name || "").trim() || null, phone: r.phone, project_name: String(r.project_name || "").trim() || null, project_id: projectIdFor(r.project_name), unit_number: String(r.unit_number || "").trim() || null, extra: r.extra || null, other_phones: r.others && r.others.length ? r.others : null, position: k + j })), t);
         }
         day = nextWork(day);
       }
@@ -6593,7 +6593,7 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
 
 // ---------- Daily report: one row per person, like a spreadsheet ----------
 const DAILY_COLS = [
-  ["checkin", "Check-in"], ["calls", "Calls"], ["cold", "Cold calls"], ["wa", "WhatsApp"], ["mBooked", "Meetings booked"], ["mDone", "Meetings done"],
+  ["checkin", "Check-in"], ["calls", "Client calls"], ["cold", "Cold numbers called"], ["wa", "WhatsApp"], ["mBooked", "Meetings booked"], ["mDone", "Meetings done"],
   ["newClients", "New clients"], ["clientUpd", "Client updates"], ["newUnits", "New units"], ["unitUpd", "Unit updates"], ["selling", "Selling (cold)"],
   ["resv", "Reservations"], ["deals", "Deals done"],
 ];
@@ -6642,7 +6642,8 @@ function DailyReport({ profile, users, visibleSalesIds, clients, activity, units
     const firstIn = st.days.find((x) => x.inAt);
     const items = {
       calls: act.filter((a) => a.action === "call").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
-      cold: cold.filter((a) => a.action === "call").map((a) => ({ at: a.created_at, label: leadName(a.lead_id) })),
+      cold: Object.values(cold.filter((a) => a.action === "call").reduce((m, a) => { const x = m[a.lead_id]; if (!x) m[a.lead_id] = { at: a.created_at, label: leadName(a.lead_id), n: 1 }; else { x.n++; if (a.created_at > x.at) x.at = a.created_at; } return m; }, {}))
+        .map((x) => ({ ...x, label: x.n > 1 ? `${x.label} (${x.n} tries)` : x.label })),
       wa: [...act.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })), ...cold.filter((a) => a.action === "whatsapp").map((a) => ({ at: a.created_at, label: `${leadName(a.lead_id)} (cold)` }))],
       mBooked: act.filter((a) => a.action === "stage_change" && a.newValue === "meeting_generated").map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
       mDone: act.filter(isMeetingDone).map((a) => ({ at: a.changedAt, label: clientName(a.clientId), client: a.clientId })),
