@@ -2583,7 +2583,7 @@ function OwnerFollowUp({ units, profile, visibleSalesIds, getProjectInfo, onStil
 // ---------- Sales ranking: activity only (deals and money live in Finance) ----------
 const RANK_BOARDS = [
   { id: "calls", label: "Calls (by feedback)", icon: "📞", key: "calls",
-    extra: (r) => r.cold_calls != null ? `${r.cold_calls || 0} cold · ${r.client_calls || 0} clients · ${r.seller_updates || 0} seller updates · ${r.tries || 0} tries` : "" },
+    extra: (r) => r.cold_calls != null ? `${r.cold_calls || 0} cold numbers · ${r.client_calls || 0} clients · ${r.seller_updates || 0} seller updates · ${r.tries || 0} tries` : "" },
   { id: "meetings", label: "Meetings", icon: "📅", key: "meetings" },
   { id: "units", label: "Units added", icon: "🏠", key: "units_added" },
   { id: "clients", label: "New clients", icon: "👤", key: "new_clients" },
@@ -6611,6 +6611,7 @@ function AttendanceLog({ attendance, users, defaultDays = 7, showPerson = true }
 }
 
 // A feedback on a client (not the automatic lines) — same rule as the ranking (is_client_feedback in SQL)
+const cairoDay = (iso) => { try { return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" }); } catch (e) { return String(iso).slice(0, 10); } };
 const isClientFeedback = (a) => ["quick_reply", "stage_change", "note", "voice", "closed", "outcome"].includes(a.action)
   && !/^(Sent a unit|Lead came in again|Changed by Admin)/.test(a.note || "");
 // ---------- Daily report: one row per person, like a spreadsheet ----------
@@ -6663,7 +6664,12 @@ function DailyReport({ profile, users, visibleSalesIds, clients, activity, units
     const st = attendanceStats(attendance, u.id, range, settings);
     const firstIn = st.days.find((x) => x.inAt);
     const items = {
-      cold: cold.filter((a) => a.action === "outcome").map((a) => ({ at: a.created_at, label: `${a.lead_id ? leadName(a.lead_id) : "Number from a deleted sheet"} — ${COLD_STATUS_LABEL[a.value] || a.value}` })),
+      // each number counts once a day (its latest feedback), like the ranking
+      cold: Object.values(cold.filter((a) => a.action === "outcome").reduce((m, a) => {
+        const k = `${a.phone || a.lead_id || a.id}:${cairoDay(a.created_at)}`; const x = m[k];
+        if (!x) m[k] = { a, n: 1 }; else { x.n++; if (a.created_at > x.a.created_at) x.a = a; }
+        return m;
+      }, {})).map(({ a, n }) => ({ at: a.created_at, label: `${a.lead_id ? leadName(a.lead_id) : a.phone ? `${a.phone} (deleted sheet)` : "Number from a deleted sheet"} — ${COLD_STATUS_LABEL[a.value] || a.value}${n > 1 ? ` (${n} feedbacks)` : ""}` })),
       clientCalls: act.filter((a) => isClientFeedback(a)).map((a) => ({ at: a.changedAt, label: `${clientName(a.clientId)} — ${a.action === "stage_change" ? `stage → ${STAGE_LABEL[a.newValue] || a.newValue}` : a.action === "quick_reply" ? (a.fieldName || "update").replace(/_/g, " ") : a.action === "voice" ? "voice note" : a.action}`, client: a.clientId })),
       seller: extra.unitAct.filter((a) => a.user_id === u.id && (a.action === "updated" || a.action === "checked")).map((a) => ({ at: a.created_at, label: `${a.unit_id ? unitName(a.unit_id) : "Deleted unit"} — ${a.action === "checked" ? "still available" : Array.isArray(a.fields) && a.fields.length ? a.fields.slice(0, 4).join(", ").replace(/_/g, " ") : "updated"}`, unit: a.unit_id })),
       tries: [...act.filter((a) => a.action === "call").map((a) => ({ at: a.changedAt, label: `${clientName(a.clientId)} (client)`, client: a.clientId })),
