@@ -3531,7 +3531,7 @@ function ColdLeadRow({ lead, template, templateEn, salesName, onCall, onWhatsApp
   const tone = lead.status === "selling" ? COLORS.success : lead.status === "later" ? COLORS.gold : COLD_DONE.includes(lead.status) ? COLORS.danger : lead.status === "new" ? COLORS.navy : COLORS.gold;
   const big = { flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 42, borderRadius: 12, fontWeight: 800, fontSize: 13.5, textDecoration: "none", cursor: "pointer" };
   return (
-    <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${tone}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+    <div className="card lite-card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderLeft: `4px solid ${tone}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 800, color: COLORS.navy, fontSize: 15.5, overflow: "hidden", textOverflow: "ellipsis" }}>{lead.owner_name || "Owner"}</div>
@@ -3721,6 +3721,15 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const [sheetView, setSheetView] = useState("numbers");
   const [statusPick, setStatusPick] = useState([]); // feedback chips (one or several)
   useEffect(() => { setStatusPick([]); }, [openSheet]); // eslint-disable-line
+  // a sheet can hold hundreds of numbers: show 30 at a time (all at once made iPhones run out of memory)
+  const [leadLimit, setLeadLimit] = useState(30);
+  useEffect(() => { setLeadLimit(30); }, [openSheet, leadTab, statusPick.join(",")]); // eslint-disable-line
+  const moreLeadsRef = useRef(null);
+  useEffect(() => {
+    const el = moreLeadsRef.current; if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) setLeadLimit((n) => n + 30); }, { rootMargin: "500px" });
+    io.observe(el); return () => io.disconnect();
+  });
   const [manage, setManage] = useState(false);
   useEffect(() => { const sh = deepId && cold.sheets.find((x) => x.id === deepId && (x.status || "active") === "active"); if (sh) openSheetFn(sh); }, [deepId, cold.sheets.length]); // eslint-disable-line
   const openSheetFn = (s) => { setOpenSheet(s.id); setLeadTab("call"); setStatusPick([]); setSheetView(isManager && s.assigned_to !== profile.id ? "summary" : "numbers"); };
@@ -3805,7 +3814,12 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 18, color: COLORS.textMuted, fontSize: 13.5 }}>{leadTab === "call" && !statusPick.length ? "🎉 You called every number here. Check “Try again”." : "Nothing here."}</div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 10 }}>
-                {shown.map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} onAddUnit={l.assigned_to === profile.id ? onAddUnit : null} />)}
+                {shown.slice(0, leadLimit).map((l) => <ColdLeadRow key={l.id} lead={l} template={template} templateEn={templateEn} salesName={salesName} onCall={(x) => onLog(x, "call")} onWhatsApp={(x) => onLog(x, "whatsapp")} onOutcome={setOutcomeFor} onAddUnit={l.assigned_to === profile.id ? onAddUnit : null} />)}
+              </div>
+            )}
+            {shown.length > leadLimit && (
+              <div ref={moreLeadsRef} style={{ display: "flex", justifyContent: "center", padding: "10px 0" }}>
+                <button onClick={() => setLeadLimit((n) => n + 30)} style={btnGhost}>Show more ({shown.length - leadLimit} left)</button>
               </div>
             )}
           </>
@@ -4415,7 +4429,7 @@ const TODAY_GROUPS = [
   { key: "cold", title: "Going cold", hint: "No update in over a week", color: COLORS.textMuted },
 ];
 
-function TodayBoard({ profile, clients, activity, users, visibleSalesIds, isManager, onOpenClient, onQuickReply, onContact, onCloseLead, heroExtra, topSlot, bottomSlot }) {
+function TodayBoard({ profile, clients, activity, coldActivity = [], users, visibleSalesIds, isManager, onOpenClient, onQuickReply, onContact, onCloseLead, heroExtra, topSlot, bottomSlot }) {
   // Managers land on their team; a manager with their own leads can switch to "My clients"
   const [scope, setScope] = useState(() => (isManager && !clients.some((c) => c.assignedTo === profile.id && !["closed", "deal_done"].includes(c.stage)) ? "team" : "mine"));
   const [openId, setOpenId] = useState(null);
@@ -4423,7 +4437,8 @@ function TodayBoard({ profile, clients, activity, users, visibleSalesIds, isMana
   const items = pool.map((c) => ({ c, b: todayBucket(c, activity) })).filter((x) => x.b);
   const grouped = Object.fromEntries(TODAY_GROUPS.map((g) => [g.key, items.filter((x) => x.b.key === g.key).sort((a, b) => new Date(a.b.at) - new Date(b.b.at))]));
   const doneToday = activity.filter((a) => a.changedBy === profile.id && isToday(a.changedAt) && a.action !== "created").length;
-  const callsToday = activity.filter((a) => a.changedBy === profile.id && isToday(a.changedAt) && (a.action === "call" || a.action === "whatsapp" || a.action === "unit_sent")).length;
+  const callsToday = activity.filter((a) => a.changedBy === profile.id && isToday(a.changedAt) && (a.action === "call" || a.action === "whatsapp" || a.action === "unit_sent")).length
+    + coldActivity.filter((a) => a.user_id === profile.id && isToday(a.created_at) && (a.action === "call" || a.action === "whatsapp")).length;
   const hour = new Date().getHours();
   const hello = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const total = items.length;
@@ -10802,10 +10817,22 @@ export default function App() {
   // ---- cold calls ----
   const [cold, setCold] = useState({ sheets: [], leads: [], activity: [], loaded: false, error: "" });
   const coldSyncRef = useRef({ running: null, last: 0 });
+  // Changes made on this phone are shown at once and kept until a reload that started after them comes back,
+  // so a reload that was already on its way can't put old data back on the screen.
+  const coldLocalRef = useRef({ patches: {}, acts: [] });
+  const applyColdLocal = (leadId, patch, act) => {
+    const at = Date.now();
+    if (patch) coldLocalRef.current.patches[leadId] = { patch: { ...(coldLocalRef.current.patches[leadId]?.patch || {}), ...patch }, at };
+    if (act) coldLocalRef.current.acts.push({ act, at });
+    setCold((c) => ({ ...c,
+      leads: patch ? c.leads.map((l) => (l.id === leadId ? { ...l, ...patch } : l)) : c.leads,
+      activity: act ? [act, ...c.activity] : c.activity }));
+  };
   const refreshCold = (tk) => {
     // one load at a time; a second call while loading waits for the same load
     if (coldSyncRef.current.running) return coldSyncRef.current.running;
     const job = (async () => {
+      const startedAt = Date.now();
       try {
         const t = tk || await getValidToken();
         const since = new Date(Date.now() - 120 * MS_DAY).toISOString();
@@ -10814,7 +10841,13 @@ export default function App() {
           db.selectAll("cold_leads", "&order=position", t),
           db.selectAll("cold_activity", `&created_at=gte.${since}&order=created_at.desc`, t),
         ]);
-        setCold({ sheets: sheets || [], leads: leads || [], activity: activity || [], loaded: true, error: "" });
+        const loc = coldLocalRef.current;
+        Object.keys(loc.patches).forEach((id) => { if (loc.patches[id].at < startedAt - 1000) delete loc.patches[id]; });
+        loc.acts = loc.acts.filter((x) => x.at >= startedAt - 1000);
+        const seenActs = new Set((activity || []).map((a) => a.id));
+        const freshLeads = (leads || []).map((l) => (loc.patches[l.id] ? { ...l, ...loc.patches[l.id].patch } : l));
+        const freshActs = [...loc.acts.map((x) => x.act).filter((a) => !seenActs.has(a.id)), ...(activity || [])];
+        setCold({ sheets: sheets || [], leads: freshLeads, activity: freshActs, loaded: true, error: "" });
         coldSyncRef.current.last = Date.now();
       } catch (e) {
         setCold((c) => ({ ...c, loaded: true, error: e.message || "Couldn't load the sheets" }));
@@ -10882,9 +10915,11 @@ export default function App() {
     if (kind === "call") { lastColdRef.current = { leadId: lead.id, at: Date.now() }; bumpDaily(profile.id, "call"); }
     try {
       const t = await getValidToken();
-      await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: kind }, t);
-      await db.update("cold_leads", lead.id, { last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString() }, t);
-      await refreshCold(t);
+      const now = new Date().toISOString();
+      const rows = await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: kind }, t);
+      const row = (Array.isArray(rows) ? rows[0] : rows) || { id: `local-${Date.now()}`, lead_id: lead.id, user_id: profile.id, action: kind, created_at: now };
+      applyColdLocal(lead.id, { last_contact_at: now }, row);
+      db.update("cold_leads", lead.id, { last_contact_at: now, updated_at: now }, t).catch(() => {});
     } catch (e) {}
   };
   const startUnitFromCold = (lead) => {
@@ -10899,8 +10934,9 @@ export default function App() {
       note: status === "later" ? extra.note || null : lead.note || null,
       ...(status === "with_us" && extra.unit_id ? { unit_id: extra.unit_id } : {}) };
     await db.update("cold_leads", lead.id, patch, t);
-    await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: "outcome", value: status }, t);
-    await refreshCold(t);
+    const rows = await db.insert("cold_activity", { lead_id: lead.id, user_id: profile.id, action: "outcome", value: status }, t);
+    const row = (Array.isArray(rows) ? rows[0] : rows) || { id: `local-${Date.now()}`, lead_id: lead.id, user_id: profile.id, action: "outcome", value: status, created_at: new Date().toISOString() };
+    applyColdLocal(lead.id, patch, row);
     bumpDaily(profile.id, "update");
     if (status === "selling") celebrate("deal", `${lead.owner_name || lead.phone} wants to sell${lead.project_name ? ` · ${lead.project_name}` : ""}`);
     if (extra.addNow) startUnitFromCold(lead);
@@ -11788,6 +11824,7 @@ export default function App() {
                     profile={profile}
                     clients={clients}
                     activity={clientActivity}
+                    coldActivity={cold.activity}
                     users={users}
                     visibleSalesIds={visibleSalesIds}
                     isManager={profile.role !== "sales_agent"}
