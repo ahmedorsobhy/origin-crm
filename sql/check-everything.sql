@@ -86,6 +86,8 @@ with fn as (
       and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'deduction_decisions') and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'policy_acceptances')
       and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'evaluations') and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'onboarding')
       and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'deal_checklists') and exists (select 1 from pg_proc where proname = 'can_manage_person')),
+  ('44 Cold calls load fast (team checked once per request)', exists (select 1 from pg_proc where proname = 'my_team_ids')
+      and exists (select 1 from pg_policies where tablename = 'cold_activity' and policyname = 'read cold activity' and qual like '%my_team_ids%')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
