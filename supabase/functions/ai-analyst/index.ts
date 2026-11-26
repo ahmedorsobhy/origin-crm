@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: MODEL, max_tokens: 4000, system: SYSTEM, messages: [{ role: "user", content: "أرقام الشركة:\n```json\n" + JSON.stringify(snap) + "\n```" }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: 16000, output_config: { effort: "low" }, system: SYSTEM, messages: [{ role: "user", content: "أرقام الشركة:\n```json\n" + JSON.stringify(snap) + "\n```" }] }),
     });
     const out = await res.json();
     if (!res.ok) {
@@ -158,9 +158,14 @@ Deno.serve(async (req) => {
       return json({ error: out?.error?.message || "AI request failed" }, 502);
     }
     const text = (out.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+    // Opus 5.5 always thinks first, and thinking shares max_tokens. If no answer text came back, save it as failed (not an empty "Ready").
+    if (!text.trim()) {
+      await sb("ai_reports", { method: "POST", body: JSON.stringify({ trigger: who.trigger, requested_by: who.userId || null, status: "failed", error: `No report text (stop_reason: ${out.stop_reason}, output tokens: ${out.usage?.output_tokens})`, model: MODEL, input_tokens: out.usage?.input_tokens, output_tokens: out.usage?.output_tokens }) });
+      return json({ error: "The AI returned no report text — try again" }, 502);
+    }
     let forecast = null; let report = text;
     const m = text.match(/```json\s*([\s\S]*?)```\s*$/);
-    if (m) { try { forecast = JSON.parse(m[1]).forecast || null; } catch (_) { /* keep the text */ } report = text.slice(0, m.index).trim(); }
+    if (m) { try { forecast = JSON.parse(m[1]).forecast || null; } catch (_) { /* keep the text */ } report = text.slice(0, m.index).trim() || text; }
     const [row] = await sb("ai_reports", { method: "POST", prefer: "return=representation", body: JSON.stringify({ trigger: who.trigger, requested_by: who.userId || null, snapshot: snap, report_md: report, forecast, model: MODEL, input_tokens: out.usage?.input_tokens, output_tokens: out.usage?.output_tokens }) });
     if (who.trigger === "weekly") {
       const ceo = await sb("profiles?select=id&role=in.(ceo,admin)");
