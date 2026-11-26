@@ -474,7 +474,7 @@ function ContactButtons({ phone, size = 12, onContact }) {
       <a href={`tel:${digits}`} onClick={() => onContact && onContact("call")} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: COLORS.navy, color: "#fff", textDecoration: "none" }} title="Call">
         <Phone size={size - 1} />
       </a>
-      <a href={`https://wa.me/${waNumber(phone)}`} target="_blank" rel="noreferrer" onClick={() => onContact && onContact("whatsapp")} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: "#25D366", color: "#fff", textDecoration: "none" }} title="WhatsApp">
+      <a href={`https://wa.me/${waNumber(phone)}`} target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); if (onContact) onContact("whatsapp"); openWa(phone); }} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: "#25D366", color: "#fff", textDecoration: "none" }} title="WhatsApp">
         <MessageSquare size={size - 1} />
       </a>
     </span>
@@ -753,7 +753,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meNa
       "Photos:",
       ...unit.photos,
     ];
-    window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
+    openWa("", lines.join("\n"));
   };
   const rows = [
     ["Destination", projectInfo.destination], ["Project", projectInfo.name], ["Developer", projectInfo.developerName], ["Phase", unit.phase],
@@ -2222,6 +2222,21 @@ function waNumber(phone) {
   if (d.length === 10 && d.startsWith("1")) d = "20" + d;
   return d;
 }
+// Open WhatsApp. On phones go straight to the app in the same window: window.open() from the
+// installed app leaves an empty white browser page behind when you come back.
+function openWa(phone, text) {
+  const n = phone ? waNumber(phone) : "";
+  const q = text ? `text=${encodeURIComponent(text)}` : "";
+  const web = `https://wa.me/${n}${q ? `?${q}` : ""}`;
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "")) {
+    const t0 = Date.now();
+    window.location.href = `whatsapp://send?${n ? `phone=${n}${q ? "&" : ""}` : ""}${q}`;
+    // WhatsApp not installed: the page is still showing → use the web link
+    setTimeout(() => { if (document.visibilityState === "visible" && Date.now() - t0 < 3000) window.open(web, "_blank"); }, 1500);
+    return;
+  }
+  window.open(web, "_blank");
+}
 // Same person even if written as 0100…, +20100… or 0020100…
 const phoneKey = (phone) => String(phone || "").replace(/[^0-9]/g, "").slice(-10);
 
@@ -2984,9 +2999,9 @@ function WaPickModal({ title, sub, phone, make, onSent, onClose }) {
   const [lang, setLang] = useState("ar");
   const [texts, setTexts] = useState(() => ({ ar: make("ar"), en: make("en") }));
   const send = () => {
-    window.open(`https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(texts[lang])}`, "_blank");
     if (onSent) onSent();
     onClose();
+    openWa(phone, texts[lang]);
   };
   const tab = (k, label) => (
     <button key={k} onClick={() => setLang(k)} style={{ flex: 1, border: `1px solid ${lang === k ? COLORS.navy : COLORS.border}`, background: lang === k ? COLORS.navy : "#fff", color: lang === k ? "#fff" : COLORS.navy, borderRadius: 999, padding: "8px 12px", fontWeight: 700, cursor: "pointer" }}>{label}</button>
@@ -3887,7 +3902,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
               <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13, background: "#fff", borderRadius: 12, padding: "8px 10px" }}>
                 <span style={{ flex: "1 1 200px" }}><b>{l.owner_name || "Owner"}</b> · <span dir="ltr">{l.phone}</span> · {l.project_name || "—"}{isManager ? ` · ${nm(l.assigned_to)}` : ""}
                   <span style={{ color: days >= 1 ? COLORS.danger : COLORS.textMuted, fontWeight: 700 }}> · {days < 1 ? "today" : `${days} day${days > 1 ? "s" : ""} waiting`}</span></span>
-                <a href={`https://wa.me/${waNumber(l.phone)}`} target="_blank" rel="noreferrer" style={{ ...btnGhost, padding: "6px 10px", textDecoration: "none" }}>💬</a>
+                <a href={`https://wa.me/${waNumber(l.phone)}`} target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); openWa(l.phone); }} style={{ ...btnGhost, padding: "6px 10px", textDecoration: "none" }}>💬</a>
                 {l.assigned_to === profile.id && <button onClick={() => onAddUnit(l)} style={{ ...btnPrimary, padding: "6px 12px" }}>Add unit</button>}
               </div>
             );
@@ -4532,7 +4547,7 @@ function TodayBoard({ profile, clients, activity, coldActivity = [], users, visi
                       <div style={{ fontSize: 12, color: g.key === "overdue" ? COLORS.danger : COLORS.textMuted, marginTop: 2 }}>{b.reason}</div>
                     </div>
                     <a href={`tel:${String(c.phone).replace(/[^0-9+]/g, "")}`} onClick={() => onContact(c, "call")} className="round-btn" style={{ width: 40, height: 40, borderRadius: 20, background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="Call"><Phone size={17} /></a>
-                    <a href={`https://wa.me/${waNumber(c.phone)}`} target="_blank" rel="noreferrer" onClick={() => onContact(c, "whatsapp")} className="round-btn" style={{ width: 40, height: 40, borderRadius: 20, background: "#25D366", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="WhatsApp"><MessageSquare size={17} /></a>
+                    <a href={`https://wa.me/${waNumber(c.phone)}`} target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); onContact(c, "whatsapp"); openWa(c.phone); }} className="round-btn" style={{ width: 40, height: 40, borderRadius: 20, background: "#25D366", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }} title="WhatsApp"><MessageSquare size={17} /></a>
                   </div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <ClientStageBadge stage={c.stage} />
@@ -5734,7 +5749,7 @@ function WhatsAppTemplates({ client, templates, salesName, onSent }) {
       <span style={{ fontSize: 11.5, fontWeight: 800, color: COLORS.textMuted, letterSpacing: 0.3 }}>WHATSAPP</span>
       {list.map((t) => (
         <a key={t.id || t.label} className="chip" href={`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(fillTemplate(t.text, client, salesName))}`} target="_blank" rel="noreferrer"
-          onClick={() => onSent && onSent()}
+          onClick={(e) => { e.preventDefault(); if (onSent) onSent(); openWa(client.phone, fillTemplate(t.text, client, salesName)); }}
           style={{ textDecoration: "none", fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 999, background: "#E7F8EE", color: "#137A3F", border: "1px solid #BFE9CF" }}>{t.label}</a>
       ))}
     </div>
@@ -5994,7 +6009,7 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
       `Stage: ${STAGE_LABEL[client.stage]}`,
       lastNote ? `Last update: ${lastNote}` : "",
     ].filter(Boolean);
-    window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
+    openWa("", lines.join("\n"));
   };
 
   return (
@@ -10985,14 +11000,23 @@ export default function App() {
       const c = lastColdRef.current;
       if (!c || document.visibilityState === "hidden") return;
       const gone = Date.now() - c.at;
-      if (gone > 4000 && gone < 3 * 3600 * 1000) { setColdPrompt(c.leadId); lastColdRef.current = null; }
+      if (gone > 4000 && gone < 3 * 3600 * 1000) { setColdPrompt(c.leadId); lastColdRef.current = null; try { localStorage.removeItem("origin_last_cold"); } catch (e) {} }
     };
+    // the phone may have closed the app while WhatsApp / the call was open: pick it up again after reload
+    try { const saved = JSON.parse(localStorage.getItem("origin_last_cold") || "null"); if (saved && saved.leadId && Date.now() - saved.at < 3 * 3600 * 1000) lastColdRef.current = saved; else localStorage.removeItem("origin_last_cold"); } catch (e) {}
+    setTimeout(back, 1500);
     document.addEventListener("visibilitychange", back);
     window.addEventListener("focus", back);
     return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
   }, []);
+  // a feedback prompt waiting after a reload: make sure the numbers are loaded so it can show
+  useEffect(() => { if (coldPrompt && session && !cold.leads.some((x) => x.id === coldPrompt)) refreshCold(); }, [coldPrompt, session && session.user && session.user.id]); // eslint-disable-line
   const logCold = async (lead, kind) => {
-    if (kind === "call") { lastColdRef.current = { leadId: lead.id, at: Date.now() }; bumpDaily(profile.id, "call"); }
+    if (kind === "call" || kind === "whatsapp") {
+      lastColdRef.current = { leadId: lead.id, at: Date.now() };
+      try { localStorage.setItem("origin_last_cold", JSON.stringify(lastColdRef.current)); } catch (e) {}
+      if (kind === "call") bumpDaily(profile.id, "call");
+    }
     try {
       const t = await getValidToken();
       const now = new Date().toISOString();
@@ -11131,13 +11155,13 @@ export default function App() {
     const tk = newShareToken(), info = getProjectInfo(unit), url = shareUrl(tk);
     const text = `${unit.type} — ${info.name}, ${info.destination}\n${url}`;
     try { navigator.clipboard && navigator.clipboard.writeText(url); } catch (e) {}
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+    openWa("", text);
     createShare(tk, [unit.id], null, "unit");
   };
   const sendShortlist = (client, list) => {
     const tk = newShareToken(), url = shareUrl(tk);
     const first = client.name && !/^[0-9+ ]+$/.test(client.name) ? client.name.split(" ")[0] : "";
-    window.open(`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(`${first ? `Hi ${first}, ` : ""}I picked ${list.length} units for you — tap ❤️ on the ones you like:\n${url}`)}`, "_blank");
+    openWa(client.phone, `${first ? `Hi ${first}, ` : ""}I picked ${list.length} units for you — tap ❤️ on the ones you like:\n${url}`);
     (async () => {
       await createShare(tk, list.map((u) => u.id), client.id, "list");
       try {
@@ -11153,7 +11177,7 @@ export default function App() {
     const tk = newShareToken();
     const first = client.name && !/^[0-9+ ]+$/.test(client.name) ? client.name.split(" ")[0] : "";
     const msg = `${first ? `Hi ${first}, ` : ""}this unit matches what you're looking for:\n${unit.type} — ${info.name}, ${info.destination}\n${isForRent(unit) && client.interest === "rent" ? rentMoney(unit.rentPrice) : money(unit.totalPrice)}\n\nPhotos and details: ${shareUrl(tk)}`;
-    window.open(`https://wa.me/${waNumber(client.phone)}?text=${encodeURIComponent(msg)}`, "_blank");
+    openWa(client.phone, msg);
     createShare(tk, [unit.id], client.id, "unit");
     (async () => {
       try {
