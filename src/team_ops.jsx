@@ -429,7 +429,7 @@ function DeductionsPage({ profile, users, visibleSalesIds, attendance, fin, getT
         <span style={{ fontSize: 12, color: COLORS.textMuted }}>Grace until 11:00 · 2 free late arrivals until 11:15 · then 10%, 15%, 20%… of a day · from 12:00 half a day · max 5 days/month for lateness · absence 1, 2, 3 days</span>
       </div>
       {data.error && <div style={{ color: COLORS.danger, fontSize: 12.5, marginBottom: 8 }}>Couldn't load saved decisions: {data.error}</div>}
-      {!data.loaded ? <div style={{ color: COLORS.textMuted }}>Loading…</div> : people.map((u) => {
+      {!data.loaded ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{[0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 52 }} />)}</div> : people.map((u) => {
         const rows = computeDeductions({ userId: u.id, month, attendance, leaves: data.leaves, decisions: data.decisions, settings: fin.settings, exempt: !!u.attendanceExempt, latePerms: data.latePerms || [] });
         const visible = manager ? rows : rows.filter((r) => r.decision?.status === "confirmed");
         const confirmed = round2(rows.filter((r) => r.decision?.status === "confirmed").reduce((s, r) => s + num(r.decision.days), 0));
@@ -546,7 +546,7 @@ function LeavePage({ profile, users, visibleSalesIds, fin, getToken }) {
           }}>{days ? `Send request · ${days} working day${days === 1 ? "" : "s"}` : "Send request"}</button>
         </div>
       )}
-      {rows === null ? <div style={{ color: COLORS.textMuted }}>Loading…</div> : (
+      {rows === null ? <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{[0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 52 }} />)}</div> : (
         <>
           {team.filter((r) => r.status === "pending").length > 0 && <div style={{ fontWeight: 800, color: COLORS.navy, margin: "6px 0" }}>Waiting for you</div>}
           {team.filter((r) => r.status === "pending").map((r) => (
@@ -841,7 +841,7 @@ function planningNumbers({ fin, clients, activity, users }) {
     return {
       month: m, newClients: newClients.length, bySource,
       meetings: activity.filter((a) => a.action === "quick_reply" && a.fieldName === "meeting_set" && inM(a.changedAt)).length,
-      dealsDone: (fin.deals || []).filter((d) => d.status === "approved" && inM(d.done_at || d.reviewed_at)).length,
+      dealsDone: (fin.deals || []).filter((d) => d.status === "approved" && inM(d.done_at || d.reviewed_at)).reduce((k, d) => k + dealSides(d).length, 0),
       commissionIn: sumK((t) => t.kind === "commission_in"), payouts: sumK((t) => t.kind === "payout"), salariesPaid: sumK((t) => t.kind === "salary"),
       expenses: sumK((t) => t.kind === "expense"), adSpend: round2((fin.campaignSpend || []).filter((c) => String(c.month).slice(0, 7) === m).reduce((s, c) => s + num(c.amount), 0)),
     };
@@ -876,20 +876,74 @@ function planningAlerts({ n, clients, activity, users }) {
   const week = Date.now() - 7 * MS_DAY;
   const leadsWeek = clients.filter((c) => new Date(c.createdAt) > week).length;
   const prior4 = clients.filter((c) => { const t = new Date(c.createdAt).getTime(); return t <= week && t > week - 28 * MS_DAY; }).length / 4;
-  if (prior4 >= 3 && leadsWeek < prior4 * 0.7) out.push({ tone: "hold", text: `New leads this week: ${leadsWeek} — ${Math.round((1 - leadsWeek / prior4) * 100)}% below the last 4 weeks' average (${round2(prior4)}).` });
+  if (prior4 >= 3 && leadsWeek < prior4 * 0.7) out.push({ tone: "hold", go: { kind: "fin", tab: "marketing" }, text: `New leads this week: ${leadsWeek} — ${Math.round((1 - leadsWeek / prior4) * 100)}% below the last 4 weeks' average (${round2(prior4)}).` });
   const lastAct = {}; activity.forEach((a) => { if (!lastAct[a.clientId] || a.changedAt > lastAct[a.clientId]) lastAct[a.clientId] = a.changedAt; });
   const stale = {}; clients.filter((c) => !TERMINAL_STAGES.includes(c.stage) && c.stage !== LONG_TERM_STAGE && new Date(lastAct[c.id] || c.createdAt) < new Date(Date.now() - 7 * MS_DAY)).forEach((c) => { stale[c.assignedTo] = (stale[c.assignedTo] || 0) + 1; });
-  Object.entries(stale).filter(([, k]) => k >= 10).forEach(([uid, k]) => out.push({ tone: "pending", text: `${users.find((u) => u.id === uid)?.name || "Someone"} has ${k} active clients with no update for 7+ days.` }));
-  if (n.fixed > 0 && n.cash < n.fixed * 2) out.push({ tone: "hold", text: `Cash (${egpFull(n.cash)}) covers less than 2 months of fixed costs (${egpFull(n.fixed)} / month).` });
+  Object.entries(stale).filter(([, k]) => k >= 10).forEach(([uid, k]) => out.push({ tone: "pending", go: { kind: "stale", uid }, text: `${users.find((u) => u.id === uid)?.name || "Someone"} has ${k} active clients with no update for 7+ days.` }));
+  if (n.fixed > 0 && n.cash < n.fixed * 2) out.push({ tone: "hold", go: { kind: "fin", tab: "treasury" }, text: `Cash (${egpFull(n.cash)}) covers less than 2 months of fixed costs (${egpFull(n.fixed)} / month).` });
   const overdue = n.pipeline.filter((p) => p.bucket === "overdue");
-  if (overdue.length) out.push({ tone: "hold", text: `${overdue.length} reserved deal${overdue.length === 1 ? " is" : "s are"} past the expected transfer date.` });
+  if (overdue.length) out.push({ tone: "hold", go: { kind: "dates", ids: overdue.map((p) => p.id) }, text: `${overdue.length} reserved deal${overdue.length === 1 ? " is" : "s are"} past the expected transfer date.` });
   const noDate = n.pipeline.filter((p) => p.bucket === "none" && p.status === "reserved");
-  if (noDate.length) out.push({ tone: "pending", text: `${noDate.length} reserved deal${noDate.length === 1 ? " has" : "s have"} no expected transfer date.` });
+  if (noDate.length) out.push({ tone: "pending", go: { kind: "dates", ids: noDate.map((p) => p.id) }, text: `${noDate.length} reserved deal${noDate.length === 1 ? " has" : "s have"} no expected transfer date.` });
   const [m0, m1] = [n.byMonth[1], n.byMonth[2]];
   const cpl = (m) => (m && m.adSpend > 0 && m.newClients > 0 ? m.adSpend / m.newClients : 0);
-  if (cpl(m0) && cpl(m1) && cpl(m0) > cpl(m1) * 1.3) out.push({ tone: "pending", text: `Cost per lead went up ${Math.round((cpl(m0) / cpl(m1) - 1) * 100)}% in ${monthLabel(m0.month)} (${egpFull(Math.round(cpl(m0)))} vs ${egpFull(Math.round(cpl(m1)))}).` });
+  if (cpl(m0) && cpl(m1) && cpl(m0) > cpl(m1) * 1.3) out.push({ tone: "pending", go: { kind: "fin", tab: "marketing" }, text: `Cost per lead went up ${Math.round((cpl(m0) / cpl(m1) - 1) * 100)}% in ${monthLabel(m0.month)} (${egpFull(Math.round(cpl(m0)))} vs ${egpFull(Math.round(cpl(m1)))}).` });
   if (!out.length) out.push({ tone: "active", text: "Nothing worrying right now." });
   return out;
+}
+
+// Markdown (the subset PolicyMd draws) → HTML string, for printing.
+function mdToHtml(text) {
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const inl = (x) => esc(x).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const lines = String(text || "").split("\n"); const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l.trim()) continue;
+    if (l.startsWith("# ")) { out.push(`<h2>${inl(l.slice(2))}</h2>`); continue; }
+    if (l.startsWith("## ")) { out.push(`<h3>${inl(l.slice(3))}</h3>`); continue; }
+    if (l.startsWith("### ")) { out.push(`<h4>${inl(l.slice(4))}</h4>`); continue; }
+    if (l.startsWith("|")) {
+      const rows = [];
+      while (i < lines.length && lines[i].startsWith("|")) { if (!/^\|\s*:?-/.test(lines[i])) rows.push(lines[i].split("|").slice(1, -1).map((c) => c.trim())); i++; }
+      i--;
+      out.push(`<table>${rows.map((r, ri) => `<tr>${r.map((c) => ri === 0 ? `<th>${inl(c)}</th>` : `<td>${inl(c)}</td>`).join("")}</tr>`).join("")}</table>`);
+      continue;
+    }
+    if (/^(- |\d+\. )/.test(l)) {
+      const ordered = /^\d+\. /.test(l); const items = [];
+      while (i < lines.length && /^(- |\d+\. )/.test(lines[i])) { items.push(lines[i].replace(/^(- |\d+\. )/, "")); i++; }
+      i--;
+      const tag = ordered ? "ol" : "ul";
+      out.push(`<${tag}>${items.map((it) => `<li>${inl(it)}</li>`).join("")}</${tag}>`);
+      continue;
+    }
+    out.push(`<p>${inl(l)}</p>`);
+  }
+  return out.join("\n");
+}
+
+// AI report → print window; "Save as PDF" gives Origin-AI-Report-YYYY-MM-DD.pdf
+function printAiReport(r) {
+  const w = window.open("", "_blank"); if (!w) { alert("Allow pop-ups to download the PDF."); return; }
+  const d = new Date(r.created_at);
+  const day = d.toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
+  const nice = d.toLocaleString("ar-EG", { timeZone: "Africa/Cairo", day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit" });
+  const kind = r.trigger === "weekly" ? "تقرير أسبوعي" : "تقرير يدوي";
+  w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Origin-AI-Report-${day}</title>
+<style>
+@page{size:A4;margin:16mm 14mm 18mm;@bottom-center{content:"سري — للإدارة فقط · Origin Real Estate · صفحة " counter(page) " / " counter(pages);font-size:9pt;color:#8a90a0}}
+body{font-family:"Segoe UI",Tahoma,"Noto Naskh Arabic",Arial,sans-serif;color:#0E1830;font-size:12.5pt;line-height:1.8;margin:0}
+.hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #C9A86A;padding-bottom:10px;margin-bottom:14px}
+.hd img{height:54px}.hd h1{font-size:18pt;margin:0}.hd .m{color:#5b6478;font-size:10.5pt}
+h2{font-size:16pt;margin:8px 0}h3{font-size:13.5pt;margin:18px 0 6px;border-bottom:1px solid #E5DFD3;padding-bottom:3px;page-break-after:avoid}
+table{border-collapse:collapse;width:100%;margin:8px 0;font-size:10.5pt;page-break-inside:avoid}th,td{border:1px solid #E5DFD3;padding:5px 7px;text-align:right}th{background:#F6F4EF}
+ul,ol{margin:4px 0 8px;padding-inline-start:22px}p{margin:5px 0}
+</style></head><body>
+<div class="hd"><img src="${LOGO_SRC}" alt=""><div><h1>تقرير التحليل — Origin Real Estate</h1><div class="m">${nice} · ${kind}</div></div></div>
+${mdToHtml(r.report_md)}
+<script>window.onload=function(){setTimeout(function(){window.print()},400)}</script></body></html>`);
+  w.document.close();
 }
 
 // AI analysis card: run now (admin / CEO), latest report, history. Weekly report comes by itself every Sunday.
@@ -927,6 +981,7 @@ function AiAnalystCard({ getToken }) {
             <div style={{ marginTop: 12, background: COLORS.cream, borderRadius: 12, padding: 12 }}>
               <div style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 4 }}>{shown.trigger === "weekly" ? "Weekly report" : "Run by hand"} · {formatDateTime(shown.created_at)}</div>
               <PolicyMd text={shown.report_md || ""} />
+              <div style={{ marginTop: 10 }}><button data-ai-pdf style={btnGhost} onClick={() => printAiReport(shown)}>⬇ Download PDF</button></div>
             </div>
           )}
           {shown && shown.status === "failed" && <div style={{ color: COLORS.danger, fontSize: 13, marginTop: 8 }}>This run failed: {String(shown.error || "").slice(0, 200)}</div>}
@@ -943,7 +998,35 @@ function AiAnalystCard({ getToken }) {
   );
 }
 
-function PlanningPage({ profile, users, fin, clients, activity, getToken }) {
+// Fix expected transfer dates right from a Planning alert
+function FixTransferDates({ deals, label, getToken, refreshFinance, onDone }) {
+  const [vals, setVals] = useState(() => Object.fromEntries(deals.map((d) => [d.id, d.expected_transfer_date || ""])));
+  const [busy, setBusy] = useState(""); const [err, setErr] = useState(""); const [saved, setSaved] = useState({});
+  const save = async (d) => {
+    if (!vals[d.id]) return;
+    setBusy(d.id); setErr("");
+    try { await db.update("deals", d.id, { expected_transfer_date: vals[d.id] }, await getToken()); setSaved((x) => ({ ...x, [d.id]: true })); }
+    catch (e) { setErr(e.message || "Couldn't save"); } finally { setBusy(""); }
+  };
+  const allSaved = deals.length > 0 && deals.every((d) => saved[d.id]);
+  useEffect(() => { if (allSaved) { if (refreshFinance) refreshFinance(); onDone(); } }, [allSaved]); // eslint-disable-line
+  return (
+    <div data-fix-dates style={{ marginTop: 8, background: COLORS.cream, borderRadius: 12, padding: 10 }}>
+      {deals.map((d) => (
+        <div key={d.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "6px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+          <span style={{ flex: "1 1 220px", fontWeight: 600, fontSize: 13 }}>{label(d.id) || "Deal"}</span>
+          <input type="date" style={{ ...inputStyle, width: 170 }} value={vals[d.id] || ""} onChange={(e) => setVals((x) => ({ ...x, [d.id]: e.target.value }))} />
+          {saved[d.id] ? <Badge tone="active">Saved</Badge> : <button style={btnPrimary} disabled={!vals[d.id] || busy === d.id} onClick={() => save(d)}>{busy === d.id ? "Saving…" : "Save"}</button>}
+        </div>
+      ))}
+      {err && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 6 }}>{err}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}><button style={btnGhost} onClick={() => { if (Object.keys(saved).length && refreshFinance) refreshFinance(); onDone(); }}>Close</button></div>
+    </div>
+  );
+}
+
+function PlanningPage({ profile, users, fin, clients, activity, getToken, refreshFinance, onOpen }) {
+  const [fixIds, setFixIds] = useState(null); // deals whose expected transfer date to fix from an alert
   const n = useMemo(() => planningNumbers({ fin, clients, activity, users }), [fin, clients, activity, users]);
   const alerts = planningAlerts({ n, clients, activity, users });
   const [safety, setSafety] = useState("3");
@@ -984,7 +1067,15 @@ function PlanningPage({ profile, users, fin, clients, activity, getToken }) {
     <div>
       <AiAnalystCard getToken={getToken} />
       <Card title="Alerts" sub="Checked every time you open this page.">
-        {alerts.map((a, i) => <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 0", fontSize: 13.5 }}><Badge tone={a.tone}>{a.tone === "active" ? "OK" : "!"}</Badge><span>{a.text}</span></div>)}
+        {alerts.map((a, i) => {
+          const click = a.go ? () => { if (a.go.kind === "dates") setFixIds((x) => (x && x.join() === a.go.ids.join() ? null : a.go.ids)); else if (onOpen) onOpen(a.go.kind === "stale" ? `clients-stale:${a.go.uid}` : `fin:${a.go.tab}`); } : null;
+          return (
+            <div key={i} data-alert={a.go ? a.go.kind : "none"} onClick={click || undefined} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 6px", fontSize: 13.5, borderRadius: 10, cursor: click ? "pointer" : "default" }} className={click ? "hover-row" : undefined}>
+              <Badge tone={a.tone}>{a.tone === "active" ? "OK" : "!"}</Badge><span style={{ flex: 1 }}>{a.text}</span>{click && <span style={{ color: COLORS.navy, fontWeight: 800, fontSize: 12.5, whiteSpace: "nowrap" }}>{a.go.kind === "dates" ? "Fix now ›" : "Open ›"}</span>}
+            </div>
+          );
+        })}
+        {fixIds && <FixTransferDates deals={(fin.deals || []).filter((d) => fixIds.includes(d.id))} label={(id) => (n.pipeline.find((p) => p.id === id) || {}).label} getToken={getToken} refreshFinance={refreshFinance} onDone={() => setFixIds(null)} />}
       </Card>
       <Card title="Reserved & pending deals — by expected transfer" sub={`Gross = commission still to collect. Net ${approx} = after the sales' share (${Math.round(n.payoutRatio * 100)}% paid out over the last 12 months).`}>
         <div data-pipeline style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, marginTop: 6 }}>
@@ -1105,7 +1196,7 @@ function appraisalAuto({ uid, quarter, fin, activity, attendance, rank }) {
     return s + side * num(a.split_pct) / 100;
   }, 0));
   const target = num((fin.targets || []).find((t) => t.user_id === uid)?.quarterly_target);
-  const deals = (fin.deals || []).filter((d) => ["approved", "reserved"].includes(d.status) && inQ(d.done_at || d.reserved_at || d.reviewed_at || d.created_at) && (fin.dealAgents || []).some((a) => a.deal_id === d.id && a.agent_id === uid)).length;
+  const deals = (fin.deals || []).filter((d) => ["approved", "reserved"].includes(d.status) && inQ(d.done_at || d.reserved_at || d.reviewed_at || d.created_at)).reduce((k, d) => k + new Set((fin.dealAgents || []).filter((a) => a.deal_id === d.id && a.agent_id === uid).map((a) => a.side)).size, 0); // one person on both sides = 2
   const meetings = activity.filter((a) => a.changedBy === uid && inQ(a.changedAt) && a.action === "quick_reply" && a.fieldName === "meeting_done").length;
   const calls = num((rank || []).find((r) => r.user_id === uid)?.calls);
   const lates = new Set(attendance.filter((a) => a.userId === uid && inQ(a.checkedInAt) && cairoParts(a.checkedInAt).minutes > LATE_RULES.graceUntil).map((a) => cairoParts(a.checkedInAt).day)).size;
@@ -1302,6 +1393,38 @@ function FacebookLeadsSettings({ ctx }) {
         {test && <span data-fb-test style={{ fontSize: 12.5, color: COLORS.success }}>{test}</span>}
       </div>
       {error && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 6 }}>{error}</div>}
+    </div>
+  );
+}
+
+
+// Home: the day in 4 numbers — tap one to open it
+function HomeTiles({ profile, clients, activity, coldLeads = [], fin, visibleSalesIds = [], onOpen }) {
+  const mgr = profile.role !== "sales_agent";
+  const mine = (c) => (mgr ? visibleSalesIds.includes(c.assignedTo) : c.assignedTo === profile.id);
+  const active = clients.filter((c) => mine(c) && !["deal_done", "lost", "closed", "not_interested"].includes(c.stage));
+  const endToday = new Date(); endToday.setHours(23, 59, 59, 999);
+  const needs = active.filter((c) => (c.nextActionAt && !c.nextActionDone && new Date(c.nextActionAt) <= endToday) || (c.meetingAt && isToday(c.meetingAt)) || clientNotifications(c, activity).length > 0).length;
+  const meetings = active.filter((c) => c.meetingAt && isToday(c.meetingAt)).length;
+  const coldLeft = coldLeads.filter((l) => l.status === "new" && (mgr ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id)).length;
+  const m0 = new Date(); m0.setDate(1); m0.setHours(0, 0, 0, 0);
+  const myDeal = (d) => mgr || (fin.dealAgents || []).some((a) => a.deal_id === d.id && a.agent_id === profile.id);
+  const deals = (fin.deals || []).filter((d) => ["approved", "reserved"].includes(d.status) && new Date(d.reserved_at || d.done_at || d.created_at) >= m0 && myDeal(d)).reduce((k, d) => k + dealSides(d).length, 0);
+  const tiles = [
+    { id: "needs", label: "Needs you today", value: needs, sub: meetings ? `${meetings} meeting${meetings > 1 ? "s" : ""} today` : `${active.length} active clients`, tone: needs ? COLORS.danger : COLORS.navy, go: "clients-needs" },
+    { id: "clients", label: mgr ? "Team clients" : "My clients", value: active.length, sub: "Tap to see by stage", tone: COLORS.navy, go: "clients-all" },
+    { id: "cold", label: "Cold numbers left", value: coldLeft, sub: "Not called yet", tone: COLORS.navy, go: "cold" },
+    { id: "deals", label: "Deals this month", value: deals, sub: "Reserved + done · both sides = 2", tone: COLORS.success, go: "fin:deals" },
+  ];
+  return (
+    <div data-home-tiles style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 12 }}>
+      {tiles.map((t) => (
+        <div key={t.id} data-tile={t.id} className="card hover-row" onClick={() => onOpen && onOpen(t.go)} style={{ padding: "12px 14px", cursor: "pointer" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textMuted }}>{t.label}</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: t.tone, lineHeight: 1.2 }}>{t.value}</div>
+          <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{t.sub}</div>
+        </div>
+      ))}
     </div>
   );
 }
