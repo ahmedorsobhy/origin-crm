@@ -389,11 +389,12 @@ function DeductionsPage({ profile, users, visibleSalesIds, attendance, fin, getT
   const manager = admin || profile.role !== "sales_agent";
   const load = async () => {
     const t = await getToken();
+    let failed = "";
     const [leaves, decisions] = await Promise.all([
-      db.selectAll("leave_requests", `&status=eq.approved&to_date=gte.${month}-01`, t).catch(() => []),
-      db.selectAll("deduction_decisions", `&day=gte.${month}-01&day=lte.${month}-31`, t).catch(() => []),
+      db.selectAll("leave_requests", `&status=eq.approved&to_date=gte.${month}-01`, t).catch((e) => { failed = e.message; return []; }),
+      db.selectAll("deduction_decisions", `&day=gte.${month}-01&day=lt.${addDays(`${month}-28`, 7).slice(0, 7)}-01`, t).catch((e) => { failed = e.message; return []; }),
     ]);
-    setData({ leaves: leaves || [], decisions: decisions || [], loaded: true });
+    setData({ leaves: leaves || [], decisions: decisions || [], loaded: true, error: failed });
   };
   useEffect(() => { load(); }, [month]); // eslint-disable-line
   const people = manager ? staffOf(users).filter((u) => admin || (visibleSalesIds.includes(u.id) && u.id !== profile.id)) : [profile];
@@ -415,6 +416,7 @@ function DeductionsPage({ profile, users, visibleSalesIds, attendance, fin, getT
         <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: "auto" }}>{months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}</select>
         <span style={{ fontSize: 12, color: COLORS.textMuted }}>Grace until 11:00 · 2 free late arrivals until 11:15 · then 10%, 15%, 20%… of a day · from 12:00 half a day · max 5 days/month for lateness · absence 1, 2, 3 days</span>
       </div>
+      {data.error && <div style={{ color: COLORS.danger, fontSize: 12.5, marginBottom: 8 }}>Couldn't load saved decisions: {data.error}</div>}
       {!data.loaded ? <div style={{ color: COLORS.textMuted }}>Loading…</div> : people.map((u) => {
         const rows = computeDeductions({ userId: u.id, month, attendance, leaves: data.leaves, decisions: data.decisions, settings: fin.settings });
         const visible = manager ? rows : rows.filter((r) => r.decision?.status === "confirmed");
