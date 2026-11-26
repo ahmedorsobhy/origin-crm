@@ -79,6 +79,9 @@ with fn as (
   ('41 Moved numbers arrive new + Don''t call again list', exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'cold_dnc')
       and exists (select 1 from pg_trigger where tgname = 'trg_cold_mark_dnc') and exists (select 1 from pg_proc where proname = 'cold_move_leads' and prosrc like '%attempts = 0%')
       and exists (select 1 from pg_proc where proname = 'known_phones' and prosrc like '%cold_dnc%')),
+  ('42 Guest (demo) role sees nothing + Don''t call again list locked', exists (select 1 from pg_constraint where conname = 'profiles_role_check' and pg_get_constraintdef(oid) like '%guest%')
+      and exists (select 1 from pg_proc where proname = 'is_approved' and prosrc like '%guest%') and exists (select 1 from pg_proc where proname = 'is_manager_role' and prosrc like '%guest%')
+      and exists (select 1 from pg_policies where tablename = 'cold_dnc' and policyname = 'read dnc' and qual like '%cold_leads%')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
