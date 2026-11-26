@@ -1,6 +1,15 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./src_app_deploy.jsx";
+import { startDemo, DEMO_KEY } from "./demo.js";
+
+// Guest accounts get the demo (sample data only) — see demo.js
+try {
+  const sess = JSON.parse(localStorage.getItem("origin_crm_session") || "null");
+  const demoFor = sessionStorage.getItem(DEMO_KEY);
+  if (sess && sess.user && demoFor && demoFor === sess.user.id) startDemo(sess.user.id, "https://sinfiowpvosyfgopmfka.supabase.co");
+  else if (demoFor) sessionStorage.removeItem(DEMO_KEY);
+} catch (e) {}
 
 // If a page breaks, show what happened (so a screenshot tells us the cause) instead of a blank screen
 class Boundary extends React.Component {

@@ -339,6 +339,7 @@ const ROLES = [
   { id: "sales_manager", label: "Sales Manager", description: "Sees their whole reporting line" },
   { id: "team_leader", label: "Team Leader", description: "Sees their team's units" },
   { id: "sales_agent", label: "Sales", description: "Sees their own units" },
+  { id: "guest", label: "Guest (demo)", description: "Sees a demo with sample data only — never company data" },
 ];
 const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.id, r.label]));
 
@@ -1763,7 +1764,7 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
 
   const pending = users.filter((u) => u.role === "pending");
   const active = users.filter((u) => u.role !== "pending" && u.role !== "admin");
-  const possibleManagers = users.filter((u) => u.role !== "admin" && u.role !== "pending" && u.role !== "sales_agent");
+  const possibleManagers = users.filter((u) => !["admin", "pending", "sales_agent", "guest"].includes(u.role));
 
   const roleIdForLabel = (label) => ROLES.find((r) => r.label === label)?.id;
   const managerName = (id) => users.find((u) => u.id === id)?.name || "—";
@@ -1778,9 +1779,10 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
   const save = (u, isApproval) => {
     const newRoleId = roleIdForLabel(editRole);
     if (!newRoleId) { setError("Choose a role."); return; }
-    if (newRoleId !== "ceo" && !editManagerId) { setError("Choose who this person reports to."); return; }
+    const noManager = newRoleId === "ceo" || newRoleId === "guest";
+    if (!noManager && !editManagerId) { setError("Choose who this person reports to."); return; }
     setError("");
-    const changes = { role: newRoleId, managerId: newRoleId === "ceo" ? null : Number(editManagerId) || editManagerId };
+    const changes = { role: newRoleId, managerId: noManager ? null : Number(editManagerId) || editManagerId };
     if (isApproval) onApprove(u.id, changes);
     else onEdit(u.id, changes);
     setEditingId(null);
@@ -1792,8 +1794,8 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
         <Select value={editRole} onChange={setEditRole} options={ROLES.filter((r) => r.id !== "admin" && r.id !== "pending").map((r) => r.label)} />
       </Field>
       <Field label="Reports to">
-        <select value={editManagerId} onChange={(e) => setEditManagerId(e.target.value)} style={{ ...inputStyle, appearance: "none" }} disabled={editRole === "CEO"}>
-          <option value="">{editRole === "CEO" ? "None" : "Select..."}</option>
+        <select value={editManagerId} onChange={(e) => setEditManagerId(e.target.value)} style={{ ...inputStyle, appearance: "none" }} disabled={editRole === "CEO" || editRole === "Guest (demo)"}>
+          <option value="">{editRole === "CEO" || editRole === "Guest (demo)" ? "None" : "Select..."}</option>
           {possibleManagers.filter((m) => m.id !== u.id).map((m) => (
             <option key={m.id} value={m.id}>{m.name} ({ROLE_LABEL[m.role]})</option>
           ))}
@@ -10554,6 +10556,7 @@ export default function App() {
   const [session, setSession] = useState(() => loadSession()); // { access_token, refresh_token, user }
   const [profile, setProfile] = useState(null);
   const [users, setUsers] = useState([]);
+  const [guests, setGuests] = useState([]);
   const [developers, setDevelopers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [units, setUnits] = useState([]);
@@ -10657,7 +10660,8 @@ export default function App() {
     ]);
     const unitsRows = withOwners(unitsRaw, ownerRows);
     const profiles = (profilesRows || []).map(mapProfile);
-    setUsers(profiles);
+    setUsers(profiles.filter((p) => p.role !== "guest"));
+    setGuests(profiles.filter((p) => p.role === "guest"));
     setDevelopers((devsRows || []).map(mapDeveloper));
     setProjects((projsRows || []).map(mapProject));
 
@@ -10801,7 +10805,8 @@ export default function App() {
   const refreshUsers = async () => {
     const rows = await db.select("profiles", "", await getValidToken());
     const mapped = (rows || []).map(mapProfile);
-    setUsers(mapped);
+    setUsers(mapped.filter((p) => p.role !== "guest"));
+    setGuests(mapped.filter((p) => p.role === "guest"));
     setProfile(mapped.find((p) => p.id === session.user.id) || null);
   };
   const refreshCatalog = async () => {
@@ -11513,6 +11518,7 @@ export default function App() {
   };
 
   const signOut = async () => {
+    try { sessionStorage.removeItem("origin_demo"); } catch (e) {}
     await auth.signOut(await getValidToken());
     clearSession();
     setSession(null);
@@ -11549,6 +11555,12 @@ export default function App() {
   }
 
   if (!profile || profile.role === "pending") return <PendingScreen onSignOut={signOut} />;
+  if (profile.role === "guest" && !window.__ORIGIN_DEMO) {
+    // a guest only ever sees the demo: switch the app to sample data and reload
+    try { sessionStorage.setItem("origin_demo", profile.id); } catch (e) {}
+    window.location.reload();
+    return <div style={{ padding: 40, textAlign: "center", color: COLORS.textMuted }}>Opening the demo…</div>;
+  }
 
   const finPending = isFinanceAdmin(profile) ? fin.deals.filter((d) => d.status === "pending").length : 0;
   const contractBadge = (contracts || []).filter((c) => (isFinanceAdmin(profile) ? c.status === "pending" : c.created_by === profile.id && c.status === "returned")).length;
@@ -11602,6 +11614,11 @@ export default function App() {
     <div className="app-shell">
       <div className="orbs" aria-hidden="true"><i /><i /><i /></div>
       <UpdateBanner />
+      {window.__ORIGIN_DEMO && (
+        <div style={{ position: "fixed", left: 12, bottom: "calc(84px + env(safe-area-inset-bottom))", zIndex: 60, background: COLORS.gold, color: "#fff", borderRadius: 999, padding: "7px 14px", fontSize: 12, fontWeight: 800, boxShadow: "0 6px 18px rgba(0,0,0,.18)", pointerEvents: "none" }}>
+          DEMO · sample data only — changes aren't saved
+        </div>
+      )}
       <CelebrationOverlay profile={profile} settings={fin.settings} />
       <RankingDrawer profile={profile} getToken={getValidToken} />
       {/* Top bar */}
@@ -12081,7 +12098,7 @@ export default function App() {
         {section === "settings" && tab === "users" && isFinanceAdmin(profile) && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Manage users</div>
-            <ManageUsers users={users} onApprove={approveUser} onRemove={removeUser} onEdit={editUser} />
+            <ManageUsers users={[...users, ...guests]} onApprove={approveUser} onRemove={removeUser} onEdit={editUser} />
           </>
         )}
 
