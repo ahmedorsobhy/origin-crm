@@ -2260,6 +2260,8 @@ const QUICK_REPLIES = [
   { id: "sent_options", label: "Sent options", tone: "good" },
   { id: "meeting_set", label: "Meeting booked", tone: "good", needs: "datetime" },
   { id: "meeting_done", label: "Meeting done", tone: "good", onlyStages: ["meeting_generated"] },
+  { id: "meeting_noshow", label: "Client didn't come", tone: "bad", onlyStages: ["meeting_generated"] },
+  { id: "meeting_cancelled", label: "Meeting cancelled", tone: "muted", onlyStages: ["meeting_generated"] },
   { id: "later", label: "Later", tone: "muted" },
   { id: "not_interested", label: "Not interested", tone: "bad", opensClose: true },
 ];
@@ -2305,6 +2307,13 @@ function planQuickReply(reply, client, activity, extra = {}) {
     case "meeting_done":
       plan.stage = "negotiation";
       plan.follow = { next_action: "Follow up after the meeting", next_action_at: atHour(1), next_action_done: false };
+      break;
+    case "meeting_noshow":
+    case "meeting_cancelled":
+      // back one step, so the sales person books a new meeting
+      plan.stage = "options_sent";
+      plan.meetingAt = null;
+      plan.follow = { next_action: "Book a new meeting", next_action_at: atHour(1), next_action_done: false };
       break;
     case "later":
       plan.stage = "long_term";
@@ -5107,6 +5116,7 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
   const validate = () => {
     if (String(form.phone).replace(/[^0-9]/g, "").length < 10) return "Enter a valid phone number.";
     if (form.name.trim().length < 2) return "Write the client's name.";
+    if (!form.source) return "Choose where the client came from (source).";
     if (form.source === "colleague_referral" && !form.referralName) return "Write the colleague's name.";
     if (!form.assignedTo) return "Choose the sales person.";
     return "";
@@ -5707,6 +5717,9 @@ const DEFAULT_WA_TEMPLATES = [
   { id: "meeting", label: "Confirm meeting", text: "Hi {first}, just confirming our meeting on {meeting}. Looking forward to seeing you. — {sales}, Origin Real Estate" },
   { id: "after_units", label: "After sending units", text: "Hi {first}, did you get a chance to look at the units I sent? Happy to arrange a viewing whenever suits you. — {sales}" },
   { id: "no_answer", label: "Missed call", text: "Hi {first}, I tried calling you. Let me know a good time to talk. — {sales}, Origin Real Estate" },
+  { id: "after_meeting", label: "After the meeting", text: "Hi {first}, thank you for your time today. As promised, I'll send you the details we discussed. Any question, I'm here. — {sales}, Origin Real Estate" },
+  { id: "after_deal", label: "After the deal", text: "Congratulations {first} on your new home! It was a pleasure working with you. If you need anything at all, I'm always here. — {sales}, Origin Real Estate" },
+  { id: "referral", label: "Ask for a referral", text: "Hi {first}, I hope you're enjoying your home! If any friend or family member is looking to buy, sell or rent in Zayed or October, I'd be happy to help them the same way. — {sales}, Origin Real Estate" },
 ];
 function fillTemplate(text, client, salesName) {
   const meeting = client.meetingAt ? new Date(client.meetingAt).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -8828,6 +8841,7 @@ function DealDetail({ deal, ctx, onBack }) {
         </div>
       )}
 
+      {ctx.getToken && deal.deal_type !== "rent" && ["reserved", "approved", "pending"].includes(deal.status) && <DealChecklist deal={deal} getToken={ctx.getToken} profile={profile} />}
       {modal === "cashout" && <CashOutModal deal={deal} lines={lines} ctx={ctx} onClose={() => setModal(null)} />}
       {modal === "collect" && <CollectionModal deal={deal} ctx={ctx} collected={collected} onClose={() => setModal(null)} />}
       {modal === "done" && <MarkDoneModal deal={deal} ctx={ctx} onClose={() => setModal(null)} />}
@@ -9464,7 +9478,9 @@ function FinExpenses({ ctx }) {
             <thead><tr><th style={thStyle}>Person</th><th style={thNum}>Salary</th><th style={thStyle}>{monthLabel(month)} salary · due {salaryDueDate(month).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</th></tr></thead>
             <tbody>
               {salaryRows.map((s) => (
-                <FixedItemRow key={s.user_id} name={s.user.name} sub={ROLE_LABEL[s.user.role]} expected={num(s.monthly_salary)} accounts={accounts} accountName={accountName} dueDate={salaryDueDate(month)}
+                <FixedItemRow key={s.user_id} name={s.user.name}
+                  sub={(() => { const d = deductionDaysFor(fin.deductions, s.user_id, month); return d > 0 ? `${ROLE_LABEL[s.user.role]} · − ${egp(d * num(s.monthly_salary) / 30)} deductions (${round2(d)} day${d === 1 ? "" : "s"})` : ROLE_LABEL[s.user.role]; })()}
+                  expected={round2(num(s.monthly_salary) - deductionDaysFor(fin.deductions, s.user_id, month) * num(s.monthly_salary) / 30)} accounts={accounts} accountName={accountName} dueDate={salaryDueDate(month)}
                   paidTx={monthTx.filter((t) => t.kind === "salary" && t.beneficiary_id === s.user_id)}
                   onUndo={undo}
                   onPay={({ amount, accountId, date }) => act((t) => db.insert("finance_transactions", {
@@ -10462,7 +10478,7 @@ function MyEarnings({ ctx }) {
 // =====================================================================
 // ---------- FINANCE: the section itself ----------
 // =====================================================================
-function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal, deepLink, uploadMedia, clients, clientActivity, only }) {
+function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNewDeal, onEditDeal, deepLink, uploadMedia, clients, clientActivity, only, getToken }) {
   const isAdmin = isFinanceAdmin(profile);
   const [tab, setTab] = useState(deepLink?.tab || (deepLink?.dealId ? "deals" : isAdmin ? "overview" : "earnings"));
   useEffect(() => { if (deepLink) setTab(deepLink.tab || "deals"); }, [deepLink]);
@@ -10492,7 +10508,7 @@ function FinanceSection({ profile, users, fin, act, getProjectInfo, units, onNew
   };
   const people = users.filter((u) => u.role !== "pending").sort((a, b) => a.name.localeCompare(b.name));
   const charityPct = num(fin.settings?.charity_pct);
-  const ctx = { clients, clientActivity, uploadMedia, deepDealId: deepLink?.dealId, deepNonce: deepLink?.n, fin, users, profile, isAdmin, calc, thresholds, charityPct, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
+  const ctx = { getToken, clients, clientActivity, uploadMedia, deepDealId: deepLink?.dealId, deepNonce: deepLink?.n, fin, users, profile, isAdmin, calc, thresholds, charityPct, targetsMap, balances, userName, accountName, dealTitle, dealTitleById, act, onNewDeal, onEditDeal, addCategory };
 
   if (fin.error) {
     return (
@@ -10557,6 +10573,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [users, setUsers] = useState([]);
   const [guests, setGuests] = useState([]);
+  const [policyOk, setPolicyOk] = useState(null); // null = not checked yet
   const [developers, setDevelopers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [units, setUnits] = useState([]);
@@ -10567,6 +10584,18 @@ export default function App() {
   const [attendance, setAttendance] = useState([]);
   const EMPTY_FIN = { loaded: false, error: "", deals: [], dealAgents: [], dealRates: [], txns: [], accounts: [], categories: [], recurring: [], targets: [], salaries: [], rates: [], settings: null };
   const [fin, setFin] = useState(EMPTY_FIN);
+  const policyRequired = !!fin.settings?.policies_required;
+  useEffect(() => {
+    if (!profile || !policyRequired || ["admin", "ceo", "guest", "pending"].includes(profile.role)) return;
+    let live = true;
+    (async () => {
+      try {
+        const rows = await db.select("policy_acceptances", `&user_id=eq.${profile.id}&version=eq.${POLICY_VERSION}`, await getValidToken());
+        if (live) setPolicyOk((rows || []).length > 0);
+      } catch (e) { if (live) setPolicyOk(true); } // never lock people out because of a network error
+    })();
+    return () => { live = false; };
+  }, [profile?.id, policyRequired]); // eslint-disable-line
   const [dealModal, setDealModal] = useState(null);
   const [clientsTab, setClientsTab] = useState("today"); // { initial } | { editing: { deal, agents } }
   const [dataLoading, setDataLoading] = useState(() => !!loadSession());
@@ -10586,6 +10615,7 @@ export default function App() {
     else if (kind === "approvals") { setSection("finance"); setFinDeep({ tab: "approvals", n: Date.now() }); }
     else if (kind === "unit" && id) { setSection("units"); setPendingUnitId(id); }
     else if (kind === "attendance") { setSection("profile"); setTab("attendance"); }
+    else if (kind === "leave") { setSection("profile"); setTab("leave"); }
     else if (kind === "today") { setSection("clients"); setClientsTab("today"); setOpenClientId(null); }
     else if (kind === "contract" && id) { setSection("contracts"); setContractDeep(`${id}`); }
     else if (kind === "cold" && id) { setSection("cold"); setColdDeep(`${id}`); refreshCold(); }
@@ -10704,10 +10734,11 @@ export default function App() {
         db.select("finance_settings", "", t),
       ]);
       const campaignSpend = await db.select("campaign_spend", "&order=month.desc", t).catch(() => []);
+      const deductions = await db.selectAll("deduction_decisions", "&status=eq.confirmed&order=day", t).catch(() => []);
       setFin({
         loaded: true, error: "", deals, dealAgents, dealRates, txns,
         accounts: accounts || [], categories: categories || [], recurring: recurring || [],
-        targets: targets || [], salaries: salaries || [], rates: rates || [], settings: (settingsRows || [])[0] || null, campaignSpend: campaignSpend || [],
+        targets: targets || [], salaries: salaries || [], rates: rates || [], settings: (settingsRows || [])[0] || null, campaignSpend: campaignSpend || [], deductions: deductions || [],
       });
     } catch (err) {
       setFin((f) => ({ ...f, error: err.message || "Could not load finance data" }));
@@ -11555,6 +11586,8 @@ export default function App() {
   }
 
   if (!profile || profile.role === "pending") return <PendingScreen onSignOut={signOut} />;
+  if (fin.settings?.policies_required && !isFinanceAdmin(profile) && profile.role !== "guest" && policyOk === false)
+    return <PolicyGate profile={profile} getToken={getValidToken} onAccepted={() => setPolicyOk(true)} onSignOut={signOut} />;
   if (profile.role === "guest" && !window.__ORIGIN_DEMO) {
     // a guest only ever sees the demo: switch the app to sample data and reload
     try { sessionStorage.setItem("origin_demo", profile.id); } catch (e) {}
@@ -11583,6 +11616,7 @@ export default function App() {
     { id: "add", label: "Add unit", icon: PlusCircle },
     { id: "hold", label: "On hold", icon: PauseCircle },
     { id: "sold", label: "Sold", icon: CheckCircle },
+    { id: "compare", label: "Compare", icon: Layers },
   ];
   const PROFILE_SUBNAV = [];
   if (profile.role !== "sales_agent") PROFILE_SUBNAV.push({ id: "daily", label: "Daily report", icon: FileText });
@@ -11591,6 +11625,12 @@ export default function App() {
     PROFILE_SUBNAV.push({ id: "reports", label: "Reports", icon: Users });
   }
   PROFILE_SUBNAV.push({ id: "attendance", label: "Attendance", icon: Clock });
+  PROFILE_SUBNAV.push({ id: "leave", label: "Leave", icon: Calendar });
+  PROFILE_SUBNAV.push({ id: "deductions", label: "Deductions", icon: Wallet });
+  PROFILE_SUBNAV.push({ id: "evaluation", label: "Evaluation", icon: CheckCircle });
+  PROFILE_SUBNAV.push({ id: "onboarding", label: "Onboarding", icon: UserRound });
+  if (isFinanceAdmin(profile) || fin.settings?.policies_required) PROFILE_SUBNAV.push({ id: "policies", label: "Policies", icon: FileText });
+  if (isFinanceAdmin(profile)) PROFILE_SUBNAV.push({ id: "planning", label: "Planning", icon: LayoutGrid });
   if (profile.role === "admin") PROFILE_SUBNAV.push({ id: "deletions", label: "Deletion requests", icon: Trash2 });
   const SETTINGS_SUBNAV = [{ id: "me", label: "My profile", icon: UserRound }, { id: "app", label: "App", icon: SettingsIcon }];
   if (isFinanceAdmin(profile)) {
@@ -12082,7 +12122,7 @@ export default function App() {
           </>
         )}
         {section === "settings" && ["money", "team", "messages", "alerts"].includes(tab) && isFinanceAdmin(profile) && (
-          <FinanceSection only={tab} profile={profile} users={users} fin={fin} act={finAct} getProjectInfo={getProjectInfo} units={units}
+          <FinanceSection getToken={getValidToken} only={tab} profile={profile} users={users} fin={fin} act={finAct} getProjectInfo={getProjectInfo} units={units}
             onNewDeal={() => {}} onEditDeal={() => {}} uploadMedia={async (f) => storage.upload("unit-photos", `celebrations/${Date.now()}-${f.name.replace(/[^A-Za-z0-9._-]/g, "_")}`, f, await getValidToken())} clients={clients} clientActivity={clientActivity} />
         )}
         {section === "settings" && tab === "me" && (
@@ -12117,6 +12157,13 @@ export default function App() {
           </>
         )}
 
+        {section === "profile" && tab === "leave" && <LeavePage profile={profile} users={users} visibleSalesIds={visibleSalesIds} fin={fin} getToken={getValidToken} />}
+        {section === "profile" && tab === "deductions" && <DeductionsPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} attendance={attendance} fin={fin} getToken={getValidToken} refreshFinance={refreshFinance} />}
+        {section === "profile" && tab === "evaluation" && <EvaluationPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} clients={clients} activity={clientActivity} fin={fin} attendance={attendance} getToken={getValidToken} />}
+        {section === "profile" && tab === "onboarding" && <OnboardingPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} getToken={getValidToken} />}
+        {section === "profile" && tab === "policies" && <PoliciesPage profile={profile} users={users} fin={fin} getToken={getValidToken} refreshFinance={refreshFinance} />}
+        {section === "profile" && tab === "planning" && isFinanceAdmin(profile) && <PlanningPage profile={profile} users={users} fin={fin} clients={clients} activity={clientActivity} />}
+        {section === "units" && tab === "compare" && <CompareUnits units={units} getProjectInfo={getProjectInfo} />}
         {section === "profile" && tab === "deletions" && profile.role === "admin" && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Deletion requests</div>
