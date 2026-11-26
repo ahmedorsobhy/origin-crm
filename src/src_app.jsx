@@ -134,12 +134,12 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAFNCAYAAAD2
 
 // ---------- Design tokens ----------
 const COLORS = {
-  navy: "#17264A",
+  navy: "#13203D",
   navyDark: "#0E1830",
   cream: "#F7F4EE",
   creamDark: "#EDE7DA",
-  gold: "#B8965A",
-  text: "#17264A",
+  gold: "#C9A56A",
+  text: "#13203D",
   textMuted: "#69707D",
   border: "#E7E2D7",
   danger: "#C0462F",
@@ -148,9 +148,9 @@ const COLORS = {
 
 // ---------- Look & feel (one place for the whole app) ----------
 const GLOBAL_CSS = `
-:root { --navy:#17264A; --navy2:#22386A; --gold:#B8965A; --gold2:#D9BC84; --cream:#F7F4EE; --ink:#17264A; --muted:#69707D; --line:#E7E2D7; --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.82); --glass-line: rgba(255,255,255,.75); --blur: blur(14px) saturate(165%); }
-html, body { background: #EEF0F5 !important; }
-body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+:root { --navy:#13203D; --navy2:#22386A; --gold:#C9A56A; --gold2:#D9BC84; --cream:#F7F4EE; --ink:#13203D; --muted:#69707D; --line:#E7E2D7; --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.82); --glass-line: rgba(255,255,255,.75); --blur: blur(14px) saturate(165%); }
+html, body { background: #F4F5F8 !important; }
+body { font-family: "Inter", "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
 #root { max-width: 1180px !important; margin: 0 auto !important; position: relative; }
 .orbs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
 .orbs i { position: absolute; width: 62vmax; height: 62vmax; border-radius: 50%; will-change: transform; }
@@ -187,7 +187,7 @@ body { font-family: "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helv
 .app-shell div[style*="border-radius: 16px"][style*="background: rgb(255, 255, 255)"] { box-shadow: 0 1px 2px rgba(23,38,74,.04), 0 10px 30px rgba(23,38,74,.06); }
 .lift, .app-shell div[style*="cursor: pointer"][style*="background: rgb(255, 255, 255)"] { transition: transform .22s cubic-bezier(.2,.8,.2,1.2), box-shadow .25s ease; }
 .lift:hover, .app-shell div[style*="cursor: pointer"][style*="background: rgb(255, 255, 255)"]:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(23,38,74,.12); }
-.hero { background: linear-gradient(125deg, #0E1830, #1E3263 40%, #3A4F82 70%, #B8965A 130%) !important; background-size: 220% 220% !important; animation: heroShift 14s ease infinite; color: #fff; border-radius: 24px !important; box-shadow: 0 18px 50px rgba(14,24,48,.28); position: relative; overflow: hidden; }
+.hero { background: linear-gradient(125deg, #0E1830, #1E3263 40%, #3A4F82 70%, #C9A56A 130%) !important; background-size: 220% 220% !important; animation: heroShift 14s ease infinite; color: #fff; border-radius: 24px !important; box-shadow: 0 18px 50px rgba(14,24,48,.28); position: relative; overflow: hidden; }
 .hero::after { content: ""; position: absolute; inset: -40% auto auto -20%; width: 60%; height: 180%; background: linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.18) 50%, rgba(255,255,255,0) 100%); transform: rotate(18deg); animation: sheen 6s ease-in-out infinite; pointer-events: none; }
 .hero .glass { background: rgba(255,255,255,.14) !important; border: 1px solid rgba(255,255,255,.22) !important; }
 .pill, .chip { transition: background-color .15s, color .15s, border-color .15s, transform .14s; }
@@ -215,6 +215,7 @@ div[style*="position: fixed"][style*="inset: 0"] { padding-top: max(16px, calc(e
 .subnav button { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--glass-line); cursor: pointer; font-size: 12.5px; font-weight: 700; background: var(--glass); color: var(--muted); white-space: nowrap; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
 .subnav button.on { background: var(--navy); color: #fff; border-color: var(--navy); box-shadow: 0 6px 16px rgba(23,38,74,.25); }
 .bottom-nav { display: none; }
+.fab-only { display: none; }
 .page { padding: 20px; }
 .page > * { animation: fadeUp .45s cubic-bezier(.2,.8,.2,1) backwards; }
 .page > *:nth-child(2) { animation-delay: .05s; } .page > *:nth-child(3) { animation-delay: .1s; } .page > *:nth-child(4) { animation-delay: .15s; } .page > *:nth-child(5) { animation-delay: .2s; }
@@ -267,7 +268,8 @@ html.dark .hero img, html.dark .topbar img, html.dark .bottom-nav img { filter: 
   .topnav, .hide-sm { display: none !important; }
   .page { padding: 14px 12px 100px; }
   .subnav { padding: 10px 12px 0; }
-  .add-btn { position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; padding: 0 !important; font-size: 28px !important; font-weight: 500 !important; line-height: 1; background: linear-gradient(135deg, #B8965A, #D9BC84) !important; color: #17264A !important; box-shadow: 0 12px 28px rgba(14,24,48,.35) !important; }
+  .fab-only { display: flex; align-items: center; justify-content: center; position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; border: none; border-radius: 999px; cursor: pointer; font-size: 24px; font-weight: 700; background: linear-gradient(135deg, var(--gold), var(--gold2)); color: var(--navy); box-shadow: 0 12px 28px rgba(14,24,48,.35); }
+  .add-btn { position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; padding: 0 !important; font-size: 28px !important; font-weight: 500 !important; line-height: 1; background: linear-gradient(135deg, #C9A56A, #D9BC84) !important; color: #13203D !important; box-shadow: 0 12px 28px rgba(14,24,48,.35) !important; }
   .bottom-nav { display: flex; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 90; justify-content: space-around; padding: 6px; border-radius: 24px; background: rgba(14,24,48,.78); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); box-shadow: 0 14px 34px rgba(14,24,48,.35); border: 1px solid rgba(255,255,255,.1); }
   .bottom-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: none; background: transparent; color: rgba(255,255,255,.6); font-size: 10.5px; font-weight: 700; padding: 7px 2px; border-radius: 18px; cursor: pointer; position: relative; transition: all .3s cubic-bezier(.2,.8,.2,1.2); }
   .bottom-nav button.on { color: var(--navy); background: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.25); }
@@ -281,7 +283,7 @@ if (typeof document !== "undefined" && !document.getElementById("origin-ui")) {
   const el = document.createElement("style"); el.id = "origin-ui"; el.textContent = GLOBAL_CSS; document.head.appendChild(el);
   if (!document.getElementById("origin-font")) {
     const l = document.createElement("link"); l.id = "origin-font"; l.rel = "stylesheet";
-    l.href = "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap";
+    l.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
     document.head.appendChild(l);
   }
 }
@@ -668,7 +670,15 @@ function UnitsBrowser({ id, units, title, empty, projects, developers, users, ge
   );
 }
 
+// every unit, so a card can compare its price with the same project + type
+const AllUnitsContext = React.createContext([]);
+const JOB_TITLES = ["Property Consultant", "Junior Sales", "Senior Sales", "Acting As Team Leader", "Team Leader", "Sales Manager"];
+function UnitModalPrice({ unit }) {
+  const allUnits = React.useContext(AllUnitsContext);
+  return <div style={{ marginTop: 10 }}><GoodPriceBadge unit={unit} units={allUnits} full /></div>;
+}
 function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewProfile }) {
+  const allUnits = React.useContext(AllUnitsContext);
   return (
     <div
       className="lite-card"
@@ -706,6 +716,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
           {isForSale(unit) && <div>{money(unit.totalPrice)}</div>}
           {isForRent(unit) && <div>{rentMoney(unit.rentPrice)}</div>}
         </div>
+        <GoodPriceBadge unit={unit} units={allUnits} />
         {handledBy && (
           <div
             onClick={(e) => { e.stopPropagation(); onViewProfile && onViewProfile(handledBy.id); }}
@@ -736,7 +747,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
 
 // ---------- Unit detail modal ----------
 
-function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meName, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside, onShareLink }) {
+function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meName, onStillAvailable, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside, onShareLink }) {
   const [reassignId, setReassignId] = useState("");
   const [askOwner, setAskOwner] = useState(false);
   if (!unit) return null;
@@ -798,6 +809,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meNa
               On hold — {unit.holdReason}
             </div>
           )}
+          <UnitModalPrice unit={unit} />
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 16 }}>
             {rows.map(([label, val]) => (
@@ -917,6 +929,11 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meNa
               {onSoldOutside && unit.status === "active" && isForSale(unit) && (
                 <button onClick={() => onSoldOutside(unit)} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", color: COLORS.navy, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                   Sold without us
+                </button>
+              )}
+              {canEdit && onStillAvailable && unit.status === "active" && (
+                <button data-still-available onClick={async (e) => { const b = e.currentTarget; b.disabled = true; try { await onStillAvailable(unit); b.textContent = "✓ Checked today"; } catch (err) { b.disabled = false; window.alert(err.message || "Couldn't save"); } }} title="You checked with the owner: the unit is still for sale at this price" style={{ border: `1px solid ${COLORS.success}`, background: "#fff", color: COLORS.success, padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                  ✓ Still available
                 </button>
               )}
               {canEdit && (
@@ -1760,6 +1777,8 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
   const [editingId, setEditingId] = useState(null);
   const [editRole, setEditRole] = useState("");
   const [editManagerId, setEditManagerId] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editExempt, setEditExempt] = useState(false);
   const [error, setError] = useState("");
 
   const pending = users.filter((u) => u.role === "pending");
@@ -1773,6 +1792,8 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
     setEditingId(u.id);
     setEditRole(u.role === "pending" ? "" : ROLE_LABEL[u.role]);
     setEditManagerId(u.managerId || "");
+    setEditTitle(u.jobTitle || "");
+    setEditExempt(!!u.attendanceExempt);
     setError("");
   };
 
@@ -1782,7 +1803,7 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
     const noManager = newRoleId === "ceo" || newRoleId === "guest";
     if (!noManager && !editManagerId) { setError("Choose who this person reports to."); return; }
     setError("");
-    const changes = { role: newRoleId, managerId: noManager ? null : Number(editManagerId) || editManagerId };
+    const changes = { role: newRoleId, managerId: noManager ? null : Number(editManagerId) || editManagerId, jobTitle: editTitle || null, attendanceExempt: editExempt, titleChanged: (editTitle || "") !== (u.jobTitle || "") };
     if (isApproval) onApprove(u.id, changes);
     else onEdit(u.id, changes);
     setEditingId(null);
@@ -1801,6 +1822,15 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
           ))}
         </select>
       </Field>
+      <Field label="Job title">
+        <select data-job-title value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+          <option value="">—</option>
+          {JOB_TITLES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, paddingBottom: 10 }} title="No check-in needed, no late deductions">
+        <input type="checkbox" data-att-exempt checked={editExempt} onChange={(e) => setEditExempt(e.target.checked)} /> No attendance
+      </label>
       <button onClick={() => save(u, isApproval)} style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "9px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12 }}>
         {isApproval ? "Approve" : "Save"}
       </button>
@@ -1849,7 +1879,8 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <span style={{ fontWeight: 500, fontSize: 13, color: COLORS.text }}>{u.name}</span>
-                  <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 8 }}>{ROLE_LABEL[u.role]}</span>
+                  <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 8 }}>{u.jobTitle || ROLE_LABEL[u.role]}</span>
+                  {u.attendanceExempt && <span style={{ fontSize: 11, color: COLORS.textMuted, marginLeft: 8 }}>· no attendance</span>}
                   {u.managerId && <span style={{ fontSize: 12, color: COLORS.textMuted, marginLeft: 8 }}>reports to {managerName(u.managerId)}</span>}
                 </div>
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -1869,7 +1900,7 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
 
 // ---------- DB <-> JS mapping helpers ----------
 function mapProfile(row) {
-  return { id: row.id, name: row.name, phone: row.phone || "", role: row.role, managerId: row.manager_id, avatarUrl: row.avatar_url || "" };
+  return { id: row.id, name: row.name, phone: row.phone || "", role: row.role, managerId: row.manager_id, avatarUrl: row.avatar_url || "", jobTitle: row.job_title || "", jobTitleSince: row.job_title_since || null, attendanceExempt: !!row.attendance_exempt };
 }
 function mapDeveloper(row) {
   return { id: row.id, name: row.name };
@@ -2015,6 +2046,7 @@ const PIPELINE_STAGES = [
   { id: "new_lead", label: "New" },
   { id: "options_sent", label: "Interested" },
   { id: "meeting_generated", label: "Meeting" },
+  { id: "follow_up_after_meeting", label: "After meeting" },
   { id: "negotiation", label: "Negotiation" },
   { id: "contracted", label: "Reserved" },
   { id: "deal_done", label: "Done" },
@@ -2035,10 +2067,12 @@ Object.assign(STAGE_LABEL, {
   to_be_contracted: "To be contracted", not_qualified: "Not qualified",
 });
 const EXCEPTION_STAGE_IDS = EXCEPTION_STAGES.map((s) => s.id);
+// Suggested next steps. Any other stage can still be picked (free movement) from the stage window.
 const NEXT_STAGES = {
   new_lead: ["options_sent", "meeting_generated"],
   options_sent: ["meeting_generated"],
-  meeting_generated: ["negotiation"],
+  meeting_generated: ["follow_up_after_meeting"],
+  follow_up_after_meeting: ["negotiation", "meeting_generated"],
   negotiation: ["contracted"],
   contracted: ["deal_done"],
   deal_done: [],
@@ -2098,6 +2132,8 @@ function mapClient(row) {
     referralName: row.referral_name || "",
     campaign: row.campaign || "",
     duplicateOf: row.duplicate_of || null,
+    stageSince: row.stage_since || null,
+    originalAssignee: row.original_assignee || null,
     budget: row.budget,
     interest: row.interest || "buy",
     notes: row.notes || "",
@@ -2277,6 +2313,11 @@ const QUICK_REPLIES = [
   { id: "meeting_done", label: "Meeting done", tone: "good", onlyStages: ["meeting_generated"] },
   { id: "meeting_noshow", label: "Client didn't come", tone: "bad", onlyStages: ["meeting_generated"] },
   { id: "meeting_cancelled", label: "Meeting cancelled", tone: "muted", onlyStages: ["meeting_generated"] },
+  // after the meeting: one tap
+  { id: "am_thinking", label: "Thinking it over", tone: "muted", onlyStages: ["follow_up_after_meeting"] },
+  { id: "am_second", label: "Wants a 2nd meeting", tone: "good", needs: "datetime", onlyStages: ["follow_up_after_meeting"] },
+  { id: "am_more_options", label: "Wants other options", tone: "good", onlyStages: ["follow_up_after_meeting"] },
+  { id: "am_negotiating", label: "Talking price", tone: "good", onlyStages: ["follow_up_after_meeting"] },
   { id: "later", label: "Later", tone: "muted" },
   { id: "not_interested", label: "Not interested", tone: "bad", opensClose: true },
 ];
@@ -2320,8 +2361,25 @@ function planQuickReply(reply, client, activity, extra = {}) {
       plan.follow = { next_action: null, next_action_at: null, next_action_done: true };
       break;
     case "meeting_done":
-      plan.stage = "negotiation";
+      plan.stage = "follow_up_after_meeting";
       plan.follow = { next_action: "Follow up after the meeting", next_action_at: atHour(1), next_action_done: false };
+      break;
+    case "am_thinking":
+      plan.follow = { next_action: "Ask what they decided", next_action_at: atHour(2), next_action_done: false };
+      break;
+    case "am_second":
+      plan.stage = "meeting_generated";
+      plan.meetingAt = extra.meetingAt ? new Date(extra.meetingAt).toISOString() : atHour(1, 13);
+      plan.note = `Second meeting booked for ${formatDateTime(plan.meetingAt)}`;
+      plan.follow = { next_action: null, next_action_at: null, next_action_done: true };
+      break;
+    case "am_more_options":
+      plan.stage = "options_sent";
+      plan.follow = { next_action: "Send other options", next_action_at: atHour(2), next_action_done: false };
+      break;
+    case "am_negotiating":
+      plan.stage = "negotiation";
+      plan.follow = { next_action: "Follow up on the price", next_action_at: atHour(1), next_action_done: false };
       break;
     case "meeting_noshow":
     case "meeting_cancelled":
@@ -3784,6 +3842,15 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const [manage, setManage] = useState(false);
   useEffect(() => { const sh = deepId && cold.sheets.find((x) => x.id === deepId && (x.status || "active") === "active"); if (sh) openSheetFn(sh); }, [deepId, cold.sheets.length]); // eslint-disable-line
   const openSheetFn = (s) => { setOpenSheet(s.id); setLeadTab("call"); setStatusPick([]); setSheetView(isManager && s.assigned_to !== profile.id ? "summary" : "numbers"); };
+  // a sales person opens straight onto today's sheet (or the oldest one not finished)
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || isManager || deepId || !cold.sheets.length) return;
+    autoOpened.current = true;
+    const mine = cold.sheets.filter((x) => (x.status || "active") === "active" && x.assigned_to === profile.id).map((x) => ({ x, st: sheetState(x, cold.leads) }));
+    const pick = mine.find((m) => m.st.state === "today") || mine.filter((m) => m.st.state === "late").sort((a, b) => a.x.due_date.localeCompare(b.x.due_date))[0];
+    if (pick) openSheetFn(pick.x);
+  }, [cold.sheets.length]); // eslint-disable-line
   const [fv, setF, resetF, setAllF] = useFilters("cold", { q: "", salesId: isManager ? "" : profile.id, state: "", due: { p: "" } });
   const sales = users.filter((u) => visibleSalesIds.includes(u.id) && !["pending", "admin", "ceo"].includes(u.role));
   const nm = (id) => users.find((u) => u.id === id)?.name || "";
@@ -3801,6 +3868,44 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
   const templateEn = settings?.wa_cold_en || DEFAULT_COLD_WA_EN;
   const sheet = openSheet && cold.sheets.find((s) => s.id === openSheet && (s.status || "active") === "active");
 
+  // count-only tiles at the top
+  const notFinished = withState.filter(({ s, st }) => st.state === "late" && (isManager ? visibleSalesIds.includes(s.assigned_to) : s.assigned_to === profile.id)).length;
+  const endToday = new Date(new Date().setHours(23, 59, 59, 999));
+  const callbacksToday = cold.leads.filter((l) => l.status === "call_later" && l.callback_at && new Date(l.callback_at) <= endToday && (isManager ? visibleSalesIds.includes(l.assigned_to) : l.assigned_to === profile.id)).length;
+  const tile = (label, n, onClick, tone) => (
+    <button key={label} data-cold-tile={label} onClick={onClick} className="card" style={{ flex: "1 1 140px", textAlign: "left", border: `1px solid ${COLORS.border}`, background: "#fff", borderRadius: 16, padding: "10px 12px", cursor: "pointer" }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: n && tone === "bad" ? COLORS.danger : COLORS.navy }}>{n}</div>
+      <div style={{ fontSize: 12, color: COLORS.textMuted, fontWeight: 600 }}>{label}</div>
+    </button>
+  );
+  const goList = (state) => { setOpenSheet(null); setF("state", state); };
+  const tiles = (
+    <div data-cold-tiles style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {isManager && tile("Units waiting", toAdd.length, () => { setOpenSheet(null); setTimeout(() => document.querySelector("[data-units-waiting]")?.scrollIntoView({ behavior: "smooth" }), 50); }, "bad")}
+      {tile("Sheets not finished", notFinished, () => goList("late"), "bad")}
+      {!isManager && tile("Owners waiting for unit add", toAdd.length, () => { setOpenSheet(null); setTimeout(() => document.querySelector("[data-units-waiting]")?.scrollIntoView({ behavior: "smooth" }), 50); }, "bad")}
+      {isManager && tile("Call-backs due today", callbacksToday, () => {}, "")}
+      {isManager && tile("For sale later", laterList.length, () => { setOpenSheet(null); setShowLater(true); }, "")}
+    </div>
+  );
+  // managers: who is calling right now (last ~10 minutes) and who went quiet (30+ minutes)
+  const liveNow = useMemo(() => {
+    if (!isManager) return null;
+    const now = Date.now();
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+    const by = {};
+    (cold.activity || []).forEach((a) => { const t = new Date(a.created_at).getTime(); if (t < todayStart || !visibleSalesIds.includes(a.user_id)) return; const b = by[a.user_id] || (by[a.user_id] = { last: 0, n10: 0, today: 0 }); b.today++; if (t > b.last) b.last = t; if (now - t <= 10 * 60 * 1000) b.n10++; });
+    const rows = Object.entries(by).map(([uid, b]) => ({ uid, ...b, quiet: now - b.last > 30 * 60 * 1000 }));
+    return { live: rows.filter((r) => r.n10 > 0).sort((a, b) => b.n10 - a.n10), quiet: rows.filter((r) => r.quiet) };
+  }, [cold.activity, isManager, visibleSalesIds]); // eslint-disable-line
+  const liveCard = isManager && liveNow && (
+    <div className="card" data-live-now style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 12 }}>
+      <div style={{ fontWeight: 800, color: COLORS.navy, display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: 8, background: liveNow.live.length ? COLORS.success : COLORS.border, display: "inline-block" }} /> Live now</div>
+      {liveNow.live.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginTop: 4 }}>Nobody logged a cold call in the last 10 minutes.</div>}
+      {liveNow.live.map((r) => <div key={r.uid} style={{ fontSize: 13, marginTop: 4 }}><b>{nm(r.uid)}</b> · {r.n10} in the last 10 min · {r.today} today</div>)}
+      {liveNow.quiet.map((r) => <div key={r.uid} style={{ fontSize: 13, marginTop: 4, color: COLORS.danger }}>⚠ <b>{nm(r.uid)}</b> quiet for {Math.round((Date.now() - r.last) / 60000)} min · {r.today} today</div>)}
+    </div>
+  );
   const outcomeModal = outcomeFor && <ColdOutcomeModal lead={outcomeFor} units={units} getProjectInfo={getProjectInfo} onClose={() => setOutcomeFor(null)} onSave={onOutcome} onCallOther={(x) => onLog(x, "call")} />;
 
   if (sheet) {
@@ -3820,6 +3925,7 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
     const pill = (active) => ({ border: "none", borderRadius: 999, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", background: active ? "#fff" : "transparent", color: active ? COLORS.navy : COLORS.textMuted });
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {!isManager && tiles}
         <button onClick={() => setOpenSheet(null)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>← All sheets</button>
         <div className="card" style={{ background: "#fff", border: `1px solid ${COLORS.border}`, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -3889,11 +3995,14 @@ function ColdCallsSection({ profile, users, visibleSalesIds, projects, cold, get
         <div style={{ fontWeight: 800, fontSize: 16, color: COLORS.navy }}>📞 Cold calls</div>
         <button onClick={() => setUploading((u) => !u)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>{uploading ? "Close" : isManager ? "+ Upload sheet" : "+ Upload my sheet"}</button>
       </div>
+      {tiles}
+      {liveCard}
+      <button className="fab-only" aria-label="Upload a sheet" title="Upload a sheet" onClick={() => setUploading((u) => !u)}>{uploading ? "×" : "⬆"}</button>
       {msg && <div style={{ fontSize: 13, color: COLORS.success, fontWeight: 700 }}>{msg}</div>}
       {uploading && <ColdUpload users={isManager ? (["admin", "ceo"].includes(profile.role) || sales.some((u) => u.id === profile.id) ? sales : [profile, ...sales]) : [profile]} selfOnly={!isManager} me={profile} projects={projects} getToken={getToken} onDone={async (m) => { setUploading(false); setMsg(`Uploaded ✓ ${m}`); await onRefresh(); }} />}
       <ColdApprovals profile={profile} users={users} cold={cold} getToken={getToken} onRefresh={onRefresh} deepId={deepId} />
       {toAdd.length > 0 && (
-        <div className="card" style={{ background: "#FBF1E6", border: `1.5px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div data-units-waiting className="card" style={{ background: "#FBF1E6", border: `1.5px solid ${COLORS.gold}`, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontWeight: 800, color: COLORS.navy }}>🏠 Units waiting for details · {toAdd.length}</div>
           <div style={{ fontSize: 12, color: COLORS.textMuted, marginTop: -4 }}>Owners who said they're selling — the unit isn't in the CRM yet.</div>
           {toAdd.map((l) => {
@@ -4780,14 +4889,14 @@ function NotificationsCard({ profile, compact, getToken }) {
   );
 }
 
-const CELEB_SVGS = {"H1": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cfall 1.6s linear infinite\"><rect x=\"15\" y=\"0\" width=\"5\" height=\"9\" fill=\"#EF9F27\"/><rect x=\"95\" y=\"5\" width=\"5\" height=\"9\" fill=\"#1D9E75\"/></g><g class=\"ca\" style=\"animation:cfall 1.9s .5s linear infinite\"><rect x=\"40\" y=\"0\" width=\"5\" height=\"9\" fill=\"#D4537E\"/><rect x=\"75\" y=\"0\" width=\"5\" height=\"9\" fill=\"#378ADD\"/></g><g class=\"ca\" style=\"animation:cdance .7s ease-in-out infinite;transform-origin:60px 90px\"><ellipse cx=\"60\" cy=\"62\" rx=\"24\" ry=\"27\" fill=\"#B8965A\"/><circle cx=\"52\" cy=\"56\" r=\"3\" fill=\"#17264A\"/><circle cx=\"68\" cy=\"56\" r=\"3\" fill=\"#17264A\"/><path d=\"M50 68 Q60 78 70 68\" stroke=\"#17264A\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><g class=\"ca\" style=\"animation:carm .35s ease-in-out infinite;transform-origin:38px 60px\"><path d=\"M38 60 L24 44\" stroke=\"#B8965A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:carm .35s .17s ease-in-out infinite;transform-origin:82px 60px\"><path d=\"M82 60 L96 44\" stroke=\"#B8965A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g></g></svg>", "H2": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cray 1s ease-in-out infinite\"><path d=\"M60 8 V18 M30 20 L37 27 M90 20 L83 27 M20 48 H30 M100 48 H90\" stroke=\"#EF9F27\" stroke-width=\"3\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:cpop 1s ease-in-out infinite\"><path d=\"M42 30 H78 V46 Q78 66 60 68 Q42 66 42 46 Z\" fill=\"#EF9F27\"/><path d=\"M42 36 Q30 36 32 48 Q34 56 44 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><path d=\"M78 36 Q90 36 88 48 Q86 56 76 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><rect x=\"55\" y=\"68\" width=\"10\" height=\"10\" fill=\"#BA7517\"/><rect x=\"45\" y=\"78\" width=\"30\" height=\"8\" rx=\"2\" fill=\"#17264A\"/><circle cx=\"54\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><circle cx=\"66\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><path d=\"M53 54 Q60 60 67 54\" stroke=\"#633806\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g></svg>", "H3": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cup 2s ease-in-out infinite\"><g class=\"ca\" style=\"animation:cflame .2s ease-in-out infinite;transform-origin:60px 70px\"><path d=\"M53 70 Q60 92 67 70 Z\" fill=\"#EF9F27\"/></g><path d=\"M60 12 Q76 28 74 58 H46 Q44 28 60 12 Z\" fill=\"#17264A\"/><circle cx=\"60\" cy=\"36\" r=\"7\" fill=\"#85B7EB\"/><path d=\"M46 50 L36 66 H46 Z M74 50 L84 66 H74 Z\" fill=\"#D85A30\"/></g><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"#B8965A\"/><circle cx=\"100\" cy=\"40\" r=\"2\" fill=\"#B8965A\"/><circle cx=\"96\" cy=\"14\" r=\"1.5\" fill=\"#B8965A\"/></svg>", "H4": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cpop .9s ease-in-out infinite\"><path d=\"M30 50 L60 24 L90 50 V86 H30 Z\" fill=\"#1D9E75\"/><path d=\"M24 52 L60 20 L96 52\" stroke=\"#17264A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"52\" y=\"62\" width=\"16\" height=\"24\" fill=\"#17264A\"/><circle cx=\"48\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"72\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/></g><g class=\"ca\" style=\"animation:cswing .6s ease-in-out infinite;transform-origin:96px 14px\"><line x1=\"96\" y1=\"14\" x2=\"96\" y2=\"32\" stroke=\"#888780\" stroke-width=\"1.5\"/><circle cx=\"96\" cy=\"37\" r=\"5\" fill=\"none\" stroke=\"#EF9F27\" stroke-width=\"3\"/><path d=\"M96 42 V54 M96 48 H100 M96 52 H100\" stroke=\"#EF9F27\" stroke-width=\"3\"/></g></svg>", "H5": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cfall 1.3s linear infinite\"><circle cx=\"20\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"85\" cy=\"6\" r=\"6\" fill=\"#EF9F27\"/></g><g style=\"animation:cfall 1.5s .4s linear infinite\"><circle cx=\"50\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/><circle cx=\"105\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g style=\"animation:cfall 1.7s .8s linear infinite\"><circle cx=\"35\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"70\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g class=\"ca\" style=\"animation:cshrug .5s ease-in-out infinite\"><circle cx=\"60\" cy=\"66\" r=\"20\" fill=\"#17264A\"/><circle cx=\"53\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"67\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><path d=\"M52 71 Q60 79 68 71\" stroke=\"#fff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M42 58 L30 46 M78 58 L90 46\" stroke=\"#17264A\" stroke-width=\"5\" stroke-linecap=\"round\"/></g></svg>", "S1": "<svg viewBox=\"0 0 120 100\"><ellipse cx=\"60\" cy=\"30\" rx=\"30\" ry=\"14\" fill=\"#888780\"/><circle cx=\"44\" cy=\"26\" r=\"12\" fill=\"#888780\"/><circle cx=\"72\" cy=\"22\" r=\"14\" fill=\"#888780\"/><g style=\"animation:cdrop .8s linear infinite\"><path d=\"M45 46 v6 M60 46 v6 M75 46 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop .8s .4s linear infinite\"><path d=\"M52 44 v6 M68 44 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><path d=\"M44 72 L60 60 L76 72 V92 H44 Z\" fill=\"#B4B2A9\"/><rect x=\"56\" y=\"80\" width=\"8\" height=\"12\" fill=\"#5F5E5A\"/></svg>", "S2": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:csag 2s ease-in-out infinite;transform-origin:60px 92px\"><ellipse cx=\"60\" cy=\"66\" rx=\"26\" ry=\"24\" fill=\"#85B7EB\"/><path d=\"M48 58 Q52 55 56 58 M64 58 Q68 55 72 58\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51 76 Q60 69 69 76\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop 1.4s ease-in infinite\"><path d=\"M50 62 Q47 68 50 71 Q53 68 50 62 Z\" fill=\"#378ADD\"/></g></svg>", "S3": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cdeflate 2.4s ease-in-out infinite;transform-origin:60px 70px\"><ellipse cx=\"60\" cy=\"40\" rx=\"20\" ry=\"24\" fill=\"#E24B4A\"/><path d=\"M57 64 L60 70 L63 64 Z\" fill=\"#A32D2D\"/><circle cx=\"53\" cy=\"38\" r=\"2\" fill=\"#501313\"/><circle cx=\"67\" cy=\"38\" r=\"2\" fill=\"#501313\"/><path d=\"M53 48 Q60 43 67 48\" stroke=\"#501313\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"/></g><path d=\"M60 70 Q55 80 60 88 Q65 94 60 98\" stroke=\"#888780\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "S4": "<svg viewBox=\"0 0 120 100\"><path d=\"M40 78 H80 L76 96 H44 Z\" fill=\"#D85A30\"/><g class=\"ca\" style=\"animation:cwilt 2.4s ease-in-out infinite;transform-origin:60px 78px\"><path d=\"M60 78 Q58 54 62 34\" stroke=\"#639922\" stroke-width=\"3\" fill=\"none\"/><path d=\"M60 62 Q48 56 44 62 Q50 68 60 62 Z\" fill=\"#97C459\"/><circle cx=\"62\" cy=\"30\" r=\"9\" fill=\"#ED93B1\"/><circle cx=\"62\" cy=\"30\" r=\"4\" fill=\"#EF9F27\"/></g></svg>", "S5": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cshrug 1.2s ease-in-out infinite\"><circle cx=\"60\" cy=\"58\" r=\"22\" fill=\"#B8965A\"/><circle cx=\"52\" cy=\"54\" r=\"2.5\" fill=\"#17264A\"/><circle cx=\"68\" cy=\"54\" r=\"2.5\" fill=\"#17264A\"/><path d=\"M52 66 H68\" stroke=\"#17264A\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><path d=\"M38 60 L26 50 L22 56 M82 60 L94 50 L98 56\" stroke=\"#B8965A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg>"};
+const CELEB_SVGS = {"H1": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cfall 1.6s linear infinite\"><rect x=\"15\" y=\"0\" width=\"5\" height=\"9\" fill=\"#EF9F27\"/><rect x=\"95\" y=\"5\" width=\"5\" height=\"9\" fill=\"#1D9E75\"/></g><g class=\"ca\" style=\"animation:cfall 1.9s .5s linear infinite\"><rect x=\"40\" y=\"0\" width=\"5\" height=\"9\" fill=\"#D4537E\"/><rect x=\"75\" y=\"0\" width=\"5\" height=\"9\" fill=\"#378ADD\"/></g><g class=\"ca\" style=\"animation:cdance .7s ease-in-out infinite;transform-origin:60px 90px\"><ellipse cx=\"60\" cy=\"62\" rx=\"24\" ry=\"27\" fill=\"#C9A56A\"/><circle cx=\"52\" cy=\"56\" r=\"3\" fill=\"#13203D\"/><circle cx=\"68\" cy=\"56\" r=\"3\" fill=\"#13203D\"/><path d=\"M50 68 Q60 78 70 68\" stroke=\"#13203D\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><g class=\"ca\" style=\"animation:carm .35s ease-in-out infinite;transform-origin:38px 60px\"><path d=\"M38 60 L24 44\" stroke=\"#C9A56A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:carm .35s .17s ease-in-out infinite;transform-origin:82px 60px\"><path d=\"M82 60 L96 44\" stroke=\"#C9A56A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g></g></svg>", "H2": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cray 1s ease-in-out infinite\"><path d=\"M60 8 V18 M30 20 L37 27 M90 20 L83 27 M20 48 H30 M100 48 H90\" stroke=\"#EF9F27\" stroke-width=\"3\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:cpop 1s ease-in-out infinite\"><path d=\"M42 30 H78 V46 Q78 66 60 68 Q42 66 42 46 Z\" fill=\"#EF9F27\"/><path d=\"M42 36 Q30 36 32 48 Q34 56 44 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><path d=\"M78 36 Q90 36 88 48 Q86 56 76 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><rect x=\"55\" y=\"68\" width=\"10\" height=\"10\" fill=\"#BA7517\"/><rect x=\"45\" y=\"78\" width=\"30\" height=\"8\" rx=\"2\" fill=\"#13203D\"/><circle cx=\"54\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><circle cx=\"66\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><path d=\"M53 54 Q60 60 67 54\" stroke=\"#633806\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g></svg>", "H3": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cup 2s ease-in-out infinite\"><g class=\"ca\" style=\"animation:cflame .2s ease-in-out infinite;transform-origin:60px 70px\"><path d=\"M53 70 Q60 92 67 70 Z\" fill=\"#EF9F27\"/></g><path d=\"M60 12 Q76 28 74 58 H46 Q44 28 60 12 Z\" fill=\"#13203D\"/><circle cx=\"60\" cy=\"36\" r=\"7\" fill=\"#85B7EB\"/><path d=\"M46 50 L36 66 H46 Z M74 50 L84 66 H74 Z\" fill=\"#D85A30\"/></g><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"#C9A56A\"/><circle cx=\"100\" cy=\"40\" r=\"2\" fill=\"#C9A56A\"/><circle cx=\"96\" cy=\"14\" r=\"1.5\" fill=\"#C9A56A\"/></svg>", "H4": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cpop .9s ease-in-out infinite\"><path d=\"M30 50 L60 24 L90 50 V86 H30 Z\" fill=\"#1D9E75\"/><path d=\"M24 52 L60 20 L96 52\" stroke=\"#13203D\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"52\" y=\"62\" width=\"16\" height=\"24\" fill=\"#13203D\"/><circle cx=\"48\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"72\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/></g><g class=\"ca\" style=\"animation:cswing .6s ease-in-out infinite;transform-origin:96px 14px\"><line x1=\"96\" y1=\"14\" x2=\"96\" y2=\"32\" stroke=\"#888780\" stroke-width=\"1.5\"/><circle cx=\"96\" cy=\"37\" r=\"5\" fill=\"none\" stroke=\"#EF9F27\" stroke-width=\"3\"/><path d=\"M96 42 V54 M96 48 H100 M96 52 H100\" stroke=\"#EF9F27\" stroke-width=\"3\"/></g></svg>", "H5": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cfall 1.3s linear infinite\"><circle cx=\"20\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"85\" cy=\"6\" r=\"6\" fill=\"#EF9F27\"/></g><g style=\"animation:cfall 1.5s .4s linear infinite\"><circle cx=\"50\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/><circle cx=\"105\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g style=\"animation:cfall 1.7s .8s linear infinite\"><circle cx=\"35\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"70\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g class=\"ca\" style=\"animation:cshrug .5s ease-in-out infinite\"><circle cx=\"60\" cy=\"66\" r=\"20\" fill=\"#13203D\"/><circle cx=\"53\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"67\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><path d=\"M52 71 Q60 79 68 71\" stroke=\"#fff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M42 58 L30 46 M78 58 L90 46\" stroke=\"#13203D\" stroke-width=\"5\" stroke-linecap=\"round\"/></g></svg>", "S1": "<svg viewBox=\"0 0 120 100\"><ellipse cx=\"60\" cy=\"30\" rx=\"30\" ry=\"14\" fill=\"#888780\"/><circle cx=\"44\" cy=\"26\" r=\"12\" fill=\"#888780\"/><circle cx=\"72\" cy=\"22\" r=\"14\" fill=\"#888780\"/><g style=\"animation:cdrop .8s linear infinite\"><path d=\"M45 46 v6 M60 46 v6 M75 46 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop .8s .4s linear infinite\"><path d=\"M52 44 v6 M68 44 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><path d=\"M44 72 L60 60 L76 72 V92 H44 Z\" fill=\"#B4B2A9\"/><rect x=\"56\" y=\"80\" width=\"8\" height=\"12\" fill=\"#5F5E5A\"/></svg>", "S2": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:csag 2s ease-in-out infinite;transform-origin:60px 92px\"><ellipse cx=\"60\" cy=\"66\" rx=\"26\" ry=\"24\" fill=\"#85B7EB\"/><path d=\"M48 58 Q52 55 56 58 M64 58 Q68 55 72 58\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51 76 Q60 69 69 76\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop 1.4s ease-in infinite\"><path d=\"M50 62 Q47 68 50 71 Q53 68 50 62 Z\" fill=\"#378ADD\"/></g></svg>", "S3": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cdeflate 2.4s ease-in-out infinite;transform-origin:60px 70px\"><ellipse cx=\"60\" cy=\"40\" rx=\"20\" ry=\"24\" fill=\"#E24B4A\"/><path d=\"M57 64 L60 70 L63 64 Z\" fill=\"#A32D2D\"/><circle cx=\"53\" cy=\"38\" r=\"2\" fill=\"#501313\"/><circle cx=\"67\" cy=\"38\" r=\"2\" fill=\"#501313\"/><path d=\"M53 48 Q60 43 67 48\" stroke=\"#501313\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"/></g><path d=\"M60 70 Q55 80 60 88 Q65 94 60 98\" stroke=\"#888780\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "S4": "<svg viewBox=\"0 0 120 100\"><path d=\"M40 78 H80 L76 96 H44 Z\" fill=\"#D85A30\"/><g class=\"ca\" style=\"animation:cwilt 2.4s ease-in-out infinite;transform-origin:60px 78px\"><path d=\"M60 78 Q58 54 62 34\" stroke=\"#639922\" stroke-width=\"3\" fill=\"none\"/><path d=\"M60 62 Q48 56 44 62 Q50 68 60 62 Z\" fill=\"#97C459\"/><circle cx=\"62\" cy=\"30\" r=\"9\" fill=\"#ED93B1\"/><circle cx=\"62\" cy=\"30\" r=\"4\" fill=\"#EF9F27\"/></g></svg>", "S5": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cshrug 1.2s ease-in-out infinite\"><circle cx=\"60\" cy=\"58\" r=\"22\" fill=\"#C9A56A\"/><circle cx=\"52\" cy=\"54\" r=\"2.5\" fill=\"#13203D\"/><circle cx=\"68\" cy=\"54\" r=\"2.5\" fill=\"#13203D\"/><path d=\"M52 66 H68\" stroke=\"#13203D\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><path d=\"M38 60 L26 50 L22 56 M82 60 L94 50 L98 56\" stroke=\"#C9A56A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg>"};
 // ---------- Celebrations: happy when a deal goes in, a kind word when one is lost ----------
 Object.assign(CELEB_SVGS, {
-  M1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop 1s ease-in-out infinite"><rect x="30" y="22" width="60" height="62" rx="8" fill="#fff" stroke="#17264A" stroke-width="4"/><rect x="30" y="22" width="60" height="16" rx="6" fill="#17264A"/><path d="M42 16 V28 M78 16 V28" stroke="#B8965A" stroke-width="5" stroke-linecap="round"/><path d="M45 60 L56 71 L77 48" stroke="#1D9E75" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><g style="animation:cray 1s ease-in-out infinite"><path d="M14 40 H22 M98 40 H106 M20 18 L26 24 M100 18 L94 24" stroke="#EF9F27" stroke-width="3" stroke-linecap="round"/></g></svg>',
-  M2: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cdance .8s ease-in-out infinite;transform-origin:60px 88px"><circle cx="45" cy="56" r="14" fill="#B8965A"/><circle cx="75" cy="56" r="14" fill="#17264A"/><path d="M40 54 h1 M50 54 h1" stroke="#17264A" stroke-width="3" stroke-linecap="round"/><path d="M70 54 h1 M80 54 h1" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M50 72 Q60 64 70 72" stroke="#EF9F27" stroke-width="7" fill="none" stroke-linecap="round"/></g><g style="animation:cfall 1.8s linear infinite"><rect x="20" y="0" width="5" height="9" fill="#D4537E"/><rect x="95" y="4" width="5" height="9" fill="#1D9E75"/></g></svg>',
-  U1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing 1s ease-in-out infinite;transform-origin:60px 20px"><circle cx="60" cy="34" r="14" fill="none" stroke="#EF9F27" stroke-width="7"/><path d="M60 48 V86 M60 66 H72 M60 78 H70" stroke="#EF9F27" stroke-width="7" stroke-linecap="round"/></g><g style="animation:cray .9s ease-in-out infinite"><path d="M22 30 l4 4 M22 34 l4 -4 M94 60 l5 5 M94 65 l5 -5 M30 74 l4 4 M30 78 l4 -4" stroke="#B8965A" stroke-width="2.5" stroke-linecap="round"/></g></svg>',
-  C1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing .25s ease-in-out infinite;transform-origin:60px 60px"><rect x="44" y="24" width="32" height="58" rx="7" fill="#17264A"/><rect x="48" y="31" width="24" height="38" rx="3" fill="#85B7EB"/><circle cx="60" cy="75" r="3" fill="#fff"/></g><g style="animation:cray .6s ease-in-out infinite"><path d="M86 38 Q94 50 86 62 M94 30 Q106 50 94 70 M34 38 Q26 50 34 62 M26 30 Q14 50 26 70" stroke="#1D9E75" stroke-width="3.5" fill="none" stroke-linecap="round"/></g></svg>',
-  L1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop .8s ease-in-out infinite"><path d="M60 10 L71 36 L99 38 L78 56 L85 84 L60 69 L35 84 L42 56 L21 38 L49 36 Z" fill="#EF9F27"/><text x="60" y="62" text-anchor="middle" font-size="30" font-weight="800" fill="#17264A" font-family="Arial">3</text></g><g style="animation:cfall 1.4s linear infinite"><circle cx="15" cy="0" r="4" fill="#D4537E"/><circle cx="105" cy="6" r="4" fill="#378ADD"/></g></svg>',
+  M1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop 1s ease-in-out infinite"><rect x="30" y="22" width="60" height="62" rx="8" fill="#fff" stroke="#13203D" stroke-width="4"/><rect x="30" y="22" width="60" height="16" rx="6" fill="#13203D"/><path d="M42 16 V28 M78 16 V28" stroke="#C9A56A" stroke-width="5" stroke-linecap="round"/><path d="M45 60 L56 71 L77 48" stroke="#1D9E75" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><g style="animation:cray 1s ease-in-out infinite"><path d="M14 40 H22 M98 40 H106 M20 18 L26 24 M100 18 L94 24" stroke="#EF9F27" stroke-width="3" stroke-linecap="round"/></g></svg>',
+  M2: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cdance .8s ease-in-out infinite;transform-origin:60px 88px"><circle cx="45" cy="56" r="14" fill="#C9A56A"/><circle cx="75" cy="56" r="14" fill="#13203D"/><path d="M40 54 h1 M50 54 h1" stroke="#13203D" stroke-width="3" stroke-linecap="round"/><path d="M70 54 h1 M80 54 h1" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M50 72 Q60 64 70 72" stroke="#EF9F27" stroke-width="7" fill="none" stroke-linecap="round"/></g><g style="animation:cfall 1.8s linear infinite"><rect x="20" y="0" width="5" height="9" fill="#D4537E"/><rect x="95" y="4" width="5" height="9" fill="#1D9E75"/></g></svg>',
+  U1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing 1s ease-in-out infinite;transform-origin:60px 20px"><circle cx="60" cy="34" r="14" fill="none" stroke="#EF9F27" stroke-width="7"/><path d="M60 48 V86 M60 66 H72 M60 78 H70" stroke="#EF9F27" stroke-width="7" stroke-linecap="round"/></g><g style="animation:cray .9s ease-in-out infinite"><path d="M22 30 l4 4 M22 34 l4 -4 M94 60 l5 5 M94 65 l5 -5 M30 74 l4 4 M30 78 l4 -4" stroke="#C9A56A" stroke-width="2.5" stroke-linecap="round"/></g></svg>',
+  C1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing .25s ease-in-out infinite;transform-origin:60px 60px"><rect x="44" y="24" width="32" height="58" rx="7" fill="#13203D"/><rect x="48" y="31" width="24" height="38" rx="3" fill="#85B7EB"/><circle cx="60" cy="75" r="3" fill="#fff"/></g><g style="animation:cray .6s ease-in-out infinite"><path d="M86 38 Q94 50 86 62 M94 30 Q106 50 94 70 M34 38 Q26 50 34 62 M26 30 Q14 50 26 70" stroke="#1D9E75" stroke-width="3.5" fill="none" stroke-linecap="round"/></g></svg>',
+  L1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop .8s ease-in-out infinite"><path d="M60 10 L71 36 L99 38 L78 56 L85 84 L60 69 L35 84 L42 56 L21 38 L49 36 Z" fill="#EF9F27"/><text x="60" y="62" text-anchor="middle" font-size="30" font-weight="800" fill="#13203D" font-family="Arial">3</text></g><g style="animation:cfall 1.4s linear infinite"><circle cx="15" cy="0" r="4" fill="#D4537E"/><circle cx="105" cy="6" r="4" fill="#378ADD"/></g></svg>',
 });
 const CELEB_KINDS = [
   { id: "deal", label: "🎉 Deal sent or approved", big: true, builtins: ["H1", "H2", "H5"] },
@@ -4797,6 +4906,7 @@ const CELEB_KINDS = [
   { id: "milestone", label: "🌟 Daily milestone (every 3 units / clients / updates)", big: true, builtins: ["L1", "H2", "H3"] },
   { id: "calls", label: "📞 Calls milestone (every 10 calls)", big: true, builtins: ["H5", "H1", "M2"] },
   { id: "sad", label: "😢 Sad (sold without us, hold, not interested)", big: true, builtins: ["S1", "S2", "S3", "S4", "S5"] },
+  { id: "promotion", label: "🏅 Promotion (whole team sees it)", big: true, builtins: ["H1", "L1", "H2"] },
 ];
 const CELEB_LINES = {
   deal: ["{first}, you're on fire! 🔥", "Big one, {first}! Keep them coming 🚀", "{first} closes again! 🏆", "That's how it's done, {first} 💪", "Money talks, {first} 💸"],
@@ -4805,6 +4915,7 @@ const CELEB_LINES = {
   client: ["New client, {first} — call them now 📞", "{first}, one more in the pipeline 👤", "Welcome aboard! Over to you, {first} 📲"],
   milestone: ["{first}, another 3 done! 🌟", "Hat-trick, {first}! 🎩", "{first} is unstoppable today ⚡", "Keep stacking them, {first} 📈"],
   calls: ["10 more calls, {first}! Every call is a chance 📞", "{first} is dialing like a champ 💪", "Keep the phone hot, {first} 🔥", "The next call could be the deal, {first} 🚀", "Numbers make deals, {first} — keep going 📈"],
+  promotion: ["Congratulations! Well deserved 🏅", "Up the ladder! 🚀 Proud of you", "New title, same hunger 💪"],
   sad: ["Hard luck, {first} — the next one is yours 💪", "Shake it off, {first}. Every no gets you closer to a yes 🌱", "Not this time, {first}. Your next deal is around the corner 🚀", "Chin up, {first} — champions lose some too 🏆", "On to the next one, {first} 💫"],
 };
 const SMALL_KINDS = ["unit", "client"];
@@ -4881,7 +4992,7 @@ function CelebrationOverlay({ profile, settings }) {
   return (
     <div className="celebrate" onClick={() => setShow(null)} role="dialog" aria-label={show.line}
       style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", background: happy ? "rgba(14,24,48,.35)" : "rgba(14,24,48,.45)", padding: 20, cursor: "pointer" }}>
-      {happy && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }).map((_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 9) * 0.12}s`, background: ["#B8965A", "#1D9E75", "#378ADD", "#D4537E", "#EF9F27"][i % 5] }} />)}</div>}
+      {happy && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }).map((_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 9) * 0.12}s`, background: ["#C9A56A", "#1D9E75", "#378ADD", "#D4537E", "#EF9F27"][i % 5] }} />)}</div>}
       <div className="glass pop-in" style={{ borderRadius: 26, padding: 18, width: "100%", maxWidth: 360, textAlign: "center", border: "1px solid rgba(255,255,255,.6)", boxShadow: "0 30px 80px rgba(0,0,0,.35)" }}>
         <div style={{ borderRadius: 18, overflow: "hidden", background: happy ? "#FBF6EC" : "#EEF3FA", height: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>{media(true)}</div>
         <div style={{ fontWeight: 800, fontSize: 19, color: COLORS.navy, marginTop: 12 }}>{show.line}</div>
@@ -8053,6 +8164,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   const [commBuyer, setCommBuyer] = useState(ed ? String(sideCommission(ed, "buyer") || "") : "");
   const [commSeller, setCommSeller] = useState(ed ? String(sideCommission(ed, "seller") || "") : "");
   const [dealDate, setDealDate] = useState(ed?.deal_date || todayInput());
+  const [expectedTransfer, setExpectedTransfer] = useState(ed?.expected_transfer_date || "");
   const [notes, setNotes] = useState(ed?.notes || "");
   const [picker, setPicker] = useState(null); // "unit" | "client"
   const [buyerName, setBuyerName] = useState(ed?.buyer_name || "");
@@ -8065,7 +8177,11 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
   })();
   const teamFrom = (side) => {
     const rows = (editing?.agents || []).filter((a) => agentSide(a) === side);
-    return rows.length ? rows.map((a) => ({ agentId: a.agent_id, split: String(a.split_pct) })) : [{ agentId: firstAgent, split: "100" }];
+    if (rows.length) return rows.map((a) => ({ agentId: a.agent_id, split: String(a.split_pct) }));
+    // a client that was moved to another sales: the one who had it first gets 20% of the sales share
+    const cl = clients.find((c) => c.id === (initial?.clientId || ""));
+    if (side === "buyer" && cl?.originalAssignee && cl.assignedTo && cl.originalAssignee !== cl.assignedTo && firstAgent === cl.assignedTo) return [{ agentId: cl.assignedTo, split: "80" }, { agentId: cl.originalAssignee, split: "20" }];
+    return [{ agentId: firstAgent, split: "100" }];
   };
   const [buyerTeam, setBuyerTeam] = useState(() => teamFrom("buyer"));
   const [sellerTeam, setSellerTeam] = useState(() => teamFrom("seller"));
@@ -8126,6 +8242,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
     }
     if (ed && total < num(ed.commission_collected) - 0.5) throw new Error(`${money(num(ed.commission_collected))} was already collected on this deal — the commission can't be less than that.`);
     const done = isAdmin && approveNow && asDone;
+    if (isAdmin && approveNow && !asDone && !expectedTransfer) throw new Error("Choose the expected transfer date to approve it as reserved.");
     const amtB = done && hasBuyer ? num(collBuyer ?? commBuyer) : 0;
     const amtS = done && hasSeller ? num(collSeller ?? commSeller) : 0;
     if (done) {
@@ -8150,6 +8267,7 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
         commission_total: total,
         commission_collected: 0,
         deal_date: dealDate,
+        expected_transfer_date: !isRent || expectedTransfer ? (expectedTransfer || null) : null,
         notes: notes.trim() || null,
         buyer_name: !isRent && unitId ? (buyerName.trim() || null) : null,
         buyer_phone: !isRent && unitId && buyerPhone.trim() ? cleanPhone(buyerPhone) : null,
@@ -8212,6 +8330,9 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
           )}
           <Field label={isRent ? "Reservation date" : "Promise of sale date"} required>
             <input type="date" style={inputStyle} value={dealDate} onChange={(e) => setDealDate(e.target.value)} />
+          </Field>
+          <Field label={isRent ? "Expected lease signing" : "Expected transfer date"}>
+            <input type="date" data-expected-transfer style={inputStyle} value={expectedTransfer} min={dealDate || undefined} onChange={(e) => setExpectedTransfer(e.target.value)} />
           </Field>
         </div>
 
@@ -8380,6 +8501,7 @@ function ApprovalCard({ deal, ctx }) {
   const [accountId, setAccountId] = useState(activeAccounts[0]?.id || "");
   const [collectedAt, setCollectedAt] = useState(todayInput());
   const [asDone, setAsDone] = useState(false);
+  const [expTransfer, setExpTransfer] = useState(deal.expected_transfer_date || "");
   const [amounts, setAmounts] = useState({});
   const [resAmounts, setResAmounts] = useState({});
   const [note, setNote] = useState("");
@@ -8450,6 +8572,7 @@ function ApprovalCard({ deal, ctx }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
         {!asDone && (
           <>
+            <Field label={isRentDeal(deal) ? "Expected lease signing" : "Expected transfer date"} required><input type="date" data-approve-expected style={inputStyle} value={expTransfer} onChange={(e) => setExpTransfer(e.target.value)} /></Field>
             <div style={{ gridColumn: "1 / -1", fontSize: 12.5, color: COLORS.textMuted }}>Money collected with the reservation (leave 0 if none). It counts toward targets now, and you can pay sales their share of it from the deal page. Floos Rabna moves when the deal is done.</div>
             <SideAmountFields deal={deal} values={resAmounts} setValues={setResAmounts} defaults={zero} />
             {Object.values(sideValues(deal, resAmounts, zero)).some((v) => v > 0) && (
@@ -8500,7 +8623,9 @@ function ApprovalCard({ deal, ctx }) {
           if (!asDone && (atRes.buyer > sideCommission(deal, "buyer") + 0.01 || atRes.seller > sideCommission(deal, "seller") + 0.01)) throw new Error("Collected can't be more than the commission of that side.");
           if (!asDone && (atRes.buyer < 0 || atRes.seller < 0)) throw new Error("Amounts can't be negative.");
           if (!asDone && atRes.buyer + atRes.seller > 0 && !accountId) throw new Error("Choose the account that received the money.");
+          if (!asDone && !expTransfer) throw new Error("Choose the expected transfer date — Planning uses it for the cash forecast.");
           await act(async (t) => {
+            if (!asDone && expTransfer !== (deal.expected_transfer_date || "")) await db.update("deals", deal.id, { expected_transfer_date: expTransfer }, t);
             await db.rpc("approve_deal", {
               p_deal: deal.id, p_account: asDone ? accountId || null : null, p_collected_at: dateInputToIso(collectedAt),
               p_as_done: asDone, p_amount_buyer: asDone ? collectedNow.buyer : null, p_amount_seller: asDone ? collectedNow.seller : null,
@@ -10276,6 +10401,7 @@ function FinSettings({ ctx, part = "all" }) {
         {show("messages") && <ColdTemplateSettings ctx={ctx} />}
         {show("messages") && <OwnerAskSettings ctx={ctx} />}
         {show("team") && <LateLeadSettings ctx={ctx} />}
+        {show("team") && <FacebookLeadsSettings ctx={ctx} />}
         {show("team") && <BackupSettings ctx={ctx} />}
 
         {show("team") && <CelebrationSettings ctx={ctx} uploadMedia={ctx.uploadMedia} />}
@@ -10612,12 +10738,12 @@ export default function App() {
     return () => { live = false; };
   }, [profile?.id, policyRequired]); // eslint-disable-line
   const [dealModal, setDealModal] = useState(null);
-  const [clientsTab, setClientsTab] = useState("today"); // { initial } | { editing: { deal, agents } }
+  const [clientsTab, setClientsTab] = useState("all"); // { initial } | { editing: { deal, agents } }
   const [dataLoading, setDataLoading] = useState(() => !!loadSession());
   const [loadError, setLoadError] = useState("");
 
   const [tab, setTab] = useState("home");
-  const [section, setSection] = useState("clients");
+  const [section, setSection] = useState("home");
   const [openUnit, setOpenUnit] = useState(null);
   // ---- links from phone notifications: ?open=client:<id> | deal:<id> | unit:<id> | approvals | attendance | today ----
   const [finDeep, setFinDeep] = useState(null);
@@ -10631,7 +10757,8 @@ export default function App() {
     else if (kind === "unit" && id) { setSection("units"); setPendingUnitId(id); }
     else if (kind === "attendance") { setSection("profile"); setTab("attendance"); }
     else if (kind === "leave") { setSection("profile"); setTab("leave"); }
-    else if (kind === "today") { setSection("clients"); setClientsTab("today"); setOpenClientId(null); }
+    else if (kind === "today" || kind === "home") { setSection("home"); setOpenClientId(null); }
+    else if (kind === "planning") { setSection("profile"); setTab("planning"); }
     else if (kind === "contract" && id) { setSection("contracts"); setContractDeep(`${id}`); }
     else if (kind === "cold" && id) { setSection("cold"); setColdDeep(`${id}`); refreshCold(); }
     else if (kind === "cold") { setSection("cold"); refreshCold(); }
@@ -11238,14 +11365,28 @@ export default function App() {
       const c = lastCallRef.current;
       if (!c || document.visibilityState === "hidden") return;
       const gone = Date.now() - c.at;
-      if (gone > 4000 && gone < 3 * 3600 * 1000) { setCallPrompt(c.clientId); lastCallRef.current = null; }
+      if (gone > 4000 && gone < 3 * 3600 * 1000) { setCallPrompt(c.clientId); lastCallRef.current = null; try { localStorage.removeItem("origin_last_client"); } catch (e) {} }
     };
+    // the phone may have closed the app while the call / WhatsApp was open: ask after the reload too
+    try { const saved = JSON.parse(localStorage.getItem("origin_last_client") || "null"); if (saved && saved.clientId && Date.now() - saved.at < 3 * 3600 * 1000) lastCallRef.current = saved; else localStorage.removeItem("origin_last_client"); } catch (e) {}
+    setTimeout(back, 1500);
     document.addEventListener("visibilitychange", back);
     window.addEventListener("focus", back);
     return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
   }, []);
+  // a manager gives a client to another sales (the first one stays as original_assignee for the 20% share)
+  const reassignClient = async (client, toId) => {
+    const t = await getValidToken();
+    await db.update("clients", client.id, { assigned_to: toId, ...(client.originalAssignee ? {} : { original_assignee: client.assignedTo }) }, t);
+    const nm = (id) => users.find((u) => u.id === id)?.name || "—";
+    await db.insert("client_activity", { client_id: client.id, action: "field_update", field_name: "assigned_to", old_value: nm(client.assignedTo), new_value: nm(toId), note: `Moved to ${nm(toId)} after 14+ days with no answer`, changed_by: profile.id }, t);
+    await refreshClients();
+  };
   const logContact = async (client, kind) => {
-    if (kind === "call" && client && client.id) lastCallRef.current = { clientId: client.id, at: Date.now() };
+    if ((kind === "call" || kind === "whatsapp") && client && client.id) {
+      lastCallRef.current = { clientId: client.id, at: Date.now(), kind };
+      try { localStorage.setItem("origin_last_client", JSON.stringify(lastCallRef.current)); } catch (e) {}
+    }
     const key = `${client.id}|${kind}`;
     if (Date.now() - (lastContactRef.current[key] || 0) < 10 * 60 * 1000) return;
     lastContactRef.current[key] = Date.now();
@@ -11523,12 +11664,13 @@ export default function App() {
   };
 
   // --- User management ---
+  const profileChanges = (changes) => ({ role: changes.role, manager_id: changes.managerId, job_title: changes.jobTitle ?? null, attendance_exempt: !!changes.attendanceExempt, ...(changes.titleChanged ? { job_title_since: todayInput() } : {}) });
   const approveUser = async (id, changes) => {
-    await db.update("profiles", id, { role: changes.role, manager_id: changes.managerId }, await getValidToken());
+    await db.update("profiles", id, profileChanges(changes), await getValidToken());
     await refreshUsers();
   };
   const editUser = async (id, changes) => {
-    await db.update("profiles", id, { role: changes.role, manager_id: changes.managerId }, await getValidToken());
+    await db.update("profiles", id, profileChanges(changes), await getValidToken());
     await refreshUsers();
   };
   const updateMyProfile = async (changes) => {
@@ -11623,15 +11765,21 @@ export default function App() {
   const contractBadge = (contracts || []).filter((c) => (isFinanceAdmin(profile) ? c.status === "pending" : c.created_by === profile.id && c.status === "returned")).length;
   const coldBadge = cold.leads.filter((l) => l.assigned_to === profile.id && (unitWaiting(l) || laterDue(l))).length + cold.sheets.filter((sh) => (sh.status || "active") === "active" && sh.assigned_to === profile.id && ["late", "today"].includes(sheetState(sh, cold.leads).state)).length
     + new Set(cold.sheets.filter((sh) => sh.status === "pending" && sh.assigned_to !== profile.id && (isFinanceAdmin(profile) || profile.role !== "sales_agent")).map((sh) => sh.batch_id || sh.id)).size;
-  const SECTIONS = [
-    { id: "clients", label: "Clients", icon: MessageSquare },
-    { id: "units", label: "Units", icon: Building2 },
-    { id: "cold", label: "Cold calls", short: "Cold", icon: Phone, badge: coldBadge || 0 },
-    { id: "finance", label: finPending ? `Finance (${finPending})` : "Finance", short: "Finance", badge: finPending || 0, icon: Wallet },
-    { id: "contracts", label: contractBadge ? `Contracts (${contractBadge})` : "Contracts", short: "Contracts", badge: contractBadge || 0, icon: FileText },
-    { id: "profile", label: profile.role !== "sales_agent" ? "Reports" : "Attendance", short: profile.role !== "sales_agent" ? "Reports" : "Attendance", icon: profile.role !== "sales_agent" ? LayoutGrid : Clock },
-    { id: "settings", label: "Settings", short: "Settings", icon: SettingsIcon },
+  // Five places at the bottom: Home · Sales (clients + cold calls) · Units · Money (deals, contracts, finance) · Me. Settings is the ⚙️ at the top.
+  const GROUP_OF = { home: "home", clients: "sales", cold: "sales", units: "units", finance: "money", contracts: "money", profile: "me" };
+  const moneyBadge = (finPending || 0) + (contractBadge || 0);
+  const NAV = [
+    { id: "home", label: "Home", icon: Home, go: "home" },
+    { id: "sales", label: "Sales", icon: MessageSquare, go: "clients", badge: coldBadge || 0 },
+    { id: "units", label: "Units", icon: Building2, go: "units" },
+    { id: "money", label: moneyBadge ? `Money (${moneyBadge})` : "Money", short: "Money", icon: Wallet, go: "finance", badge: moneyBadge },
+    { id: "me", label: "Me", icon: UserRound, go: "profile" },
   ];
+  const GROUP_TABS = {
+    sales: [["clients", "Clients"], ["cold", coldBadge ? `Cold calls (${coldBadge})` : "Cold calls"]],
+    money: [["finance", finPending ? `Finance (${finPending})` : "Finance"], ["contracts", contractBadge ? `Contracts (${contractBadge})` : "Contracts"]],
+  };
+  const group = GROUP_OF[section] || null;
   const UNITS_SUBNAV = [
     { id: "home", label: "Home", icon: Home },
     { id: "search", label: "Search", icon: Search },
@@ -11652,6 +11800,7 @@ export default function App() {
   PROFILE_SUBNAV.push({ id: "leave", label: "Leave", icon: Calendar });
   PROFILE_SUBNAV.push({ id: "deductions", label: "Deductions", icon: Wallet });
   PROFILE_SUBNAV.push({ id: "evaluation", label: "Evaluation", icon: CheckCircle });
+  PROFILE_SUBNAV.push({ id: "appraisal", label: "Appraisal", icon: CheckCircle });
   PROFILE_SUBNAV.push({ id: "onboarding", label: "Onboarding", icon: UserRound });
   if (isFinanceAdmin(profile) || fin.settings?.policies_required) PROFILE_SUBNAV.push({ id: "policies", label: "Policies", icon: FileText });
   if (isFinanceAdmin(profile)) PROFILE_SUBNAV.push({ id: "planning", label: "Planning", icon: LayoutGrid });
@@ -11665,6 +11814,35 @@ export default function App() {
     SETTINGS_SUBNAV.push({ id: "users", label: "Users", icon: Users });
     SETTINGS_SUBNAV.push({ id: "catalog", label: "Developers & projects", icon: Building2 });
   }
+  const todayBoardEl = (
+                  <TodayBoard
+                    profile={profile}
+                    clients={clients}
+                    activity={clientActivity}
+                    coldActivity={cold.activity}
+                    users={users}
+                    visibleSalesIds={visibleSalesIds}
+                    isManager={profile.role !== "sales_agent"}
+                    onOpenClient={(c) => { setSection("clients"); setOpenClientId(c.id); }}
+                    onQuickReply={quickReply}
+                    onContact={logContact}
+                    onCloseLead={(c) => setCloseTarget(c)}
+                    heroExtra={<HeroExtras streak={streakDays(clientActivity, profile.id, workDaysOf(fin.settings))} target={myTarget} />}
+                    topSlot={<>
+                      <NotificationsCard profile={profile} compact getToken={getValidToken} />
+                      <ColdTodayCard profile={profile} leads={cold.leads} onAddUnit={startUnitFromCold} onOpenCold={() => { setSection("cold"); }} />
+                      {isFinanceAdmin(profile) && <MorningBrief clients={clients} activity={clientActivity} fin={fin} attendance={attendance} users={users} visibleSalesIds={visibleSalesIds} settings={fin.settings} onOpen={openLink} />}
+                    </>}
+                    bottomSlot={<>
+                      <OwnerFollowUp units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} waSettings={fin.settings}
+                        onStill={async (u) => { await db.update("units", u.id, { updated_at: new Date().toISOString() }, await getValidToken()); await refreshUnits(); bumpDaily(profile.id, "update"); }}
+                        onPriceChanged={(u) => { setEditingUnit(u); setSection("units"); setTab("add"); }}
+                        onSold={(u) => setSoldEdit({ unit: u, mode: "outside" })} />
+                      <PastBuyers units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} onContact={() => {}} />
+                      {profile.role === "sales_agent" && <MonthlyAwards profile={profile} getToken={getValidToken} />}
+                    </>}
+                  />
+  );
   const goSection = (id) => {
     setSection(id);
     if (id === "units") setTab("home");
@@ -11675,6 +11853,7 @@ export default function App() {
   const currentSubNav = section === "units" ? UNITS_SUBNAV : section === "profile" ? PROFILE_SUBNAV : section === "settings" ? SETTINGS_SUBNAV : [];
 
   return (
+    <AllUnitsContext.Provider value={units}>
     <div className="app-shell">
       <div className="orbs" aria-hidden="true"><i /><i /><i /></div>
       <UpdateBanner />
@@ -11693,8 +11872,8 @@ export default function App() {
               <img src={LOGO_SRC} alt="Origin Real Estate" style={{ height: 26 }} />
             </div>
             <nav className="topnav">
-              {SECTIONS.map((n) => (
-                <button key={n.id} className={section === n.id ? "on" : ""} onClick={() => goSection(n.id)}>
+              {NAV.map((n) => (
+                <button key={n.id} data-nav={n.id} className={group === n.id ? "on" : ""} onClick={() => goSection(n.go)}>
                   <n.icon size={15} /> {n.label}
                 </button>
               ))}
@@ -11740,9 +11919,17 @@ export default function App() {
       )}
 
       {/* Phone: bottom tab bar */}
+      {GROUP_TABS[group] && (
+        <div className="subnav group-tabs">
+          {GROUP_TABS[group].map(([id, label]) => (
+            <button key={id} data-group-tab={id} className={section === id ? "on" : ""} onClick={() => goSection(id)}>{label}</button>
+          ))}
+        </div>
+      )}
+
       <nav className="bottom-nav">
-        {SECTIONS.map((n) => (
-          <button key={n.id} className={section === n.id ? "on" : ""} onClick={() => goSection(n.id)}>
+        {NAV.map((n) => (
+          <button key={n.id} data-nav={n.id} className={group === n.id ? "on" : ""} onClick={() => goSection(n.go)}>
             <n.icon size={19} />
             <span>{n.short || n.label}</span>
             {n.badge ? <span className="dot">{n.badge}</span> : null}
@@ -11762,6 +11949,18 @@ export default function App() {
           />
         ) : (
           <>
+        {section === "home" && (
+          <>
+            <div data-home style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: COLORS.textMuted, alignSelf: "center", letterSpacing: 0.3 }}>QUICK ADD</span>
+              <button data-quick="client" onClick={() => { setSection("clients"); setOpenClientId("__new__"); }} style={{ ...btnPrimary, borderRadius: 999 }}>+ Client</button>
+              <button data-quick="unit" onClick={() => { setSection("units"); setTab("add"); }} style={{ ...btnGhost, borderRadius: 999 }}>+ Unit</button>
+              <button data-quick="sheet" onClick={() => goSection("cold")} style={{ ...btnGhost, borderRadius: 999 }}>+ Sheet</button>
+            </div>
+            <NoAnswerReassign profile={profile} clients={clients} users={users} visibleSalesIds={visibleSalesIds} onReassign={reassignClient} />
+            {todayBoardEl}
+          </>
+        )}
         {section === "units" && tab === "home" && (
           <>
             <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Featured units</div>
@@ -11945,35 +12144,7 @@ export default function App() {
                     +<span className="hide-sm"> Add client</span>
                   </button>
                 </div>
-                {clientsTab === "today" && (
-                  <TodayBoard
-                    profile={profile}
-                    clients={clients}
-                    activity={clientActivity}
-                    coldActivity={cold.activity}
-                    users={users}
-                    visibleSalesIds={visibleSalesIds}
-                    isManager={profile.role !== "sales_agent"}
-                    onOpenClient={(c) => setOpenClientId(c.id)}
-                    onQuickReply={quickReply}
-                    onContact={logContact}
-                    onCloseLead={(c) => setCloseTarget(c)}
-                    heroExtra={<HeroExtras streak={streakDays(clientActivity, profile.id, workDaysOf(fin.settings))} target={myTarget} />}
-                    topSlot={<>
-                      <NotificationsCard profile={profile} compact getToken={getValidToken} />
-                      <ColdTodayCard profile={profile} leads={cold.leads} onAddUnit={startUnitFromCold} onOpenCold={() => { setSection("cold"); }} />
-                      {isFinanceAdmin(profile) && <MorningBrief clients={clients} activity={clientActivity} fin={fin} attendance={attendance} users={users} visibleSalesIds={visibleSalesIds} settings={fin.settings} onOpen={openLink} />}
-                    </>}
-                    bottomSlot={<>
-                      <OwnerFollowUp units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} waSettings={fin.settings}
-                        onStill={async (u) => { await db.update("units", u.id, { updated_at: new Date().toISOString() }, await getValidToken()); await refreshUnits(); bumpDaily(profile.id, "update"); }}
-                        onPriceChanged={(u) => { setEditingUnit(u); setSection("units"); setTab("add"); }}
-                        onSold={(u) => setSoldEdit({ unit: u, mode: "outside" })} />
-                      <PastBuyers units={units} profile={profile} visibleSalesIds={visibleSalesIds} getProjectInfo={getProjectInfo} onContact={() => {}} />
-                      {profile.role === "sales_agent" && <MonthlyAwards profile={profile} getToken={getValidToken} />}
-                    </>}
-                  />
-                )}
+                {clientsTab === "today" && todayBoardEl}
                 {clientsTab === "team" && profile.role !== "sales_agent" && (
                   <TeamActivity clients={clients} activity={clientActivity} coldActivity={cold.activity} users={users} visibleSalesIds={visibleSalesIds} onOpenClient={(c) => setOpenClientId(c.id)} />
                 )}
@@ -12025,21 +12196,7 @@ export default function App() {
               </div>
             )}
 
-            {callPrompt && (() => {
-              const c = clients.find((x) => x.id === callPrompt);
-              if (!c) return null;
-              return (
-                <FinModal title={`How did the call with ${c.name} go?`} onClose={() => setCallPrompt(null)} width={520}>
-                  <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>One tap saves the update and sets the next follow-up.</div>
-                  <QuickReplyBar client={c} activity={clientActivity}
-                    onQuickReply={async (cl, plan) => { await quickReply(cl, plan); setCallPrompt(null); }}
-                    onCloseLead={() => { setCallPrompt(null); setCloseTarget(c); }} />
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-                    <button onClick={() => setCallPrompt(null)} style={{ border: "none", background: "none", color: COLORS.textMuted, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Skip</button>
-                  </div>
-                </FinModal>
-              );
-            })()}
+
             {stageChangeTarget && (
               <StageChangeModal
                 client={stageChangeTarget}
@@ -12181,12 +12338,14 @@ export default function App() {
           </>
         )}
 
+        {section === "profile" && tab === "appraisal" && <AppraisalPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} activity={clientActivity} fin={fin} attendance={attendance} getToken={getValidToken} />}
         {section === "profile" && tab === "leave" && <LeavePage profile={profile} users={users} visibleSalesIds={visibleSalesIds} fin={fin} getToken={getValidToken} />}
+        {section === "profile" && tab === "leave" && <LatePermissions profile={profile} users={users} getToken={getValidToken} />}
         {section === "profile" && tab === "deductions" && <DeductionsPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} attendance={attendance} fin={fin} getToken={getValidToken} refreshFinance={refreshFinance} />}
         {section === "profile" && tab === "evaluation" && <EvaluationPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} clients={clients} activity={clientActivity} fin={fin} attendance={attendance} getToken={getValidToken} />}
         {section === "profile" && tab === "onboarding" && <OnboardingPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} getToken={getValidToken} />}
         {section === "profile" && tab === "policies" && <PoliciesPage profile={profile} users={users} fin={fin} getToken={getValidToken} refreshFinance={refreshFinance} />}
-        {section === "profile" && tab === "planning" && isFinanceAdmin(profile) && <PlanningPage profile={profile} users={users} fin={fin} clients={clients} activity={clientActivity} />}
+        {section === "profile" && tab === "planning" && isFinanceAdmin(profile) && <PlanningPage profile={profile} users={users} fin={fin} clients={clients} activity={clientActivity} getToken={getValidToken} />}
         {section === "units" && tab === "compare" && <CompareUnits units={units} getProjectInfo={getProjectInfo} />}
         {section === "profile" && tab === "deletions" && profile.role === "admin" && (
           <>
@@ -12249,6 +12408,7 @@ export default function App() {
             canSeeOwner={canSeeOwner(openUnit)}
             handledBy={getHandledBy(openUnit)}
             onClose={() => setOpenUnit(null)}
+            onStillAvailable={async (u) => { await db.update("units", u.id, { updated_at: new Date().toISOString() }, await getValidToken()); await refreshUnits(); bumpDaily(profile.id, "update"); }}
             canDeleteDirectly={profile.role === "admin"}
             onDeleteDirectly={deleteUnitDirectly}
             onViewProfile={(id) => { setOpenUnit(null); setViewedUserId(id); }}
@@ -12294,7 +12454,24 @@ export default function App() {
         </div>
       )}
 
+{callPrompt && (() => {
+              const c = clients.find((x) => x.id === callPrompt);
+              if (!c) return null;
+              return (
+                <FinModal title={`How did it go with ${c.name}?`} onClose={() => setCallPrompt(null)} width={520}>
+                  <div style={{ fontSize: 12.5, color: COLORS.textMuted, marginBottom: 10 }}>One tap saves the update and sets the next follow-up.</div>
+                  <QuickReplyBar client={c} activity={clientActivity}
+                    onQuickReply={async (cl, plan) => { await quickReply(cl, plan); setCallPrompt(null); }}
+                    onCloseLead={() => { setCallPrompt(null); setCloseTarget(c); }} />
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                    <button onClick={() => setCallPrompt(null)} style={{ border: "none", background: "none", color: COLORS.textMuted, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Skip</button>
+                  </div>
+                </FinModal>
+              );
+            })()}
+      <PromotionWatcher profile={profile} getToken={getValidToken} />
       <HoldModal unit={holdTarget} projectInfo={holdTarget ? getProjectInfo(holdTarget) : null} onConfirm={confirmHold} onCancel={() => setHoldTarget(null)} />
     </div>
+    </AllUnitsContext.Provider>
   );
 }

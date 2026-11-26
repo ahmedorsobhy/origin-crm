@@ -107,7 +107,7 @@ async function run() {
   const [lh, lm] = String(settings?.late_after || "11:00").split(":").map(Number);
   const cutoff = lh * 60 + lm;
   const isWorkDay = workDays.includes(now.dow);
-  const people = await sb("profiles?select=id,name,role&role=neq.pending");
+  const people = await sb("profiles?select=id,name,role,attendance_exempt&role=neq.pending");
   const nowIso = new Date().toISOString();
 
   // 1) Check-in reminder, 5 minutes before the cutoff
@@ -115,7 +115,9 @@ async function run() {
     const since = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
     const att = await sb(`attendance?select=user_id,checked_in_at&checked_in_at=gte.${since}`);
     const inToday = new Set((att || []).filter((a: any) => cairoDate(a.checked_in_at) === now.date).map((a: any) => a.user_id));
-    for (const p of people.filter((p: any) => !["admin", "ceo"].includes(p.role) && !inToday.has(p.id))) {
+    const lateOk = await sb(`late_permissions?select=user_id&status=eq.approved&day=eq.${now.date}`).catch(() => []);
+    const allowed = new Set((lateOk || []).map((l: any) => l.user_id));
+    for (const p of people.filter((p: any) => !["admin", "ceo"].includes(p.role) && !p.attendance_exempt && !allowed.has(p.id) && !inToday.has(p.id))) {
       await once(p.id, `att:${now.date}`, `${first(p.name)}, you haven't checked in yet ⏰`, `5 minutes left before ${settings?.late_after || "11:00"} — check in now`, "?open=attendance");
     }
   }

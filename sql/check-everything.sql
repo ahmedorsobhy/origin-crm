@@ -88,6 +88,23 @@ with fn as (
       and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'deal_checklists') and exists (select 1 from pg_proc where proname = 'can_manage_person')),
   ('44 Cold calls load fast (team checked once per request)', exists (select 1 from pg_proc where proname = 'my_team_ids')
       and exists (select 1 from pg_policies where tablename = 'cold_activity' and policyname = 'read cold activity' and qual like '%my_team_ids%')),
+  ('45 Deals: expected transfer date', exists (select 1 from col where c = 'deals.expected_transfer_date')),
+  ('46 Stages: follow-up after meeting + time in stage + first sales kept', exists (select 1 from pg_constraint where conname = 'clients_stage_check' and pg_get_constraintdef(oid) like '%follow_up_after_meeting%')
+      and exists (select 1 from col where c = 'clients.stage_since') and exists (select 1 from col where c = 'clients.original_assignee')
+      and exists (select 1 from pg_trigger where tgname = 'trg_clients_stage_since') and exists (select 1 from pg_trigger where tgname = 'trg_clients_keep_original')),
+  ('47 Job titles, appraisals, promotions (admin-only changes)', exists (select 1 from col where c = 'profiles.job_title') and exists (select 1 from col where c = 'profiles.job_title_since')
+      and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'appraisals') and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'promotions')
+      and exists (select 1 from pg_trigger where tgname = 'trg_promotion_apply') and exists (select 1 from pg_proc where proname = 'prevent_role_escalation' and prosrc like '%job_title%')),
+  ('48 Attendance: no-attendance people + late permissions', exists (select 1 from col where c = 'profiles.attendance_exempt')
+      and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'late_permissions') and exists (select 1 from pg_trigger where tgname = 'trg_late_notify')),
+  ('49 AI analyst: reports (admin only) + weekly cron token locked', exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'ai_reports')
+      and exists (select 1 from pg_policies where tablename = 'ai_reports' and qual like '%is_finance_admin%')
+      and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'ai_cron_token')
+      and not has_table_privilege('authenticated', 'public.ai_cron_token', 'SELECT') and not has_table_privilege('anon', 'public.ai_cron_token', 'SELECT')),
+  ('50 AI analyst weekly run scheduled (needs pg_cron + pg_net)', case when to_regclass('cron.job') is null then true
+      else query_to_xml('select 1 from cron.job where jobname = ''origin-ai-weekly''', false, false, '')::text like '%<row>%' end),
+  ('51 Facebook leads: log + round-robin list', exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'fb_leads')
+      and exists (select 1 from col where c = 'finance_settings.lead_assignees') and exists (select 1 from col where c = 'finance_settings.lead_rr_index')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
