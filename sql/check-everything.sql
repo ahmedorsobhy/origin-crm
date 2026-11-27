@@ -105,6 +105,11 @@ with fn as (
       else query_to_xml('select 1 from cron.job where jobname = ''origin-ai-weekly''', false, false, '')::text like '%<row>%' end),
   ('51 Facebook leads: log + round-robin list', exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'fb_leads')
       and exists (select 1 from col where c = 'finance_settings.lead_assignees') and exists (select 1 from col where c = 'finance_settings.lead_rr_index')),
+  ('52 Deal count by side (ranking + leaderboard: buyer + seller = 2)', position('a.side)' in pg_get_functiondef('public.sales_ranking(timestamptz,timestamptz)'::regprocedure)) > 0
+      and position('a.side)' in pg_get_functiondef('public.leaderboard(timestamptz,timestamptz)'::regprocedure)) > 0),
+  ('53 Merge duplicate deals (admin only)', to_regprocedure('public.merge_deals(uuid,uuid[],boolean)') is not null
+      and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'deal_dup_dismissed')
+      and exists (select 1 from pg_policies where tablename = 'deal_dup_dismissed' and qual like '%is_finance_admin%')),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;

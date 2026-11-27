@@ -48,7 +48,7 @@ async function snapshot() {
     sb("recurring_expenses?select=name,default_amount,archived"),
     sb(`finance_transactions?select=kind,direction,amount,occurred_at,account_id,deal_id&occurred_at=gte.${daysAgo(400)}`),
     sb("finance_accounts?select=id,name,archived"),
-    sb("deals?select=id,status,unit_label,deal_type,sale_price,commission_total,commission_buyer,commission_seller,commission_collected,done_at,reviewed_at,created_at,expected_transfer_date,created_by"),
+    sb("deals?select=id,status,unit_label,deal_type,sides,sale_price,commission_total,commission_buyer,commission_seller,commission_collected,done_at,reviewed_at,created_at,expected_transfer_date,created_by"),
     sb("deal_agents?select=deal_id,agent_id,split_pct,side"),
     sb(`clients?select=id,source,campaign,stage,stage_since,assigned_to,created_at,closed_reason,interest&created_at=gte.${daysAgo(400)}`),
     sb(`client_activity?select=client_id,action,field_name,changed_by,changed_at&changed_at=gte.${daysAgo(90)}`),
@@ -75,16 +75,18 @@ async function snapshot() {
   const agentsOf = (id: string) => agents.filter((a: any) => a.deal_id === id).map((a: any) => `${name(a.agent_id)} ${num(a.split_pct)}%${a.side ? ` (${a.side})` : ""}`);
   const open = deals.filter((d: any) => ["pending", "reserved"].includes(d.status)).map((d: any) => {
     const due = r2(num(d.commission_total) - num(d.commission_collected));
-    return { unit: d.unit_label, status: d.status, commission_due: due, net_to_company_est: r2(due * (1 - payoutRatio)), expected_transfer_date: d.expected_transfer_date || null, overdue: !!(d.expected_transfer_date && d.expected_transfer_date < new Date().toISOString().slice(0, 10)), agents: agentsOf(d.id) };
+    return { unit: d.unit_label, status: d.status, counts_as_deals: sidesN(d), commission_due: due, net_to_company_est: r2(due * (1 - payoutRatio)), expected_transfer_date: d.expected_transfer_date || null, overdue: !!(d.expected_transfer_date && d.expected_transfer_date < new Date().toISOString().slice(0, 10)), agents: agentsOf(d.id) };
   });
-  const doneDeals = deals.filter((d: any) => d.status === "approved").map((d: any) => ({ month: monthOf(d.done_at || d.reviewed_at || d.created_at), commission: num(d.commission_total), type: d.deal_type || "sale",
+  // a deal where we have the buyer AND the seller counts as 2 deals
+  const sidesN = (d: any) => (d.sides === "both" ? 2 : 1);
+  const doneDeals = deals.filter((d: any) => d.status === "approved").map((d: any) => ({ month: monthOf(d.done_at || d.reviewed_at || d.created_at), commission: num(d.commission_total), type: d.deal_type || "sale", count: sidesN(d),
     agents: agents.filter((a: any) => a.deal_id === d.id).map((a: any) => ({ id: a.agent_id, pct: num(a.split_pct), side: a.side, amount: (a.side === "buyer" ? num(d.commission_buyer) : a.side === "seller" ? num(d.commission_seller) : num(d.commission_total)) * num(a.split_pct) / 100 })) }));
   const months = [...Array(12)].map((_, k) => { const d = new Date(); d.setMonth(d.getMonth() - k); return d.toISOString().slice(0, 7); }).reverse();
   const byMonth = months.map((m) => {
     const cs = clients.filter((c: any) => monthOf(c.created_at) === m);
     const src: Record<string, number> = {}; cs.forEach((c: any) => { const k = c.source + (c.campaign ? ` / ${c.campaign}` : ""); src[k] = (src[k] || 0) + 1; });
     const dd = doneDeals.filter((d: any) => d.month === m);
-    return { month: m, new_clients: cs.length, by_source: src, deals_done: dd.length, deal_commission: r2(dd.reduce((s: number, d: any) => s + d.commission, 0)),
+    return { month: m, new_clients: cs.length, by_source: src, deals_done: dd.reduce((s: number, d: any) => s + d.count, 0), deal_commission: r2(dd.reduce((s: number, d: any) => s + d.commission, 0)),
       commission_collected: sum((t) => t.kind === "commission_in" && monthOf(t.occurred_at) === m), expenses_out: sum((t) => t.direction === "out" && monthOf(t.occurred_at) === m) };
   });
   // people (last 90 days)
@@ -101,7 +103,7 @@ async function snapshot() {
       active_clients: mine.filter((c: any) => !["deal_done", "closed"].includes(c.stage)).length,
       clients_by_stage: mine.reduce((o: any, c: any) => { o[c.stage] = (o[c.stage] || 0) + 1; return o; }, {}),
       no_answer_14d_plus: mine.filter((c: any) => c.stage === "not_responding" && c.stage_since && c.stage_since < daysAgo(14)).length,
-      last_90_days: { client_updates: acts.filter((a: any) => a.changed_by === p.id).length, meetings_booked: mb, meetings_done: md, deals_done: deals90.length },
+      last_90_days: { client_updates: acts.filter((a: any) => a.changed_by === p.id).length, meetings_booked: mb, meetings_done: md, deals_done: deals90.reduce((s: number, d: any) => s + new Set(d.agents.filter((a: any) => a.id === p.id).map((a: any) => a.side)).size, 0) },
       cold_last_30_days: { numbers_given_feedback: coldNumbers, selling_found: coldMine.filter((c: any) => c.value === "selling").length },
       commission_brought_12m_approx: brought12, last_client_activity: lastAct || null };
   });
@@ -135,6 +137,7 @@ const SYSTEM = `أنت المحلل المالي والتشغيلي لشركة "
   ## توقع 3 شهور (جدول Markdown: الشهر | ديلات | دخل متوقع | صافي للشركة | كاش آخر الشهر | الثقة ولماذا). ابنِ التوقع على الديلات المحجوزة ومعاد التنازل المتوقع، وعلى معدل الأداء الفعلي (ميتنجات × نسبة التحويل × متوسط العمولة)، والمصاريف الثابتة. لو فيه توقع سابق قارنه باللي حصل.
   ## المخاطر
   ## تعمل إيه الأسبوع ده (3-4 نقاط)
+- عدد الديلات: الديل اللي إحنا فيها على البائع والمشتري مع بعض بتتحسب 2 (counts_as_deals و deals_done محسوبين كده بالفعل).
 - في الآخر خالص، بعد التقرير، حط بلوك \`\`\`json فيه {"forecast":[{"month":"YYYY-MM","deals":0,"gross":0,"net":0,"cash_end":0,"confidence":"high|medium|low"}]} للـ3 شهور.`;
 
 Deno.serve(async (req) => {

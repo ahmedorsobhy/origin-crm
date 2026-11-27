@@ -159,6 +159,19 @@ body { font-family: "Inter", "Plus Jakarta Sans", -apple-system, "Segoe UI", Rob
 .orbs i:nth-child(3) { top: 30%; left: 35%; width: 42vmax; height: 42vmax; background: radial-gradient(circle, rgba(205,184,236,.5) 0%, rgba(205,184,236,0) 62%); animation: orbC 38s ease-in-out infinite alternate; }
 .app-shell > *:not(.orbs):not(.celebrate):not(.bottom-nav):not(.topbar) { position: relative; z-index: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.hover-row:hover { background: rgba(201,168,106,.13); }
+.count-chip { border: 1px solid #E5DFD3; background: #fff; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 700; cursor: pointer; color: #0E1830; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.count-chip b { background: #F1ECE2; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+.count-chip.on { background: #0E1830; color: #fff; border-color: #0E1830; }
+.count-chip.on b { background: rgba(255,255,255,.18); }
+.count-chip.zero { opacity: .5; }
+.chip-row { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chip-row::-webkit-scrollbar { display: none; }
+@media (max-width: 760px) {
+  .fb-more { position: fixed !important; left: 0; right: 0; bottom: 0; z-index: 60; max-height: 75vh; overflow-y: auto; border-radius: 20px 20px 0 0 !important; grid-template-columns: 1fr !important; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)) !important; background: #fff !important; box-shadow: 0 -10px 40px rgba(14,24,48,.25); z-index: 300 !important; }
+  .fb-backdrop { position: fixed; inset: 0; background: rgba(14,24,48,.35); z-index: 299; }
+}
+@media (min-width: 761px) { .fb-backdrop, .fb-done { display: none !important; } }
 .app-shell .lite-card, .app-shell .lite-card div, .app-shell .lite-card span { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 .app-shell .lite-card { background: rgba(255,255,255,.94) !important; }
 @media (max-width: 760px) { .app-shell table, .app-shell table div { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; } }
@@ -6517,8 +6530,10 @@ function FilterBar({ id, defs, values, set, reset, setAll, count, noun = "result
         )}
         {right}
       </div>
-      {open && more.length > 0 && (
-        <div className="glass fade-in card" style={{ border: `1px solid ${COLORS.border}`, padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
+      {open && more.length > 0 && (() => {
+        const panel = (
+        <div className="glass fade-in card fb-more" style={{ border: `1px solid ${COLORS.border}`, padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
+          <div className="fb-done" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><b style={{ color: COLORS.navy }}>Filters</b><button type="button" onClick={() => setOpen(false)} style={{ ...btnPrimary, padding: "6px 16px" }}>Done</button></div>
           {more.map((d) => (
             <div key={d.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {d.type !== "toggle" && <span style={{ fontSize: 11, fontWeight: 800, color: COLORS.textMuted, letterSpacing: 0.3 }}>{d.label.toUpperCase()}</span>}
@@ -6526,7 +6541,10 @@ function FilterBar({ id, defs, values, set, reset, setAll, count, noun = "result
             </div>
           ))}
         </div>
-      )}
+        );
+        const phone = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 760px)").matches;
+        return phone ? createPortal(<><div className="fb-backdrop" onClick={() => setOpen(false)} />{panel}</>, document.body) : panel;
+      })()}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 12.5 }}>
         <span style={{ color: COLORS.textMuted, fontWeight: 600, marginRight: 4 }}>{count} {noun}</span>
         {active.map((d) => (
@@ -6558,9 +6576,10 @@ function FilterBar({ id, defs, values, set, reset, setAll, count, noun = "result
 const opt = (list, idKey = "id", labelKey = "label") => list.map((x) => (typeof x === "string" ? { id: x, label: x } : { id: x[idKey], label: x[labelKey] }));
 
 const CLIENT_FILTERS_INITIAL = { q: "", stage: "", assignedTo: "", source: "", interest: "", projectId: "", budget: { min: "", max: "" }, added: { p: "" }, lastUpdate: { p: "" }, quiet: "", nextAt: { p: "" }, meeting: { p: "" }, overdue: false, needsFollowUp: false, sent: "", closedReason: "" };
-function ClientsList({ clients, users, projects, units, clientUnitLinks, clientProjectLinks = [], activity, visibleSalesIds, currentUserId, isManager, onOpenClient, onOpenUnit }) {
+function ClientsList({ clients, users, projects, units, clientUnitLinks, clientProjectLinks = [], activity, visibleSalesIds, currentUserId, isManager, onOpenClient, onOpenUnit, onContact }) {
   const [view, setView] = useState("active"); // "active" | "closed"
   const [fv, setF, resetF, setAllF] = useFilters("clients", CLIENT_FILTERS_INITIAL);
+  const [needs, setNeeds] = useState(() => { try { const f = sessionStorage.getItem("origin_clients_needs"); if (f !== null) { sessionStorage.removeItem("origin_clients_needs"); return f === "1"; } } catch (e) {} return !isManager; }); // "Needs you" picked (sales start there)
 
   const visible = clients.filter((c) => visibleSalesIds.includes(c.assignedTo));
   // Not-qualified / closed clients are hidden from the normal list — sales don't see them at all,
@@ -6570,9 +6589,12 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, clientP
   const base = !isManager ? activeVisible : view === "closed" ? closedVisible : activeVisible;
 
   const sentIds = useMemo(() => new Set(activity.filter((a) => a.action === "unit_sent").map((a) => a.clientId)), [activity]);
-  const filtered = base.filter((c) => {
-    if (fv.stage && c.stage !== fv.stage) return false;
-    if (fv.assignedTo && c.assignedTo !== fv.assignedTo) return false;
+  const endToday = new Date(); endToday.setHours(23, 59, 59, 999);
+  const needsYou = (c) => (c.nextActionAt && !c.nextActionDone && new Date(c.nextActionAt) <= endToday) || (c.meetingAt && isToday(c.meetingAt)) || clientNotifications(c, activity).length > 0;
+  const matches = (c, skip) => {
+    if (skip !== "stage" && fv.stage && c.stage !== fv.stage) return false;
+    if (skip !== "person" && fv.assignedTo && c.assignedTo !== fv.assignedTo) return false;
+    if (skip !== "needs" && needs && !needsYou(c)) return false;
     if (fv.source && c.source !== fv.source) return false;
     if (fv.interest && (c.interest || "buy") !== fv.interest) return false;
     if (fv.projectId && !clientProjectLinks.some((l) => l.client_id === c.id && l.project_id === fv.projectId)) return false;
@@ -6593,7 +6615,14 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, clientP
       if (!(c.name.toLowerCase().includes(q) || (d.length >= 3 && String(c.phone).replace(/\D/g, "").includes(d)) || (c.notes || "").toLowerCase().includes(q))) return false;
     }
     return true;
-  }).sort((a, b) => new Date(clientLastActivityAt(b, activity)) - new Date(clientLastActivityAt(a, activity)));
+  };
+  const filtered = base.filter((c) => matches(c)).sort((a, b) => new Date(clientLastActivityAt(b, activity)) - new Date(clientLastActivityAt(a, activity)));
+  // counts on the chips: each chip counts with every other choice applied except its own
+  const stageCounts = {}; base.filter((c) => matches(c, "stage")).forEach((c) => { stageCounts[c.stage] = (stageCounts[c.stage] || 0) + 1; });
+  const personCounts = {}; base.filter((c) => matches(c, "person")).forEach((c) => { personCounts[c.assignedTo] = (personCounts[c.assignedTo] || 0) + 1; });
+  const needsCount = base.filter((c) => matches(c, "needs") && needsYou(c)).length;
+  const otherSet = Object.entries(fv).some(([k, v]) => !["stage", "assignedTo"].includes(k) && JSON.stringify(v) !== JSON.stringify(CLIENT_FILTERS_INITIAL[k]));
+  const picked = !!(fv.stage || fv.assignedTo || needs || otherSet || view === "closed");
 
   const assignableUsers = users.filter((u) => visibleSalesIds.includes(u.id));
   const selectableStages = view === "active" ? PIPELINE_STAGES.concat(EXCEPTION_STAGES) : [];
@@ -6631,12 +6660,30 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, clientP
         </div>
       )}
 
+      {view === "active" && (
+        <div data-client-counts style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 2 }}>
+          <div className="chip-row">
+            <button type="button" data-needs className={`count-chip${needs ? " on" : ""}`} style={needs ? undefined : { borderColor: COLORS.danger, color: COLORS.danger }} onClick={() => setNeeds((x) => !x)}>Needs you <b>{needsCount}</b></button>
+            {PIPELINE_STAGES.concat(EXCEPTION_STAGES).filter((st) => st.id !== "deal_done").map((st) => (
+              <button type="button" key={st.id} data-stage-chip={st.id} className={`count-chip${fv.stage === st.id ? " on" : ""}${stageCounts[st.id] ? "" : " zero"}`} onClick={() => setF("stage", fv.stage === st.id ? "" : st.id)}>{st.label} <b>{stageCounts[st.id] || 0}</b></button>
+            ))}
+          </div>
+          {isManager && assignableUsers.length > 1 && (
+            <div className="chip-row">
+              {assignableUsers.filter((u) => personCounts[u.id] || fv.assignedTo === u.id).sort((a, b) => (personCounts[b.id] || 0) - (personCounts[a.id] || 0)).map((u) => (
+                <button type="button" key={u.id} data-person-chip={u.id} className={`count-chip${fv.assignedTo === u.id ? " on" : ""}`} onClick={() => setF("assignedTo", fv.assignedTo === u.id ? "" : u.id)}>{u.name.split(" ")[0]} <b>{personCounts[u.id] || 0}</b></button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <FilterBar id="clients" values={fv} set={setF} reset={resetF} setAll={setAllF} count={filtered.length} noun={filtered.length === 1 ? "client" : "clients"}
         searchPlaceholder="Search name, phone or notes…"
         defs={[
-          { id: "stage", label: "Stage", type: "select", primary: true, options: selectableStages.map((st) => ({ id: st.id, label: st.label })), hidden: view !== "active" },
-          { id: "assignedTo", label: "Sales", type: "select", primary: true, all: "All sales", options: assignableUsers.length > 1 ? opt(assignableUsers, "id", "name") : [] },
-          { id: "lastUpdate", label: "Last update", type: "date", primary: true },
+          { id: "stage", label: "Stage", type: "select", options: selectableStages.map((st) => ({ id: st.id, label: st.label })), hidden: view !== "active" },
+          { id: "assignedTo", label: "Sales", type: "select", all: "All sales", options: assignableUsers.length > 1 ? opt(assignableUsers, "id", "name") : [] },
+          { id: "lastUpdate", label: "Last update", type: "date" },
           { id: "interest", label: "Looking to", type: "select", all: "Buy and rent", options: [{ id: "buy", label: "Buy" }, { id: "rent", label: "Rent" }] },
           { id: "source", label: "Source", type: "select", options: SOURCES.map((x) => ({ id: x.id, label: x.label })) },
           { id: "projectId", label: "Wanted project", type: "select", options: opt(projects.filter((pr) => clientProjectLinks.some((l) => l.project_id === pr.id)), "id", "name") },
@@ -6652,47 +6699,35 @@ function ClientsList({ clients, users, projects, units, clientUnitLinks, clientP
         ]}
       />
 
-      {filtered.length === 0 ? (
+      {!picked ? (
+        <div data-pick-hint style={{ fontSize: 13, color: COLORS.textMuted, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20, textAlign: "center" }}>Tap a number above to see those clients.</div>
+      ) : filtered.length === 0 ? (
         <div style={{ fontSize: 13, color: COLORS.textMuted, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 20, textAlign: "center" }}>No clients here.</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {groupOrder.map((salesId) => {
-            const person = users.find((u) => u.id === salesId);
+        <div data-client-list className="card" style={{ padding: 0, overflow: "hidden" }}>
+          {filtered.slice(0, 300).map((c) => {
+            const person = users.find((u) => u.id === c.assignedTo);
+            const due = c.nextActionAt && !c.nextActionDone ? new Date(c.nextActionAt) : null;
+            const overdue = due && due < new Date();
+            const need = [c.interest === "rent" ? "Rent" : null, c.budget ? egp(c.budget) : null, (c.notes || "").split("\n")[0].slice(0, 60) || null].filter(Boolean).join(" · ");
             return (
-              <div key={salesId} style={{ background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: "hidden" }}>
-                <div style={{ background: COLORS.cream, padding: "8px 14px", fontWeight: 600, fontSize: 12.5, color: COLORS.navy, borderBottom: `1px solid ${COLORS.border}` }}>
-                  {person ? person.name : "Unassigned"} <span style={{ color: COLORS.textMuted, fontWeight: 400 }}>({groups[salesId].length})</span>
+              <div key={c.id} data-client-row onClick={() => onOpenClient(c)} className="hover-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderBottom: `1px solid ${COLORS.border}`, cursor: "pointer" }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{initials(c.name)}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 700, fontSize: 13.5, color: COLORS.navy }}>{c.name}</span>
+                    <ClientStageBadge stage={c.stage} />
+                    {isManager && !fv.assignedTo && person && <span style={{ fontSize: 11.5, color: COLORS.textMuted }}>· {person.name.split(" ")[0]}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: COLORS.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {due ? <span style={{ color: overdue ? COLORS.danger : COLORS.navy, fontWeight: 700 }}>{overdue ? "Overdue" : "Next"} · {formatDateTime(c.nextActionAt)}{need ? " · " : ""}</span> : null}{need || timeAgo(clientLastActivityAt(c, activity))}
+                  </div>
                 </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ textAlign: "left", fontSize: 11, color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.3 }}>
-                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Client</th>
-                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Phone</th>
-                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Last action</th>
-                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Interested units</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groups[salesId].map((c) => (
-                        <ClientRow
-                          key={c.id}
-                          client={c}
-                          assignedUser={person}
-                          linkedUnits={clientUnitLinks.filter((l) => l.client_id === c.id).map((l) => units.find((u) => u.id === l.unit_id)).filter(Boolean)}
-                          notifCount={clientNotifications(c, activity).length}
-                          lastActivityAt={clientLastActivityAt(c, activity)}
-                          lastActionLabel={lastActionLabel(c)}
-                          onOpen={() => onOpenClient(c)}
-                          onOpenUnit={onOpenUnit}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <ContactButtons phone={c.phone} size={15} onContact={onContact ? (k) => onContact(c, k) : undefined} />
               </div>
             );
           })}
+          {filtered.length > 300 && <div style={{ padding: 10, fontSize: 12, color: COLORS.textMuted, textAlign: "center" }}>Showing 300 of {filtered.length} — narrow it down with a stage or a filter.</div>}
         </div>
       )}
     </div>
@@ -6811,6 +6846,7 @@ function DailyReport({ profile, users, visibleSalesIds, clients, activity, units
   const unitName = (id) => { const u = units.find((x) => x.id === id); return u ? `${u.type || "Unit"} ${u.unitNumber || ""}` : "Unit"; };
   const leadName = (id) => { const l = extra.leads[id]; return l ? `${l.owner_name || "Owner"} · ${l.phone}${l.project_name ? ` · ${l.project_name}` : ""}` : "Cold number"; };
   const isMeetingDone = (a) => (a.action === "quick_reply" && a.fieldName === "meeting_done") || (a.action === "stage_change" && (a.newValue === "meeting_done" || (a.oldValue === "meeting_generated" && a.newValue !== "meeting_generated" && a.newValue !== "lost")));
+  const sidesOfAgent = (d, uid) => { const x = [...new Set((fin.dealAgents || []).filter((a) => a.deal_id === d.id && a.agent_id === uid).map((a) => a.side))]; return x.length ? x : ["buyer"]; }; // both sides = 2 deals
   const dealsOf = (uid, field) => (fin?.deals || []).filter((d) => inR(d[field]) && d.status !== "cancelled" && (fin.dealAgents || []).some((a) => a.deal_id === d.id && a.agent_id === uid));
   const rows = people.map((u) => {
     const act = activity.filter((a) => a.changedBy === u.id && inR(a.changedAt));
@@ -6834,8 +6870,8 @@ function DailyReport({ profile, users, visibleSalesIds, clients, activity, units
       newClients: clients.filter((c) => (c.createdBy || c.assignedTo) === u.id && inR(c.createdAt)).map((c) => ({ at: c.createdAt, label: c.name, client: c.id })),
       newUnits: units.filter((x) => (x.createdBy ? x.createdBy === u.id : x.salesIds.includes(u.id)) && inR(x.createdAt)).map((x) => ({ at: x.createdAt, label: unitName(x.id), unit: x.id })),
       selling: cold.filter((a) => a.action === "outcome" && a.value === "selling").map((a) => ({ at: a.created_at, label: leadName(a.lead_id) })),
-      resv: dealsOf(u.id, "reserved_at").map((d) => ({ at: d.reserved_at, label: d.unit_label || d.client_label || "Deal" })),
-      deals: dealsOf(u.id, "done_at").map((d) => ({ at: d.done_at, label: d.unit_label || d.client_label || "Deal" })),
+      resv: dealsOf(u.id, "reserved_at").flatMap((d) => sidesOfAgent(d, u.id).map((sd) => ({ at: d.reserved_at, label: `${d.unit_label || d.client_label || "Deal"}${d.sides === "both" ? ` (${sd})` : ""}` }))),
+      deals: dealsOf(u.id, "done_at").flatMap((d) => sidesOfAgent(d, u.id).map((sd) => ({ at: d.done_at, label: `${d.unit_label || d.client_label || "Deal"}${d.sides === "both" ? ` (${sd})` : ""}` }))),
     };
     items.total = [...items.cold, ...items.clientCalls, ...items.seller];
     const checkin = oneDay ? (firstIn ? new Date(firstIn.inAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—") : `${st.present} days${st.late ? ` · ${st.late} late` : ""}`;
@@ -8647,6 +8683,83 @@ function ApprovalCard({ deal, ctx }) {
 // =====================================================================
 // ---------- FINANCE: deals & commissions list ----------
 // =====================================================================
+// ---------- Possible duplicate deals (the Excel import put one deal on two rows) ----------
+// Same unit + same type + same side(s), dates within 3 days. Different sides are separate deals.
+const dealDupKey = (ids) => [...ids].sort().join(",");
+function findDealDuplicates(deals, dismissed) {
+  const day = (d) => new Date(d.reserved_at || (d.deal_date ? `${d.deal_date}T12:00:00` : d.created_at)).getTime();
+  const unitKey = (d) => d.unit_id || String(d.unit_label || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const buckets = {};
+  deals.filter((d) => !["cancelled", "rejected"].includes(d.status) && unitKey(d)).forEach((d) => {
+    const k = `${unitKey(d)}|${d.deal_type || "sale"}|${d.sides}`;
+    (buckets[k] = buckets[k] || []).push(d);
+  });
+  const groups = [];
+  Object.values(buckets).forEach((list) => {
+    if (list.length < 2) return;
+    list.sort((a, b) => day(a) - day(b));
+    let cur = [list[0]];
+    for (let i = 1; i < list.length; i++) {
+      if (day(list[i]) - day(cur[cur.length - 1]) <= 3 * MS_DAY) cur.push(list[i]);
+      else { if (cur.length > 1) groups.push(cur); cur = [list[i]]; }
+    }
+    if (cur.length > 1) groups.push(cur);
+  });
+  return groups.filter((g) => !dismissed.has(dealDupKey(g.map((d) => d.id))));
+}
+function DealDuplicates({ ctx, onOpen }) {
+  const { fin, userName, dealTitle, getToken } = ctx;
+  const [dismissed, setDismissed] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState({}); // group key -> "sum" | "same"
+  const { busy, error, run } = useAction();
+  useEffect(() => { (async () => { try { const r = await db.select("deal_dup_dismissed", "&select=key", await getToken()); setDismissed(new Set((r || []).map((x) => x.key))); } catch (e) { setDismissed(new Set()); } })(); }, []); // eslint-disable-line
+  if (!dismissed) return null;
+  const groups = findDealDuplicates(fin.deals, dismissed);
+  if (!groups.length) return null;
+  const agentsOf = (id) => fin.dealAgents.filter((a) => a.deal_id === id);
+  return (
+    <div data-deal-dups className="card" style={{ padding: 12, marginBottom: 12, borderTop: `3px solid ${COLORS.gold}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, cursor: "pointer" }} onClick={() => setOpen((o) => !o)}>
+        <div><b style={{ color: COLORS.navy }}>Possible duplicates · {groups.length}</b><div style={{ fontSize: 12, color: COLORS.textMuted }}>Same unit, same side, within 3 days — probably one deal entered on two rows. Buyer + seller on the same unit are 2 deals and never show here.</div></div>
+        <span style={{ fontWeight: 800, color: COLORS.navy }}>{open ? "Hide" : "Review ›"}</span>
+      </div>
+      {open && groups.map((g) => {
+        const key = dealDupKey(g.map((d) => d.id));
+        const keep = [...g].sort((a, b) => num(b.commission_total) - num(a.commission_total))[0];
+        const m = mode[key] || "sum";
+        const total = m === "sum" ? g.reduce((t, d) => t + num(d.commission_total), 0) : num(keep.commission_total);
+        return (
+          <div key={key} data-dup-group style={{ marginTop: 10, background: COLORS.cream, borderRadius: 12, padding: 10 }}>
+            {g.map((d) => (
+              <div key={d.id} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 13, padding: "4px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+                <a onClick={() => onOpen(d.id)} style={{ flex: "1 1 220px", fontWeight: 700, color: COLORS.navy, cursor: "pointer" }}>{dealTitle(d)}</a>
+                <span style={{ color: COLORS.textMuted }}>{d.status} · {formatDate(d.reserved_at || d.created_at)}</span>
+                <span>{agentsOf(d.id).map((a) => `${userName(a.agent_id)} ${round2(a.split_pct)}%`).join(" · ")}</span>
+                <b>{egp(d.commission_total)}</b>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8, fontSize: 12.5 }}>
+              <label style={{ display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}><input type="radio" checked={m === "sum"} onChange={() => setMode((x) => ({ ...x, [key]: "sum" }))} /> Each row is a part — add them up</label>
+              <label style={{ display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}><input type="radio" checked={m === "same"} onChange={() => setMode((x) => ({ ...x, [key]: "same" }))} /> Rows are copies — keep one commission</label>
+              <span style={{ flex: 1 }} />
+              <span>After merge: <b>{egp(total)}</b>, each person keeps {m === "sum" ? "his money" : "an equal share"}</span>
+              <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
+                await ctx.act((t) => db.rpc("merge_deals", { p_keep: keep.id, p_drop: g.filter((d) => d.id !== keep.id).map((d) => d.id), p_same: m === "same" }, t));
+              })}>Merge</button>
+              <button style={btnGhost} disabled={busy} onClick={() => run(async () => {
+                await db.insert("deal_dup_dismissed", { key }, await getToken());
+                setDismissed((x) => new Set([...x, key]));
+              })}>Not duplicate</button>
+            </div>
+          </div>
+        );
+      })}
+      <FinError text={error} />
+    </div>
+  );
+}
+
 function FinDeals({ ctx }) {
   const { fin, isAdmin, profile, calc, userName, dealTitle, onNewDeal } = ctx;
   const [fv, setF, resetF, setAllF] = useFilters("deals", { q: "", status: "", when: { p: "" }, person: "", kind: "", sides: "", commission: { min: "", max: "" }, price: { min: "", max: "" }, collection: "", submitted: { p: "" }, createdBy: "" });
@@ -8724,8 +8837,9 @@ function FinDeals({ ctx }) {
           { id: "submitted", label: "Submitted", type: "date" },
           { id: "createdBy", label: "Submitted by", type: "select", all: "Anyone", options: ctx.users.filter((u) => fin.deals.some((d) => d.created_by === u.id)).map((u) => ({ id: u.id, label: u.name })) },
         ]} />
+      {isAdmin && <DealDuplicates ctx={ctx} onOpen={(id) => setOpenId(id)} />}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <FinStat label="Deals" value={rows.length} />
+        <FinStat label="Deals" value={rows.reduce((k, d) => k + dealSides(d).length, 0)} sub={rows.some((d) => d.sides === "both") ? "Both sides = 2 deals" : undefined} />
         <FinStat label="Total commission" value={egp(totals.commission)} sub={`Collected ${egp(totals.collected)}`} />
         {isAdmin && <FinStat label="Left to collect" value={egp(totals.left)} sub={`Company gets ${egp(totals.companyLater)} of it`} />}
         <FinStat label={isAdmin ? "Owed to the team" : "My earnings"} value={egp(totals.entitled)} sub={`Paid ${egp(totals.paid)}${isAdmin ? ` · +${egp(totals.teamLater)} expected` : ""}`} />
@@ -8786,7 +8900,7 @@ function FinDeals({ ctx }) {
             })}
             {isAdmin && (
               <tr style={{ background: COLORS.cream }}>
-                <td style={{ ...tdStyle, fontWeight: 800 }} colSpan={4}>Total · {rows.length} deals</td>
+                <td style={{ ...tdStyle, fontWeight: 800 }} colSpan={4}>Total · {rows.reduce((k, d) => k + dealSides(d).length, 0)} deals</td>
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.commission)}</td>
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.collected)}</td>
                 <td style={{ ...tdNum, fontWeight: 800 }}>{egp(totals.left)}</td>
@@ -8812,12 +8926,15 @@ function DealDates({ deal, isAdmin, act }) {
   const toInput = (iso) => (iso ? dateKey(iso) : "");
   const [res, setRes] = useState(toInput(deal.reserved_at));
   const [done, setDone] = useState(deal.transfer_date || toInput(deal.done_at));
+  const [exp, setExp] = useState(deal.expected_transfer_date || "");
   const [edit, setEdit] = useState(false);
+  const open = deal.status === "reserved" || deal.status === "pending";
   const { busy, error, run } = useAction();
   const isDone = deal.status === "approved";
   if (!edit) return (
     <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", fontSize: 12.5 }}>
       <span>📝 <b>Reserved on:</b> {deal.reserved_at ? formatDate(deal.reserved_at) : "—"}</span>
+      {open && <span data-exp-transfer style={{ color: deal.expected_transfer_date && deal.expected_transfer_date < todayInput() ? COLORS.danger : undefined }}>📅 <b>{isRentDeal(deal) ? "Expected signing:" : "Expected transfer:"}</b> {deal.expected_transfer_date ? formatDate(`${deal.expected_transfer_date}T12:00:00`) : <span style={{ color: COLORS.danger }}>not set</span>}</span>}
       {isDone && <span>🏁 <b>Done on:</b> {deal.transfer_date ? formatDate(`${deal.transfer_date}T12:00:00`) : deal.done_at ? formatDate(deal.done_at) : "—"}</span>}
       {isAdmin && <button onClick={() => setEdit(true)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 }}>✎ Edit dates</button>}
     </div>
@@ -8826,11 +8943,12 @@ function DealDates({ deal, isAdmin, act }) {
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", background: COLORS.cream, padding: 10, borderRadius: 10 }}>
       <Field label="Reserved on"><input type="date" style={inputStyle} value={res} onChange={(e) => setRes(e.target.value)} /></Field>
       {isDone && <Field label="Done on (transfer)"><input type="date" style={inputStyle} value={done} onChange={(e) => setDone(e.target.value)} /></Field>}
+      {open && <Field label={isRentDeal(deal) ? "Expected lease signing" : "Expected transfer"}><input type="date" data-edit-exp style={inputStyle} value={exp} onChange={(e) => setExp(e.target.value)} /></Field>}
       <button style={btnPrimary} disabled={busy} onClick={() => run(async () => {
         if (!res) throw new Error("Choose the reservation date.");
         if (isDone && !done) throw new Error("Choose the transfer date.");
         if (isDone && done < res) throw new Error("The transfer can't be before the reservation.");
-        await act((t) => db.update("deals", deal.id, { reserved_at: dateInputToIso(res), ...(isDone ? { transfer_date: done } : {}) }, t));
+        await act((t) => db.update("deals", deal.id, { reserved_at: dateInputToIso(res), ...(isDone ? { transfer_date: done } : {}), ...(open ? { expected_transfer_date: exp || null } : {}) }, t));
         setEdit(false);
       })}>{busy ? "Saving…" : "Save"}</button>
       <button style={btnGhost} onClick={() => setEdit(false)}>Cancel</button>
@@ -9341,10 +9459,10 @@ function CampaignReport({ ctx }) {
     const counts = funnelCounts(l, actBy);
     const ids = new Set(l.map((c) => c.id));
     const deals = doneDeals.filter((d) => d.client_id && ids.has(d.client_id));
-    const reservations = resDeals.filter((d) => d.client_id && ids.has(d.client_id)).length;
+    const reservations = resDeals.filter((d) => d.client_id && ids.has(d.client_id)).reduce((k, d) => k + dealSides(d).length, 0);
     const commission = round2(deals.reduce((s, d) => s + num(d.commission_collected || d.commission_total), 0));
     const cost = spendIn(name);
-    return { name, leads: l.length, meetings: counts[2], reservations: Math.max(reservations, counts[4]), deals: Math.max(deals.length, counts[5]), commission, cost, cpl: l.length ? cost / l.length : 0, cpd: deals.length ? cost / deals.length : 0, roi: cost ? ((commission - cost) / cost) * 100 : null };
+    return { name, leads: l.length, meetings: counts[2], reservations: Math.max(reservations, counts[4]), deals: Math.max(deals.reduce((k, d) => k + dealSides(d).length, 0), counts[5]), commission, cost, cpl: l.length ? cost / l.length : 0, cpd: deals.length ? cost / deals.length : 0, roi: cost ? ((commission - cost) / cost) * 100 : null };
   }).sort((a, b) => b.leads - a.leads);
   const save = async () => {
     setErr("");
@@ -9455,7 +9573,7 @@ function FinOverview({ ctx, goTab }) {
         <FinStat label="Money in all accounts" value={egp(totalBalance)} sub="EGP" onClick={() => goTab("treasury")} />
         <FinStat label="Waiting for approval" value={pending} tone={pending ? "danger" : undefined} onClick={() => goTab("approvals")} />
         <FinStat label="Commissions owed to team" value={egp(owed)} tone={owed > 0.5 ? "danger" : undefined} sub={overpaid > 0.5 ? `${egp(overpaid)} overpaid to recover` : undefined} onClick={() => goTab("deals")} />
-        <FinStat label="Reserved deals (sales & rent)" value={reserved.length} sub={`Expected commission ${egp(reservedExpected)}${toCollect > 0.5 ? ` · ${egp(toCollect)} still to collect on done deals` : ""}`} onClick={() => goTab("deals")} />
+        <FinStat label="Reserved deals (sales & rent)" value={reserved.reduce((k, d) => k + dealSides(d).length, 0)} sub={`Expected commission ${egp(reservedExpected)}${toCollect > 0.5 ? ` · ${egp(toCollect)} still to collect on done deals` : ""}`} onClick={() => goTab("deals")} />
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <FinStat label="Commissions in (this month)" value={egp(monthIn)} tone="success" sub={`This quarter ${egp(quarterIn)}`} />
@@ -10747,6 +10865,7 @@ export default function App() {
   const [openUnit, setOpenUnit] = useState(null);
   // ---- links from phone notifications: ?open=client:<id> | deal:<id> | unit:<id> | approvals | attendance | today ----
   const [finDeep, setFinDeep] = useState(null);
+  const [clientsNonce, setClientsNonce] = useState(0); // remounts the clients list after a link set its filters
   const [pendingUnitId, setPendingUnitId] = useState(null);
   const openLink = (value) => {
     if (!value) return;
@@ -10759,6 +10878,10 @@ export default function App() {
     else if (kind === "leave") { setSection("profile"); setTab("leave"); }
     else if (kind === "today" || kind === "home") { setSection("home"); setOpenClientId(null); }
     else if (kind === "planning") { setSection("profile"); setTab("planning"); }
+    else if (kind === "clients-stale" && id) { try { localStorage.setItem("origin_filters:clients", JSON.stringify({ ...CLIENT_FILTERS_INITIAL, assignedTo: id, quiet: "7" })); } catch (e) {} setSection("clients"); setClientsTab("all"); setOpenClientId(null); setClientsNonce(Date.now()); }
+    else if (kind === "clients-needs" || kind === "clients-all") { try { localStorage.setItem("origin_filters:clients", JSON.stringify(CLIENT_FILTERS_INITIAL)); sessionStorage.setItem("origin_clients_needs", kind === "clients-needs" ? "1" : "0"); } catch (e) {} setSection("clients"); setClientsTab("all"); setOpenClientId(null); setClientsNonce(Date.now()); }
+    else if (kind === "cold") { setSection("cold"); }
+    else if (kind === "fin" && id) { setSection("finance"); setFinDeep({ tab: id, n: Date.now() }); }
     else if (kind === "contract" && id) { setSection("contracts"); setContractDeep(`${id}`); }
     else if (kind === "cold" && id) { setSection("cold"); setColdDeep(`${id}`); refreshCold(); }
     else if (kind === "cold") { setSection("cold"); refreshCold(); }
@@ -11736,8 +11859,11 @@ export default function App() {
 
   if (dataLoading) {
     return (
-      <div style={{ minHeight: 480, display: "flex", alignItems: "center", justifyContent: "center", color: COLORS.textMuted }}>
-        Loading…
+      <div aria-label="Loading" data-skeleton style={{ maxWidth: 1180, margin: "0 auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="skeleton" style={{ height: 64, borderRadius: 22 }} />
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ flex: "1 1 160px", height: 86 }} />)}</div>
+        <div className="skeleton" style={{ height: 42, width: "70%" }} />
+        {[0, 1, 2, 3, 4].map((i) => <div key={i} className="skeleton" style={{ height: 56 }} />)}
       </div>
     );
   }
@@ -11829,6 +11955,7 @@ export default function App() {
                     onCloseLead={(c) => setCloseTarget(c)}
                     heroExtra={<HeroExtras streak={streakDays(clientActivity, profile.id, workDaysOf(fin.settings))} target={myTarget} />}
                     topSlot={<>
+                      <HomeTiles profile={profile} clients={clients} activity={clientActivity} coldLeads={cold.leads} fin={fin} visibleSalesIds={visibleSalesIds} onOpen={openLink} />
                       <NotificationsCard profile={profile} compact getToken={getValidToken} />
                       <ColdTodayCard profile={profile} leads={cold.leads} onAddUnit={startUnitFromCold} onOpenCold={() => { setSection("cold"); }} />
                       {isFinanceAdmin(profile) && <MorningBrief clients={clients} activity={clientActivity} fin={fin} attendance={attendance} users={users} visibleSalesIds={visibleSalesIds} settings={fin.settings} onOpen={openLink} />}
@@ -12158,6 +12285,8 @@ export default function App() {
                   <DuplicateRequests requests={duplicates} clients={clients} users={users} onDecide={decideDuplicate} onOpenClient={(c) => setOpenClientId(c.id)} />
                 )}
                 {clientsTab === "all" && <ClientsList
+                  key={clientsNonce}
+                  onContact={logContact}
                   clientProjectLinks={clientProjectLinks}
                   clients={clients}
                   users={users}
@@ -12345,7 +12474,7 @@ export default function App() {
         {section === "profile" && tab === "evaluation" && <EvaluationPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} clients={clients} activity={clientActivity} fin={fin} attendance={attendance} getToken={getValidToken} />}
         {section === "profile" && tab === "onboarding" && <OnboardingPage profile={profile} users={users} visibleSalesIds={visibleSalesIds} getToken={getValidToken} />}
         {section === "profile" && tab === "policies" && <PoliciesPage profile={profile} users={users} fin={fin} getToken={getValidToken} refreshFinance={refreshFinance} />}
-        {section === "profile" && tab === "planning" && isFinanceAdmin(profile) && <PlanningPage profile={profile} users={users} fin={fin} clients={clients} activity={clientActivity} getToken={getValidToken} />}
+        {section === "profile" && tab === "planning" && isFinanceAdmin(profile) && <PlanningPage profile={profile} users={users} fin={fin} clients={clients} activity={clientActivity} getToken={getValidToken} refreshFinance={refreshFinance} onOpen={openLink} />}
         {section === "units" && tab === "compare" && <CompareUnits units={units} getProjectInfo={getProjectInfo} />}
         {section === "profile" && tab === "deletions" && profile.role === "admin" && (
           <>
