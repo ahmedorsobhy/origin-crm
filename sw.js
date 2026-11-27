@@ -9,7 +9,9 @@ self.addEventListener("push", (event) => {
     body: data.body || "",
     icon: "icon-192.png",
     badge: "badge-96.png",
-    tag: data.tag || data.url || undefined,
+    // every notification stays on its own (like WhatsApp) until opened or swiped away
+    tag: data.tag || `origin-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    renotify: !!data.tag,
     data: { url: data.url || "" },
     vibrate: [80, 40, 80],
   }));

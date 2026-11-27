@@ -53,7 +53,7 @@ async function snapshot() {
     sb(`clients?select=id,source,campaign,stage,stage_since,assigned_to,created_at,closed_reason,interest&created_at=gte.${daysAgo(400)}`),
     sb(`client_activity?select=client_id,action,field_name,changed_by,changed_at&changed_at=gte.${daysAgo(90)}`),
     sb(`cold_activity?select=user_id,action,value,phone,lead_id,created_at&created_at=gte.${daysAgo(30)}`),
-    sb("units?select=id,project_id,type,status,total_price,bua,land_area,listing_type,created_at,sold_at,sold_via"),
+    sb("units?select=id,project_id,type,status,total_price,bua,land_area,listing_type,created_at,sold_at,sold_via,featured_pinned"),
     sb("projects?select=id,name,destination"),
     sb("staff_targets?select=user_id,quarterly_target"),
     sb("ai_reports?select=created_at,forecast&status=eq.done&order=created_at.desc&limit=1"),
@@ -121,7 +121,7 @@ async function snapshot() {
       commission_collected_12m: comm12, sales_payouts_paid_12m: paid12, payout_ratio_12m: payoutRatio,
       note: "net_to_company_est uses the last 12 months' payout ratio (paid to sales ÷ commission collected)" },
     reserved_and_pending_deals: open, months: byMonth, people, lost_reasons_clients_added_last_400_days: lost, cold_outcomes_last_30_days: coldOut,
-    inventory: { active_for_sale: active.length, by_project: invByProject, good_price_units: good.sort((a, b) => b.below_pct - a.below_pct).slice(0, 15) },
+    inventory: { active_for_sale: active.length, by_project: invByProject, good_price_units: good.sort((a, b) => b.below_pct - a.below_pct).slice(0, 15), pinned_by_manager: active.filter((u: any) => u.featured_pinned).map((u: any) => ({ project: pname(u.project_id), type: u.type, price: num(u.total_price), ppm: Math.round(u.ppm) })).slice(0, 15) },
     previous_forecast: prev?.[0] ? { made_at: prev[0].created_at, forecast: prev[0].forecast } : null,
   };
 }
@@ -133,7 +133,7 @@ const SYSTEM = `أنت المحلل المالي والتشغيلي لشركة "
   ## الوضع (سطرين)
   ## مخاطر التركيز (مثلاً سيلز واحد جايب نسبة كبيرة من الدخل)
   ## ملاحظات لكل سيلز (اللي يستاهل ملاحظة بس: أكتيف/واقف، ميتنجات كتير وتحويل قليل، إلخ + اقتراح عملي)
-  ## الوحدات اللي سعرها كويس
+  ## الوحدات اللي سعرها كويس (الـFeatured: good_price_units + pinned_by_manager — قول أنهي 3 لـ5 وحدات نعرضها الأسبوع ده ولمين)
   ## توقع 3 شهور (جدول Markdown: الشهر | ديلات | دخل متوقع | صافي للشركة | كاش آخر الشهر | الثقة ولماذا). ابنِ التوقع على الديلات المحجوزة ومعاد التنازل المتوقع، وعلى معدل الأداء الفعلي (ميتنجات × نسبة التحويل × متوسط العمولة)، والمصاريف الثابتة. لو فيه توقع سابق قارنه باللي حصل.
   ## المخاطر
   ## تعمل إيه الأسبوع ده (3-4 نقاط)

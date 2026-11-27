@@ -134,42 +134,97 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAFNCAYAAAD2
 
 // ---------- Design tokens ----------
 const COLORS = {
-  navy: "#13203D",
-  navyDark: "#0E1830",
-  cream: "#F7F4EE",
-  creamDark: "#EDE7DA",
-  gold: "#C9A56A",
-  text: "#13203D",
-  textMuted: "#69707D",
-  border: "#E7E2D7",
+  navy: "#0F766E",
+  navyDark: "#115E59",
+  cream: "#F3F8F7",
+  creamDark: "#E3F4F1",
+  gold: "#B7832F",
+  text: "#0F1F2A",
+  textMuted: "#55636B",
+  border: "#E3EDEB",
   danger: "#C0462F",
   success: "#2F7A55",
 };
 
+// ---------- Sel: a <select> that gets a search box when it has more than 8 choices ----------
+// Same props as <select> (value, onChange, style, disabled, children <option>s). onChange gets { target: { value } }.
+function selFlatten(children, out = []) {
+  React.Children.forEach(children, (ch) => {
+    if (!ch || typeof ch !== "object") return;
+    if (ch.type === "option") {
+      const txt = (function t(x) { if (x == null || x === false) return ""; if (typeof x === "string" || typeof x === "number") return String(x); if (Array.isArray(x)) return x.map(t).join(""); if (x.props) return t(x.props.children); return ""; })(ch.props.children);
+      out.push({ value: ch.props.value !== undefined ? String(ch.props.value) : txt, label: txt, disabled: !!ch.props.disabled });
+    } else if (ch.props && ch.props.children) selFlatten(ch.props.children, out);
+  });
+  return out;
+}
+function Sel(props) {
+  const { children, value, onChange, style, disabled, multiple, className, ...rest } = props;
+  const opts = selFlatten(children);
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const btnRef = useRef(null);
+  if (multiple || opts.length <= 8) return React.createElement("select", props);
+  const cur = opts.find((o) => o.value === String(value ?? "")) || opts[0];
+  const ql = q.trim().toLowerCase();
+  const shown = ql ? opts.filter((o) => o.label.toLowerCase().includes(ql)) : opts;
+  const pick = (o) => { if (o.disabled) return; setOpen(false); setQ(""); if (onChange) onChange({ target: { value: o.value, name: rest.name }, currentTarget: { value: o.value } }); };
+  const phone = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 760px)").matches;
+  const r = open && btnRef.current ? btnRef.current.getBoundingClientRect() : null;
+  const list = (
+    <div data-sel-list onClick={(e) => e.stopPropagation()} style={phone
+      ? { position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 320, background: "#fff", borderRadius: "20px 20px 0 0", padding: "12px 14px calc(14px + env(safe-area-inset-bottom))", boxShadow: "0 -10px 40px rgba(15,31,42,.25)", maxHeight: "70vh", display: "flex", flexDirection: "column", gap: 8 }
+      : { position: "fixed", left: Math.min(r ? r.left : 0, window.innerWidth - 300), top: r ? Math.min(r.bottom + 4, window.innerHeight - 340) : 0, width: Math.max(r ? r.width : 240, 260), zIndex: 320, background: "#fff", borderRadius: 14, padding: 8, boxShadow: "0 14px 40px rgba(15,31,42,.22)", border: `1px solid ${COLORS.border}`, maxHeight: 330, display: "flex", flexDirection: "column", gap: 6 }}>
+      <input autoFocus data-sel-search placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQ(""); } if (e.key === "Enter") { e.preventDefault(); const f = shown.find((o) => !o.disabled); if (f) pick(f); } }}
+        style={{ ...inputStyle, height: 42, margin: 0 }} />
+      <div style={{ overflowY: "auto", flex: 1 }}>
+        {shown.length === 0 && <div style={{ padding: 10, fontSize: 13, color: COLORS.textMuted }}>Nothing matches</div>}
+        {shown.map((o, i) => (
+          <div key={o.value + i} data-sel-opt role="option" aria-selected={o.value === cur?.value} onClick={() => pick(o)} className="hover-row"
+            style={{ padding: phone ? "12px 10px" : "8px 10px", borderRadius: 9, fontSize: 14, cursor: o.disabled ? "default" : "pointer", opacity: o.disabled ? 0.45 : 1, fontWeight: o.value === cur?.value ? 800 : 500, color: o.value === cur?.value ? COLORS.navy : COLORS.text, display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <span>{o.label || "—"}</span>{o.value === cur?.value && <Check size={16} />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <>
+      <button type="button" ref={btnRef} data-sel disabled={disabled} className={className} onClick={() => setOpen((x) => !x)}
+        style={{ ...inputStyle, ...style, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, textAlign: "left", cursor: disabled ? "default" : "pointer", background: style && style.background ? style.background : "#fff" }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cur ? cur.label : ""}</span><ChevronDown size={16} style={{ flexShrink: 0, opacity: 0.6 }} />
+      </button>
+      {open && createPortal(<><div onClick={() => { setOpen(false); setQ(""); }} style={{ position: "fixed", inset: 0, zIndex: 319, background: phone ? "rgba(15,31,42,.35)" : "transparent" }} />{list}</>, document.body)}
+    </>
+  );
+}
+
+
 // ---------- Look & feel (one place for the whole app) ----------
 const GLOBAL_CSS = `
-:root { --navy:#13203D; --navy2:#22386A; --gold:#C9A56A; --gold2:#D9BC84; --cream:#F7F4EE; --ink:#13203D; --muted:#69707D; --line:#E7E2D7; --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.82); --glass-line: rgba(255,255,255,.75); --blur: blur(14px) saturate(165%); }
-html, body { background: #F4F5F8 !important; }
+:root { --navy:#0F766E; --navy2:#14857B; --gold:#B7832F; --gold2:#D4A658; --cream:#F3F8F7; --ink:#0F1F2A; --muted:#55636B; --line:#E3EDEB; --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.82); --glass-line: rgba(255,255,255,.75); --blur: blur(14px) saturate(165%); }
+html, body { background: #F3F8F7 !important; }
 body { font-family: "Inter", "Plus Jakarta Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
 #root { max-width: 1180px !important; margin: 0 auto !important; position: relative; }
-.orbs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.orbs { display: none !important; }
 .orbs i { position: absolute; width: 62vmax; height: 62vmax; border-radius: 50%; will-change: transform; }
 .orbs i:nth-child(1) { top: -22vmax; left: -18vmax; background: radial-gradient(circle, rgba(226,201,150,.75) 0%, rgba(226,201,150,0) 62%); animation: orbA 26s ease-in-out infinite alternate; }
 .orbs i:nth-child(2) { bottom: -28vmax; right: -22vmax; background: radial-gradient(circle, rgba(160,186,238,.7) 0%, rgba(160,186,238,0) 62%); animation: orbB 32s ease-in-out infinite alternate; }
 .orbs i:nth-child(3) { top: 30%; left: 35%; width: 42vmax; height: 42vmax; background: radial-gradient(circle, rgba(205,184,236,.5) 0%, rgba(205,184,236,0) 62%); animation: orbC 38s ease-in-out infinite alternate; }
 .app-shell > *:not(.orbs):not(.celebrate):not(.bottom-nav):not(.topbar) { position: relative; z-index: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.hover-row:hover { background: rgba(201,168,106,.13); }
-.count-chip { border: 1px solid #E5DFD3; background: #fff; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 700; cursor: pointer; color: #0E1830; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-.count-chip b { background: #F1ECE2; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
-.count-chip.on { background: #0E1830; color: #fff; border-color: #0E1830; }
+.hover-row:hover { background: rgba(15,118,110,.07); }
+.count-chip { border: 1px solid #E3EDEB; background: #fff; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-weight: 700; cursor: pointer; color: #115E59; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.count-chip b { background: #F3F8F7; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+.count-chip.on { background: #0F766E; color: #fff; border-color: #0F766E; }
 .count-chip.on b { background: rgba(255,255,255,.18); }
 .count-chip.zero { opacity: .5; }
 .chip-row { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .chip-row::-webkit-scrollbar { display: none; }
 @media (max-width: 760px) {
-  .fb-more { position: fixed !important; left: 0; right: 0; bottom: 0; z-index: 60; max-height: 75vh; overflow-y: auto; border-radius: 20px 20px 0 0 !important; grid-template-columns: 1fr !important; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)) !important; background: #fff !important; box-shadow: 0 -10px 40px rgba(14,24,48,.25); z-index: 300 !important; }
-  .fb-backdrop { position: fixed; inset: 0; background: rgba(14,24,48,.35); z-index: 299; }
+  .fb-more { position: fixed !important; left: 0; right: 0; bottom: 0; z-index: 60; max-height: 75vh; overflow-y: auto; border-radius: 20px 20px 0 0 !important; grid-template-columns: 1fr !important; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)) !important; background: #fff !important; box-shadow: 0 -10px 40px rgba(15,31,42,.25); z-index: 300 !important; }
+  .fb-backdrop { position: fixed; inset: 0; background: rgba(15,31,42,.35); z-index: 299; }
 }
 @media (min-width: 761px) { .fb-backdrop, .fb-done { display: none !important; } }
 .app-shell .lite-card, .app-shell .lite-card div, .app-shell .lite-card span { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
@@ -186,7 +241,7 @@ body { font-family: "Inter", "Plus Jakarta Sans", -apple-system, "Segoe UI", Rob
 .app-shell button { transition: transform .14s cubic-bezier(.2,.8,.2,1.4), box-shadow .2s ease, background-color .2s ease, color .2s ease, opacity .2s; -webkit-tap-highlight-color: transparent; }
 .app-shell button:not(:disabled):active, .app-shell a:active { transform: scale(.96); }
 .app-shell button:disabled { opacity: .55; cursor: default !important; }
-.app-shell input:focus, .app-shell select:focus, .app-shell textarea:focus { outline: none; border-color: var(--gold) !important; box-shadow: 0 0 0 4px rgba(184,150,90,.2); }
+.app-shell input:focus, .app-shell select:focus, .app-shell textarea:focus { outline: none; border-color: var(--navy) !important; box-shadow: 0 0 0 4px rgba(15,118,110,.18); }
 .app-shell input, .app-shell select, .app-shell textarea { border-radius: 12px !important; transition: border-color .15s, box-shadow .2s, background-color .2s; background-color: rgba(255,255,255,.78); }
 
 /* Glass: every white or cream surface turns into frosted glass */
@@ -196,20 +251,20 @@ body { font-family: "Inter", "Plus Jakarta Sans", -apple-system, "Segoe UI", Rob
 .app-shell div[style*="background: rgb(255, 255, 255)"][style*="max-height: 90vh"], .app-shell div[style*="max-height: 88vh"] { background: var(--glass-strong) !important; }
 .app-shell div[style*="position: fixed"][style*="inset: 0px"] { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: fadeIn .2s ease both; }
 .app-shell div[style*="position: fixed"][style*="inset: 0px"] > div { animation: popIn .32s cubic-bezier(.2,.9,.25,1.2) backwards; }
-.card { box-shadow: 0 1px 2px rgba(23,38,74,.04), 0 10px 30px rgba(23,38,74,.07); border-radius: 18px; }
-.app-shell div[style*="border-radius: 16px"][style*="background: rgb(255, 255, 255)"] { box-shadow: 0 1px 2px rgba(23,38,74,.04), 0 10px 30px rgba(23,38,74,.06); }
+.card { box-shadow: 0 1px 2px rgba(15,118,110,.04), 0 10px 30px rgba(15,118,110,.07); border-radius: 18px; }
+.app-shell div[style*="border-radius: 16px"][style*="background: rgb(255, 255, 255)"] { box-shadow: 0 1px 2px rgba(15,118,110,.04), 0 10px 30px rgba(15,118,110,.06); }
 .lift, .app-shell div[style*="cursor: pointer"][style*="background: rgb(255, 255, 255)"] { transition: transform .22s cubic-bezier(.2,.8,.2,1.2), box-shadow .25s ease; }
-.lift:hover, .app-shell div[style*="cursor: pointer"][style*="background: rgb(255, 255, 255)"]:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(23,38,74,.12); }
-.hero { background: linear-gradient(125deg, #0E1830, #1E3263 40%, #3A4F82 70%, #C9A56A 130%) !important; background-size: 220% 220% !important; animation: heroShift 14s ease infinite; color: #fff; border-radius: 24px !important; box-shadow: 0 18px 50px rgba(14,24,48,.28); position: relative; overflow: hidden; }
+.lift:hover, .app-shell div[style*="cursor: pointer"][style*="background: rgb(255, 255, 255)"]:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(15,118,110,.12); }
+.hero { background: #0F766E !important; color: #fff; border-radius: 24px !important; box-shadow: 0 18px 50px rgba(15,31,42,.28); position: relative; overflow: hidden; }
 .hero::after { content: ""; position: absolute; inset: -40% auto auto -20%; width: 60%; height: 180%; background: linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.18) 50%, rgba(255,255,255,0) 100%); transform: rotate(18deg); animation: sheen 6s ease-in-out infinite; pointer-events: none; }
 .hero .glass { background: rgba(255,255,255,.14) !important; border: 1px solid rgba(255,255,255,.22) !important; }
 .pill, .chip { transition: background-color .15s, color .15s, border-color .15s, transform .14s; }
 .round-btn { box-shadow: 0 6px 16px rgba(0,0,0,.14); }
 .round-btn:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
-.btn-primary { box-shadow: 0 8px 20px rgba(23,38,74,.25); position: relative; overflow: hidden; }
+.btn-primary { box-shadow: 0 8px 20px rgba(15,118,110,.25); position: relative; overflow: hidden; }
 .btn-primary::after { content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.35), rgba(255,255,255,0)); transform: skewX(-20deg); transition: left .6s ease; }
 .btn-primary:hover::after { left: 130%; }
-.btn-primary:hover { box-shadow: 0 12px 26px rgba(23,38,74,.32); transform: translateY(-1px); }
+.btn-primary:hover { box-shadow: 0 12px 26px rgba(15,118,110,.32); transform: translateY(-1px); }
 .seg { box-shadow: inset 0 1px 2px rgba(0,0,0,.05); overflow-x: auto; scrollbar-width: none; max-width: 100%; background: rgba(237,231,218,.7) !important; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
 .seg::-webkit-scrollbar { display: none; }
 .seg button { white-space: nowrap; transition: all .25s cubic-bezier(.2,.8,.2,1.2); }
@@ -218,7 +273,7 @@ body { font-family: "Inter", "Plus Jakarta Sans", -apple-system, "Segoe UI", Rob
 .topbar { padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 /* full-screen pop-ups keep clear of the iPhone notch / status bar */
 div[style*="position: fixed"][style*="inset: 0"] { padding-top: max(16px, calc(env(safe-area-inset-top) + 8px)) !important; padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px)) !important; }
-.topbar { position: sticky; top: 0; z-index: 50; border-radius: 0 0 22px 22px; background: linear-gradient(120deg, rgba(14,24,48,.86) 0%, rgba(23,38,74,.84) 55%, rgba(36,57,107,.82) 100%); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); color: #fff; box-shadow: 0 10px 30px rgba(14,24,48,.22); border-bottom: 1px solid rgba(255,255,255,.08); }
+.topbar { position: sticky; top: 0; z-index: 50; border-radius: 0 0 22px 22px; background: #0F766E; -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); color: #fff; box-shadow: 0 10px 30px rgba(15,31,42,.22); border-bottom: 1px solid rgba(255,255,255,.08); }
 .topnav { display: flex; gap: 4px; background: rgba(255,255,255,.08); padding: 4px; border-radius: 999px; }
 .topnav button { display: flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 999px; border: none; cursor: pointer; font-size: 13.5px; font-weight: 700; background: transparent; color: rgba(255,255,255,.78); }
 .topnav button:hover { color: #fff; background: rgba(255,255,255,.1); }
@@ -226,7 +281,7 @@ div[style*="position: fixed"][style*="inset: 0"] { padding-top: max(16px, calc(e
 .subnav { display: flex; gap: 6px; padding: 12px 20px 0; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
 .subnav button { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--glass-line); cursor: pointer; font-size: 12.5px; font-weight: 700; background: var(--glass); color: var(--muted); white-space: nowrap; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
-.subnav button.on { background: var(--navy); color: #fff; border-color: var(--navy); box-shadow: 0 6px 16px rgba(23,38,74,.25); }
+.subnav button.on { background: var(--navy); color: #fff; border-color: var(--navy); box-shadow: 0 6px 16px rgba(15,118,110,.25); }
 .bottom-nav { display: none; }
 .fab-only { display: none; }
 .page { padding: 20px; }
@@ -250,7 +305,7 @@ div[style*="position: fixed"][style*="inset: 0"] { padding-top: max(16px, calc(e
 .ca { transform-box: fill-box; transform-origin: center; }
 .celebrate { animation: fadeIn .2s ease both; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .celebrate .glass { background: rgba(255,255,255,.86) !important; }
-.celebrate-toast { position: fixed; right: 18px; bottom: 22px; z-index: 300; pointer-events: none; display: flex; gap: 10px; align-items: center; max-width: 340px; padding: 8px 14px 8px 8px; border-radius: 18px; background: rgba(255,255,255,.88); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,.8); box-shadow: 0 14px 34px rgba(14,24,48,.22); animation: toastIn 3.2s cubic-bezier(.2,.9,.25,1.2) both; }
+.celebrate-toast { position: fixed; right: 18px; bottom: 22px; z-index: 300; pointer-events: none; display: flex; gap: 10px; align-items: center; max-width: 340px; padding: 8px 14px 8px 8px; border-radius: 18px; background: rgba(255,255,255,.88); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%); border: 1px solid rgba(255,255,255,.8); box-shadow: 0 14px 34px rgba(15,31,42,.22); animation: toastIn 3.2s cubic-bezier(.2,.9,.25,1.2) both; }
 @keyframes toastIn { 0% { opacity: 0; transform: translateY(20px) scale(.95); } 10% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(10px); } }
 @media (max-width: 760px) { .celebrate-toast { left: 12px; right: 12px; max-width: none; bottom: calc(96px + env(safe-area-inset-bottom)); } }
 .confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
@@ -281,9 +336,9 @@ html.dark .hero img, html.dark .topbar img, html.dark .bottom-nav img { filter: 
   .topnav, .hide-sm { display: none !important; }
   .page { padding: 14px 12px 100px; }
   .subnav { padding: 10px 12px 0; }
-  .fab-only { display: flex; align-items: center; justify-content: center; position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; border: none; border-radius: 999px; cursor: pointer; font-size: 24px; font-weight: 700; background: linear-gradient(135deg, var(--gold), var(--gold2)); color: var(--navy); box-shadow: 0 12px 28px rgba(14,24,48,.35); }
-  .add-btn { position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; padding: 0 !important; font-size: 28px !important; font-weight: 500 !important; line-height: 1; background: linear-gradient(135deg, #C9A56A, #D9BC84) !important; color: #13203D !important; box-shadow: 0 12px 28px rgba(14,24,48,.35) !important; }
-  .bottom-nav { display: flex; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 90; justify-content: space-around; padding: 6px; border-radius: 24px; background: rgba(14,24,48,.78); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); box-shadow: 0 14px 34px rgba(14,24,48,.35); border: 1px solid rgba(255,255,255,.1); }
+  .fab-only { display: flex; align-items: center; justify-content: center; position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; border: none; border-radius: 999px; cursor: pointer; font-size: 24px; font-weight: 700; background: linear-gradient(135deg, var(--gold), var(--gold2)); color: var(--navy); box-shadow: 0 12px 28px rgba(15,31,42,.35); }
+  .add-btn { position: fixed; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); z-index: 80; width: 58px; height: 58px; padding: 0 !important; font-size: 28px !important; font-weight: 500 !important; line-height: 1; background: linear-gradient(135deg, #B7832F, #D4A658) !important; color: #0F766E !important; box-shadow: 0 12px 28px rgba(15,31,42,.35) !important; }
+  .bottom-nav { display: flex; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 90; justify-content: space-around; padding: 6px; border-radius: 24px; background: rgba(15,31,42,.78); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); box-shadow: 0 14px 34px rgba(15,31,42,.35); border: 1px solid rgba(255,255,255,.1); }
   .bottom-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: none; background: transparent; color: rgba(255,255,255,.6); font-size: 10.5px; font-weight: 700; padding: 7px 2px; border-radius: 18px; cursor: pointer; position: relative; transition: all .3s cubic-bezier(.2,.8,.2,1.2); }
   .bottom-nav button.on { color: var(--navy); background: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.25); }
   .bottom-nav .dot { position: absolute; top: 3px; right: calc(50% - 18px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--gold); color: #fff; font-size: 10px; line-height: 16px; }
@@ -337,10 +392,23 @@ const DESTINATIONS = [
 
 const TYPES = [
   "Studio", "Apartment", "Duplex", "Triplex", "Penthouse",
-  "Middle Townhouse", "Corner Townhouse", "Twinhouse", "Standalone", "Palace", "Mansion", "Loft", "Chalet",
+  "Middle Townhouse", "Corner Townhouse", "Twinhouse", "Quattro", "Standalone", "Palace", "Mansion", "Loft", "Chalet",
 ];
+// villas have no floor
+const VILLA_TYPES = ["Middle Townhouse", "Corner Townhouse", "Twinhouse", "Quattro", "Standalone", "Palace", "Mansion"];
+const isVillaType = (t) => VILLA_TYPES.includes(t);
 const FLOORS = Array.from({ length: 31 }, (_, i) => i);
-const floorLabel = (f) => (Number(f) === 0 ? "Ground" : String(f));
+const floorLabel = (f) => (f === "" || f == null ? "—" : Number(f) === 0 ? "Ground" : String(f));
+const unitFloorText = (u) => (isVillaType(u.type) ? (u.villaFloors || "Villa") : floorLabel(u.floor));
+// Price per sqm against the same type in the same project (active + sold, at least 3 others)
+function marketCompare(u, units) {
+  const ppm = (x) => (num(x.totalPrice) > 0 && num(x.bua) > 0 ? num(x.totalPrice) / num(x.bua) : 0);
+  const me = ppm(u); if (!me || !u.projectId || !u.type) return null;
+  const peers = units.filter((x) => x.id !== u.id && x.projectId === u.projectId && x.type === u.type && (x.listingType || "sale") !== "rent" && ["active", "sold", "hold"].includes(x.status)).map(ppm).filter((v) => v > 0);
+  if (peers.length < 3) return null;
+  const avg = peers.reduce((a, b) => a + b, 0) / peers.length;
+  return { ppm: me, avg, n: peers.length, diffPct: ((me - avg) / avg) * 100 };
+}
 const FINISHING = [
   "Semi Finished", "Core & Shell", "3/4 Finished",
   "Fully Finished", "Fully Finished + AC's", "Fully Furnished",
@@ -427,12 +495,12 @@ function MoneyInput({ value, onChange, placeholder = "e.g. 5m or 500k", style, w
 
 function Select({ value, onChange, options, placeholder }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+    <Sel value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
       <option value="">{placeholder || "Select..."}</option>
       {options.map((o) => (
         <option key={o} value={o}>{o}</option>
       ))}
-    </select>
+    </Sel>
   );
 }
 
@@ -525,7 +593,7 @@ const UNIT_TABLE_COLS = [
   { id: "project", label: "Project", get: (u, x) => x.info.name, sticky: true },
   { id: "unit", label: "Unit", get: (u) => u.unitNumber },
   { id: "type", label: "Type", get: (u) => u.type },
-  { id: "floor", label: "Floor", get: (u) => (u.floor === "" || u.floor == null ? "" : Number(u.floor)), show: (u) => floorLabel(u.floor) },
+  { id: "floor", label: "Floor", get: (u) => (u.floor === "" || u.floor == null ? "" : Number(u.floor)), show: (u) => unitFloorText(u) },
   { id: "bua", label: "BUA m²", get: (u) => num(u.bua) || "", num: true },
   { id: "land", label: "Land m²", get: (u) => num(u.landArea) || "", num: true },
   { id: "beds", label: "Beds", get: (u) => num(u.bedrooms) || "", num: true },
@@ -573,7 +641,7 @@ function exportUnitsXlsx(list, getProjectInfo, users, canSeeOwner) {
   const rows = list.map((u) => {
     const info = getProjectInfo(u), owner = canSeeOwner(u);
     const n = (v) => (num(v) ? num(v) : "");
-    return [info.name, info.developerName, info.destination, u.phase || "", u.unitNumber || "", u.type || "", floorLabel(u.floor), n(u.bua), n(u.landArea), n(u.extraArea), n(u.bedrooms), n(u.bathrooms), u.deliveryDate || "", u.finishing || "",
+    return [info.name, info.developerName, info.destination, u.phase || "", u.unitNumber || "", u.type || "", unitFloorText(u), n(u.bua), n(u.landArea), n(u.extraArea), n(u.bedrooms), n(u.bathrooms), u.deliveryDate || "", u.finishing || "",
       LISTING_LABEL[u.listingType || "sale"] || "", n(u.totalPrice), n(u.downpayment), n(u.remaining), n(u.nextInstallment), n(u.remainingMaintenance), n(u.remainingClubPayment), isForRent(u) ? n(u.rentPrice) : "",
       u.status === "active" ? "Available" : u.status === "hold" ? "On hold" : u.status === "sold" ? "Sold" : u.status || "",
       u.salesIds.map((id) => users.find((x) => x.id === id)?.name).filter(Boolean).join(", "), owner ? u.ownerName || "" : "", owner ? u.ownerNumber || "" : "",
@@ -723,7 +791,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
           <MapPin size={13} /> {projectInfo.destination} · {projectInfo.name}
         </div>
         <div style={{ fontSize: 13, color: COLORS.textMuted, display: "flex", alignItems: "center", gap: 4 }}>
-          <Ruler size={13} /> {unit.bua} sqm BUA · Floor {floorLabel(unit.floor)}
+          <Ruler size={13} /> {unit.bua} sqm BUA · {isVillaType(unit.type) ? unitFloorText(unit) : `Floor ${floorLabel(unit.floor)}`}
         </div>
         <div style={{ fontWeight: 600, fontSize: 15, color: COLORS.gold, marginTop: 2 }}>
           {isForSale(unit) && <div>{money(unit.totalPrice)}</div>}
@@ -760,7 +828,7 @@ function UnitCard({ unit, projectInfo, canSeeOwner, handledBy, onOpen, onViewPro
 
 // ---------- Unit detail modal ----------
 
-function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meName, onStillAvailable, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside, onShareLink }) {
+function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meName, onStillAvailable, onClose, onRequestDelete, canDeleteDirectly, onDeleteDirectly, onViewProfile, assignableUsers, onReassign, canEdit, onEditRequest, linkedClients, onOpenClient, onMarkSold, matchSlot, onSoldOutside, onShareLink, onTogglePin, market }) {
   const [reassignId, setReassignId] = useState("");
   const [askOwner, setAskOwner] = useState(false);
   if (!unit) return null;
@@ -781,7 +849,7 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meNa
   };
   const rows = [
     ["Destination", projectInfo.destination], ["Project", projectInfo.name], ["Developer", projectInfo.developerName], ["Phase", unit.phase],
-    ["Type", unit.type], ["Floor", floorLabel(unit.floor)], ["Finishing", unit.finishing],
+    ["Type", unit.type], ["Floor", unitFloorText(unit)], ["Finishing", unit.finishing],
     ["Land area", unit.landArea ? `${unit.landArea} sqm` : "—"], ["BUA", `${unit.bua} sqm`],
     ["Extra area", unit.extraArea ? `${unit.extraArea} sqm` : "—"],
     ...(unit.bedrooms ? [["Bedrooms", unit.bedrooms]] : []), ...(unit.bathrooms ? [["Bathrooms", unit.bathrooms]] : []),
@@ -811,10 +879,14 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meNa
             <div>
               <div style={{ fontWeight: 600, fontSize: 18, color: COLORS.navy }}>{unit.type} · {unit.unitNumber}</div>
               <div style={{ fontSize: 13, color: COLORS.textMuted, marginTop: 2 }}>{projectInfo.destination} · {projectInfo.name} · {unit.phase}</div>
+              {market && <div data-unit-market style={{ fontSize: 12.5, marginTop: 4, fontWeight: 700, color: market.diffPct <= -10 ? COLORS.success : market.diffPct >= 10 ? COLORS.danger : COLORS.textMuted }}>{market.diffPct <= -10 ? "⭐ Good price · " : ""}{Math.abs(Math.round(market.diffPct))}% {market.diffPct < 0 ? "under" : "over"} the average of {market.n} {unit.type} units here</div>}
             </div>
-            <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}>
-              <X size={20} />
-            </button>
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              {onTogglePin && <button data-unit-pin aria-label={unit.featuredPinned ? "Unpin from Featured" : "Pin to Featured"} title={unit.featuredPinned ? "Unpin from Featured" : "Pin to Featured"} onClick={onTogglePin} style={{ border: "none", background: "none", cursor: "pointer", padding: 4 }}><StarIcon on={unit.featuredPinned} size={20} /></button>}
+              <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}>
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
           {unit.status === "hold" && (
@@ -860,12 +932,12 @@ function UnitModal({ unit, projectInfo, canSeeOwner, handledBy, waSettings, meNa
             )}
             {canDeleteDirectly && onReassign && (
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14 }}>
-                <select value={reassignId} onChange={(e) => setReassignId(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }}>
+                <Sel value={reassignId} onChange={(e) => setReassignId(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }}>
                   <option value="">Reassign to…</option>
                   {assignableUsers.map((u) => (
                     <option key={u.id} value={u.id}>{u.name} ({ROLE_LABEL[u.role]})</option>
                   ))}
-                </select>
+                </Sel>
                 <button
                   disabled={!reassignId}
                   onClick={() => { onReassign(unit, reassignId); setReassignId(""); }}
@@ -1017,10 +1089,10 @@ function autoUnitDescription(form, project, developer) {
 }
 const LAST_UNIT_KEY = "origin_last_unit_place";
 
-function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing, onAdded, units = [], onOpenUnit, prefill }) {
+function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editingUnit, onDoneEditing, onAdded, units = [], onOpenUnit, prefill, getToken }) {
   const empty = {
     developerId: "", projectId: "", phase: "", type: "", landArea: "", bua: "",
-    extraArea: "", floor: "", finishing: "", downpayment: "", remaining: "",
+    extraArea: "", floor: "", villaFloors: "", finishing: "", downpayment: "", remaining: "",
     remainingMaintenance: "", remainingClubPayment: "", extrasPrice: "",
     totalPrice: "", deliveryDate: "", unitNumber: "", ownerName: "", ownerNumber: "", description: "",
     listingType: "sale", rentPrice: "", furnished: "",
@@ -1036,7 +1108,8 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
       landArea: unit.landArea ?? "",
       bua: unit.bua ?? "",
       extraArea: unit.extraArea ?? "",
-      floor: String(unit.floor),
+      floor: unit.floor == null ? "" : String(unit.floor),
+      villaFloors: unit.villaFloors || "",
       finishing: unit.finishing,
       downpayment: unit.downpayment ?? "",
       remaining: unit.remaining ?? "",
@@ -1067,8 +1140,33 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
   const [photoFiles, setPhotoFiles] = useState([]); // { file, previewUrl }
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [step, setStep] = useState(1);
+  const [showInst, setShowInst] = useState(false);
+  const [phoneWarn, setPhoneWarn] = useState(null);
+  const [draftNote, setDraftNote] = useState("");
 
-  const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v, ...(k === "developerId" ? { projectId: "" } : {}) }));
+  const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v,
+    ...(k === "developerId" ? { projectId: "" } : {}),
+    ...(k === "projectId" && v ? { developerId: (projects.find((p) => p.id === v) || {}).developerId || f.developerId } : {}),
+    ...(k === "type" && isVillaType(v) ? { floor: "" } : {}) }));
+  // a new unit's draft is kept on this device until it is saved
+  const DRAFT_KEY = "origin_unit_draft";
+  useEffect(() => { if (isEditing || prefill) return; try { const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); if (d && d.form && Date.now() - d.at < 7 * 86400000) { setForm({ ...empty, ...d.form }); setStep(d.step || 1); setDraftNote("Draft restored"); } } catch (e) {} }, []); // eslint-disable-line
+  useEffect(() => { if (isEditing) return; const t = setTimeout(() => { try { if (form.projectId || form.type || form.ownerNumber) localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, step, at: Date.now() })); } catch (e) {} }, 400); return () => clearTimeout(t); }, [form, step]); // eslint-disable-line
+  // owner phone already known? (Don't call again, another unit's owner, a client, a cold number)
+  useEffect(() => {
+    const k = phoneKey(form.ownerNumber); setPhoneWarn(null);
+    if (k.length < 10 || !getToken) return;
+    if (isEditing && phoneKey(editingUnit.ownerNumber) === k) return;
+    const t = setTimeout(async () => { try {
+      const kinds = ((await db.rpc("known_phones", { p_phones: [k] }, await getToken())) || []).map((x) => x.kind);
+      if (kinds.includes("dnc")) setPhoneWarn({ dnc: true, text: "⚠ This number is on Don't call again." });
+      else if (kinds.includes("owner")) setPhoneWarn({ text: "This number is already the owner of another unit in the system." });
+      else if (kinds.includes("client")) setPhoneWarn({ text: "This number is also a client in the system." });
+      else if (kinds.includes("cold")) setPhoneWarn({ text: "This number is in a cold-call sheet." });
+    } catch (e) {} }, 500);
+    return () => clearTimeout(t);
+  }, [form.ownerNumber]); // eslint-disable-line
   const projOf = (f) => projects.find((p) => p.id === f.projectId);
   const devOf = (f) => developers.find((d) => d.id === (f.developerId || projOf(f)?.developerId));
   // Keep the description written for them until they type their own
@@ -1095,17 +1193,18 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
 
   const forSale = form.listingType !== "rent";
   const forRent = form.listingType !== "sale";
-  const requiredFields = ["developerId", "projectId", "type", "floor", "finishing", "deliveryDate", "unitNumber", "ownerName", "ownerNumber", "description",
+  const requiredFields = ["developerId", "projectId", "type", ...(isVillaType(form.type) ? [] : ["floor"]), "finishing", "deliveryDate", "unitNumber", "ownerName", "ownerNumber", "description",
     ...(forSale ? ["totalPrice"] : []), ...(forRent ? ["rentPrice"] : [])];
 
   const submit = async () => {
-    const missing = requiredFields.filter((k) => !form[k]);
+    const missing = requiredFields.filter((k) => !form[k] && form[k] !== 0);
     if (missing.length) {
-      setError("Fill in all required fields before submitting.");
+      const st = [1, 2, 3, 4].find((n) => stepMissing(n).length) || step; setStep(st);
+      setError(`Still needed: ${stepMissing(st).map((k) => LBL[k] || k).join(", ") || "required fields"}`);
       return;
     }
     if (totalPhotoCount < 2) {
-      setError("Add at least 2 photos of the unit.");
+      setStep(2); setError("Add at least 2 photos of the unit.");
       return;
     }
     setError("");
@@ -1125,8 +1224,8 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
           photoFiles.map((p) => p.file)
         );
         // Start the next unit from a completely clean form
-        try { localStorage.removeItem(LAST_UNIT_KEY); } catch (e) {}
-        setForm({ ...empty });
+        try { localStorage.removeItem(LAST_UNIT_KEY); localStorage.removeItem("origin_unit_draft"); } catch (e) {}
+        setForm({ ...empty }); setStep(1); setShowInst(false); setDraftNote("");
         setDescAuto(true);
         setPhotoFiles([]);
         setExistingPhotos([]);
@@ -1140,8 +1239,36 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
     }
   };
 
+  const villa = isVillaType(form.type);
+  const STEP_NAMES = ["Project", "Unit", "Price", "Owner", "Review"];
+  const stepMissing = (n) => {
+    const need = { 1: ["developerId", "projectId"], 2: ["type", ...(villa ? [] : ["floor"]), "finishing", "deliveryDate", "unitNumber"], 3: [...(forSale ? ["totalPrice"] : []), ...(forRent ? ["rentPrice"] : [])], 4: ["ownerName", "ownerNumber", "description"] }[n] || [];
+    const m = need.filter((k) => !form[k] && form[k] !== 0);
+    if (n === 2 && totalPhotoCount < 2) m.push("photos");
+    return m;
+  };
+  const LBL = { developerId: "developer", projectId: "project", type: "type", floor: "floor", finishing: "finishing", deliveryDate: "delivery date", unitNumber: "unit number", photos: "2 photos", totalPrice: "total price", rentPrice: "monthly rent", ownerName: "owner name", ownerNumber: "owner phone", description: "description" };
+  const goNext = () => { const m = stepMissing(step); if (m.length) { setError(`Still needed: ${m.map((k) => LBL[k] || k).join(", ")}`); return; } setError(""); setStep((x) => Math.min(5, x + 1)); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) {} };
+  const goTo = (n) => { if (n < step || isEditing || [1, 2, 3, 4].slice(0, n - 1).every((k) => !stepMissing(k).length)) { setError(""); setStep(n); } };
+  const mkt = marketCompare({ ...form, totalPrice: num(form.totalPrice), bua: num(form.bua), id: editingUnit?.id }, units);
+  const hasInst = showInst || num(form.downpayment) > 0 || num(form.remaining) > 0 || num(form.remainingMaintenance) > 0 || num(form.remainingClubPayment) > 0;
+  const proj = selectedProject; const dev = devOf(form);
+  const reviewRows = [
+    [1, "Project", [proj?.name, dev?.name, form.listingType === "rent" ? "Rent" : form.listingType === "both" ? "Sale & rent" : "Sale"].filter(Boolean).join(" · ")],
+    [2, "Unit", [form.type, form.unitNumber, form.phase, villa ? (form.villaFloors || "Villa") : form.floor !== "" ? `Floor ${floorLabel(form.floor)}` : "", form.landArea ? `${form.landArea} land` : "", form.bua ? `${form.bua} BUA` : "", form.bedrooms ? `${form.bedrooms} bed` : "", form.finishing, form.deliveryDate, `${totalPhotoCount} photos`].filter(Boolean).join(" · ")],
+    [3, "Price", [forSale && form.totalPrice ? money(num(form.totalPrice)) : "", forRent && form.rentPrice ? `${money(num(form.rentPrice))} / month` : "", num(form.downpayment) ? `${money(num(form.downpayment))} down` : "", num(form.remaining) ? `${money(num(form.remaining))} remaining` : "", form.buyerCommissionPct ? `${form.buyerCommissionPct}% commission` : ""].filter(Boolean).join(" · ")],
+    [4, "Owner", [form.ownerName, form.ownerNumber].filter(Boolean).join(" · ")],
+  ];
+  const stepBtn = (on) => ({ flex: 1, height: 6, borderRadius: 3, border: "none", padding: 0, cursor: "pointer", background: on ? COLORS.navy : COLORS.border });
   return (
-    <div style={{ maxWidth: 680 }}>
+    <div data-unit-wizard style={{ maxWidth: 680 }}>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 700, color: COLORS.textMuted, marginBottom: 7 }}><span data-step-label>Step {step} of 5 · {STEP_NAMES[step - 1]}</span>{!isEditing && draftNote && <span>{draftNote}</span>}</div>
+        <div style={{ display: "flex", gap: 5 }}>{STEP_NAMES.map((nm, i) => <button key={nm} type="button" aria-label={`Step ${i + 1}: ${nm}`} onClick={() => goTo(i + 1)} style={stepBtn(i < step)} />)}</div>
+      </div>
+
+      {step === 1 && <>
+        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.text, marginBottom: 12 }}>Which project?</div>
       <div role="group" aria-label="Listing" style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.text, marginBottom: 6 }}>Listed for <span style={{ color: COLORS.danger }}>*</span></div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -1155,65 +1282,29 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-        <Field label="Developer" required>
-          <select value={form.developerId} onChange={(e) => set("developerId")(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-            <option value="">Select...</option>
-            {developers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </Field>
         <Field label="Project" required>
-          <select value={form.projectId} onChange={(e) => set("projectId")(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+          <Sel value={form.projectId} onChange={(e) => set("projectId")(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
             <option value="">Select...</option>
             {availableProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </Sel>
+        </Field>
+        <Field label="Developer" required>
+          <Sel value={form.developerId} onChange={(e) => set("developerId")(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            <option value="">Select...</option>
+            {developers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </Sel>
         </Field>
         <Field label="Destination">
           <input style={{ ...inputStyle, background: COLORS.creamDark, color: COLORS.textMuted }} value={selectedProject ? selectedProject.destination : ""} readOnly placeholder="Set automatically from project" />
         </Field>
-        <Field label="Phase"><input style={inputStyle} value={form.phase} onChange={(e) => set("phase")(e.target.value)} placeholder="e.g. Phase 1" /></Field>
+      </div>
+      </>}
+
+      {step === 2 && <>
+        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.text, marginBottom: 12 }}>The unit</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
         <Field label="Type" required><Select value={form.type} onChange={set("type")} options={TYPES} /></Field>
-        <Field label="Floor" required>
-          <select value={form.floor} onChange={(e) => set("floor")(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
-            <option value="">Select...</option>
-            {FLOORS.map((f) => <option key={f} value={f}>{floorLabel(f)}</option>)}
-          </select>
-        </Field>
-        <Field label="Finishing" required><Select value={form.finishing} onChange={set("finishing")} options={FINISHING} /></Field>
-        <Field label="Land area (sqm)"><input style={inputStyle} type="number" value={form.landArea} onChange={(e) => set("landArea")(e.target.value)} placeholder="0" /></Field>
-        <Field label="BUA (sqm)"><input style={inputStyle} type="number" value={form.bua} onChange={(e) => set("bua")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Extra area (sqm)"><input style={inputStyle} type="number" value={form.extraArea} onChange={(e) => set("extraArea")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Bedrooms"><input style={inputStyle} type="number" min="0" value={form.bedrooms} onChange={(e) => set("bedrooms")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Bathrooms"><input style={inputStyle} type="number" min="0" value={form.bathrooms} onChange={(e) => set("bathrooms")(e.target.value)} placeholder="0" /></Field>
-        <Field label="Delivery date" required><Select value={form.deliveryDate} onChange={set("deliveryDate")} options={DELIVERY} /></Field>
-        {forSale && (
-          <>
-        <Field label="Downpayment"><MoneyInput value={form.downpayment} onChange={set("downpayment")} /></Field>
-        <Field label="Remaining"><MoneyInput value={form.remaining} onChange={set("remaining")} /></Field>
-        {num(form.remaining) > 0 && <>
-          <Field label="Next installment"><MoneyInput value={form.nextInstallment} onChange={set("nextInstallment")} /></Field>
-          <Field label="Next installment date"><input type="date" style={inputStyle} value={form.nextInstallmentDate} onChange={(e) => set("nextInstallmentDate")(e.target.value)} /></Field>
-        </>}
-        <Field label="Remaining Maintenance"><MoneyInput value={form.remainingMaintenance} onChange={set("remainingMaintenance")} /></Field>
-        {num(form.remainingMaintenance) > 0 && <>
-          <Field label="Next maintenance installment"><MoneyInput value={form.nextMaintenance} onChange={set("nextMaintenance")} /></Field>
-          <Field label="Next maintenance date"><input type="date" style={inputStyle} value={form.nextMaintenanceDate} onChange={(e) => set("nextMaintenanceDate")(e.target.value)} /></Field>
-        </>}
-        <Field label="Remaining Club payment"><MoneyInput value={form.remainingClubPayment} onChange={set("remainingClubPayment")} /></Field>
-        {num(form.remainingClubPayment) > 0 && <>
-          <Field label="Next club installment"><MoneyInput value={form.nextClub} onChange={set("nextClub")} /></Field>
-          <Field label="Next club date"><input type="date" style={inputStyle} value={form.nextClubDate} onChange={(e) => set("nextClubDate")(e.target.value)} /></Field>
-        </>}
-        <Field label="Buyer commission %"><input style={inputStyle} type="number" step="0.1" min="0" value={form.buyerCommissionPct} onChange={(e) => set("buyerCommissionPct")(e.target.value)} placeholder="1.5" /></Field>
-        <Field label="Extras (price)"><MoneyInput value={form.extrasPrice} onChange={set("extrasPrice")} /></Field>
-        <Field label="Total price" required><MoneyInput value={form.totalPrice} onChange={set("totalPrice")} /></Field>
-          </>
-        )}
-        {forRent && (
-          <>
-            <Field label="Monthly rent (EGP)" required><MoneyInput value={form.rentPrice} onChange={set("rentPrice")} /></Field>
-            <Field label="Furnishing"><Select value={form.furnished} onChange={set("furnished")} options={FURNISHING} /></Field>
-          </>
-        )}
+        <Field label="Phase"><input style={inputStyle} value={form.phase} onChange={(e) => set("phase")(e.target.value)} placeholder="e.g. Phase 1" /></Field>
         <Field label="Unit number" required>
           <input style={inputStyle} value={form.unitNumber} onChange={(e) => set("unitNumber")(e.target.value)} placeholder="e.g. OT-304" />
           {(() => {
@@ -1227,20 +1318,25 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
             ) : null;
           })()}
         </Field>
-        <Field label="Owner name" required><input style={inputStyle} value={form.ownerName} onChange={(e) => set("ownerName")(e.target.value)} placeholder="Full name" /></Field>
-        <Field label="Owner phone" required><input style={inputStyle} value={form.ownerNumber} onChange={(e) => set("ownerNumber")(e.target.value)} placeholder="01xxxxxxxxx" /></Field>
-      </div>
-
-      <div style={{ marginTop: 18 }}>
-        <Field label="Description" required>
-          <textarea rows={5} style={{ ...inputStyle, resize: "vertical" }} value={form.description} onChange={(e) => { setDescAuto(false); set("description")(e.target.value); }} placeholder="Written for you as you fill the details — edit it if you like" />
+        {villa ? (
+          <Field label="Floors (optional)"><input style={inputStyle} value={form.villaFloors} onChange={(e) => set("villaFloors")(e.target.value)} placeholder="e.g. Ground + 1st + roof" /></Field>
+        ) : (
+        <Field label="Floor" required>
+          <Sel value={form.floor} onChange={(e) => set("floor")(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            <option value="">Select...</option>
+            {FLOORS.map((f) => <option key={f} value={f}>{floorLabel(f)}</option>)}
+          </Sel>
         </Field>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5, color: COLORS.textMuted, marginTop: 4 }}>
-          <span>{descAuto ? "Written automatically from the details above." : "Your own text."}</span>
-          {!descAuto && <button type="button" onClick={() => setDescAuto(true)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 11.5, padding: 0 }}>Write it for me again</button>}
-        </div>
+        )}
+        <Field label="Finishing" required><Select value={form.finishing} onChange={set("finishing")} options={FINISHING} /></Field>
+        <Field label="Land area (sqm)"><input style={inputStyle} type="number" value={form.landArea} onChange={(e) => set("landArea")(e.target.value)} placeholder="0" /></Field>
+        <Field label="BUA (sqm)"><input style={inputStyle} type="number" value={form.bua} onChange={(e) => set("bua")(e.target.value)} placeholder="0" /></Field>
+        <Field label="Extra area (sqm)"><input style={inputStyle} type="number" value={form.extraArea} onChange={(e) => set("extraArea")(e.target.value)} placeholder="0" /></Field>
+        <Field label="Bedrooms"><input style={inputStyle} type="number" min="0" value={form.bedrooms} onChange={(e) => set("bedrooms")(e.target.value)} placeholder="0" /></Field>
+        <Field label="Bathrooms"><input style={inputStyle} type="number" min="0" value={form.bathrooms} onChange={(e) => set("bathrooms")(e.target.value)} placeholder="0" /></Field>
+        <Field label="Delivery date" required><Select value={form.deliveryDate} onChange={set("deliveryDate")} options={DELIVERY} /></Field>
       </div>
-
+        {villa && <div style={{ marginTop: 10, fontSize: 12.5, color: COLORS.success, fontWeight: 700 }}>Villa — no floor needed.</div>}
       <div style={{ marginTop: 18 }}>
         <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Unit photos (2–10 required) <span style={{ color: COLORS.danger }}>*</span></div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -1268,15 +1364,99 @@ function AddUnitForm({ onAdd, onUpdate, currentUser, developers, projects, editi
           )}
         </div>
       </div>
+      </>}
+
+      {step === 3 && <>
+        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.text, marginBottom: 12 }}>Price</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+        {forSale && <>
+        <Field label="Total price" required><MoneyInput value={form.totalPrice} onChange={set("totalPrice")} /></Field>
+        </>}
+        {forRent && (
+          <>
+            <Field label="Monthly rent (EGP)" required><MoneyInput value={form.rentPrice} onChange={set("rentPrice")} /></Field>
+            <Field label="Furnishing"><Select value={form.furnished} onChange={set("furnished")} options={FURNISHING} /></Field>
+          </>
+        )}
+      </div>
+        {forSale && mkt && (
+          <div data-market style={{ marginTop: 8, fontSize: 13, color: COLORS.textMuted }}>≈ {money(Math.round(mkt.ppm))} / sqm · <b style={{ color: mkt.diffPct <= -10 ? COLORS.success : mkt.diffPct >= 10 ? COLORS.danger : COLORS.text }}>{Math.abs(Math.round(mkt.diffPct))}% {mkt.diffPct < 0 ? "under" : "over"} the average</b> of {mkt.n} {form.type} units in {proj?.name || "this project"}{mkt.diffPct <= -10 ? " — goes to Featured ⭐" : ""}</div>
+        )}
+        {forSale && <>
+          <div style={{ fontSize: 13, fontWeight: 600, margin: "16px 0 6px" }}>Installments?</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {[[false, "Cash / paid"], [true, "Has installments"]].map(([v, l]) => <button key={l} type="button" data-inst={String(v)} onClick={() => setShowInst(v)} style={{ flex: 1, padding: "9px 10px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, border: `1px solid ${hasInst === v ? COLORS.navy : COLORS.border}`, background: hasInst === v ? COLORS.navy : "#fff", color: hasInst === v ? "#fff" : COLORS.text }}>{l}</button>)}
+          </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+        {hasInst && <>
+        <Field label="Downpayment"><MoneyInput value={form.downpayment} onChange={set("downpayment")} /></Field>
+        <Field label="Remaining"><MoneyInput value={form.remaining} onChange={set("remaining")} /></Field>
+        {num(form.remaining) > 0 && <>
+          <Field label="Next installment"><MoneyInput value={form.nextInstallment} onChange={set("nextInstallment")} /></Field>
+          <Field label="Next installment date"><input type="date" style={inputStyle} value={form.nextInstallmentDate} onChange={(e) => set("nextInstallmentDate")(e.target.value)} /></Field>
+        </>}
+        <Field label="Remaining Maintenance"><MoneyInput value={form.remainingMaintenance} onChange={set("remainingMaintenance")} /></Field>
+        {num(form.remainingMaintenance) > 0 && <>
+          <Field label="Next maintenance installment"><MoneyInput value={form.nextMaintenance} onChange={set("nextMaintenance")} /></Field>
+          <Field label="Next maintenance date"><input type="date" style={inputStyle} value={form.nextMaintenanceDate} onChange={(e) => set("nextMaintenanceDate")(e.target.value)} /></Field>
+        </>}
+        <Field label="Remaining Club payment"><MoneyInput value={form.remainingClubPayment} onChange={set("remainingClubPayment")} /></Field>
+        {num(form.remainingClubPayment) > 0 && <>
+          <Field label="Next club installment"><MoneyInput value={form.nextClub} onChange={set("nextClub")} /></Field>
+          <Field label="Next club date"><input type="date" style={inputStyle} value={form.nextClubDate} onChange={(e) => set("nextClubDate")(e.target.value)} /></Field>
+        </>}
+        </>}
+        <Field label="Buyer commission %"><input style={inputStyle} type="number" step="0.1" min="0" value={form.buyerCommissionPct} onChange={(e) => set("buyerCommissionPct")(e.target.value)} placeholder="1.5" /></Field>
+        <Field label="Extras (price)"><MoneyInput value={form.extrasPrice} onChange={set("extrasPrice")} /></Field>
+      </div>
+        </>}
+      </>}
+
+      {step === 4 && <>
+        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.text, marginBottom: 12 }}>The owner</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+        <Field label="Owner name" required><input style={inputStyle} value={form.ownerName} onChange={(e) => set("ownerName")(e.target.value)} placeholder="Full name" /></Field>
+        <Field label="Owner phone" required><input style={inputStyle} value={form.ownerNumber} onChange={(e) => set("ownerNumber")(e.target.value)} placeholder="01xxxxxxxxx" /></Field>
+      </div>
+        {phoneWarn && <div data-phone-warn style={{ marginTop: 8, fontSize: 12.5, borderRadius: 10, padding: "8px 10px", background: phoneWarn.dnc ? "#FCEBEB" : "#FFF4E5", color: phoneWarn.dnc ? COLORS.danger : "#8A5300", fontWeight: 600 }}>{phoneWarn.text}</div>}
+      <div style={{ marginTop: 18 }}>
+        <Field label="Description" required>
+          <textarea rows={5} style={{ ...inputStyle, resize: "vertical" }} value={form.description} onChange={(e) => { setDescAuto(false); set("description")(e.target.value); }} placeholder="Written for you as you fill the details — edit it if you like" />
+        </Field>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5, color: COLORS.textMuted, marginTop: 4 }}>
+          <span>{descAuto ? "Written automatically from the details above." : "Your own text."}</span>
+          {!descAuto && <button type="button" onClick={() => setDescAuto(true)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 700, cursor: "pointer", fontSize: 11.5, padding: 0 }}>Write it for me again</button>}
+        </div>
+      </div>
+      </>}
+
+      {step === 5 && <>
+        <div style={{ fontSize: 22, fontWeight: 800, color: COLORS.text, marginBottom: 12 }}>Check and save</div>
+        <div data-review className="card" style={{ padding: 0, overflow: "hidden" }}>
+          {reviewRows.map(([n2, t, v]) => (
+            <div key={t} style={{ display: "flex", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${COLORS.border}`, alignItems: "center" }}>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 700, color: COLORS.textMuted }}>{t}</div><div style={{ fontSize: 13.5, fontWeight: 600 }}>{v || "—"}</div></div>
+              <button type="button" onClick={() => setStep(n2)} style={{ border: "none", background: "none", color: COLORS.navy, fontWeight: 800, cursor: "pointer", fontSize: 13 }}>Edit</button>
+            </div>
+          ))}
+        </div>
+        {forSale && mkt && mkt.diffPct <= -10 && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: COLORS.success }}>⭐ Good price — {Math.abs(Math.round(mkt.diffPct))}% under the market. It shows in Featured.</div>}
+      </>}
 
       {error && <div style={{ color: COLORS.danger, fontSize: 13, marginTop: 12 }}>{error}</div>}
 
       <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-        <button disabled={submitting} onClick={submit} style={{ background: COLORS.navy, color: "#fff", border: "none", padding: "11px 22px", borderRadius: 10, fontSize: 14, fontWeight: 500, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.7 : 1 }}>
-          {submitting ? "Saving…" : isEditing ? "Save changes" : "Add unit"}
-        </button>
+        {step > 1 && <button type="button" disabled={submitting} onClick={() => { setError(""); setStep((x) => x - 1); }} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "11px 22px", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Back</button>}
+        {step < 5 ? (
+          <button type="button" data-next onClick={goNext} style={{ flex: 1, background: COLORS.navy, color: "#fff", border: "none", padding: "11px 22px", borderRadius: 12, fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>Next</button>
+        ) : (
+          <button disabled={submitting} data-save onClick={submit} style={{ flex: 1, background: COLORS.navy, color: "#fff", border: "none", padding: "11px 22px", borderRadius: 12, fontSize: 14.5, fontWeight: 800, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? "Saving…" : isEditing ? "Save changes" : "Save unit"}
+          </button>
+        )}
+        {isEditing && step < 5 && <button type="button" disabled={submitting} onClick={submit} style={{ border: `1px solid ${COLORS.navy}`, background: "#fff", color: COLORS.navy, padding: "11px 16px", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Save now</button>}
         {isEditing && (
-          <button disabled={submitting} onClick={onDoneEditing} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "11px 22px", borderRadius: 10, fontSize: 14, cursor: "pointer" }}>
+          <button disabled={submitting} onClick={onDoneEditing} style={{ border: `1px solid ${COLORS.border}`, background: "#fff", padding: "11px 22px", borderRadius: 12, fontSize: 14, cursor: "pointer" }}>
             Cancel
           </button>
         )}
@@ -1334,6 +1514,7 @@ function AppPrefs({ profile, getToken }) {
       <div style={card}>
         <div style={{ fontWeight: 700, color: COLORS.navy }}>Phone notifications</div>
         <NotificationsCard profile={profile} getToken={getToken} />
+        {isFinanceAdmin(profile) && <PushTeamStatus getToken={getToken} />}
       </div>
       <div style={card}>
         <div style={{ fontWeight: 700, color: COLORS.navy }}>Filters & saved views</div>
@@ -1456,10 +1637,10 @@ function ManageCatalog({ developers, projects, onAddDeveloper, onRemoveDeveloper
               <input style={inputStyle} value={projName} onChange={(e) => setProjName(e.target.value)} placeholder="e.g. Hacienda Bay" />
             </Field>
             <Field label="Developer" required>
-              <select value={projDevId} onChange={(e) => setProjDevId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <Sel value={projDevId} onChange={(e) => setProjDevId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                 <option value="">Select...</option>
                 {developers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+              </Sel>
             </Field>
             <Field label="Location" required><Select value={projDest} onChange={setProjDest} options={DESTINATIONS} /></Field>
           </div>
@@ -1828,18 +2009,18 @@ function ManageUsers({ users, onApprove, onRemove, onEdit }) {
         <Select value={editRole} onChange={setEditRole} options={ROLES.filter((r) => r.id !== "admin" && r.id !== "pending").map((r) => r.label)} />
       </Field>
       <Field label="Reports to">
-        <select value={editManagerId} onChange={(e) => setEditManagerId(e.target.value)} style={{ ...inputStyle, appearance: "none" }} disabled={editRole === "CEO" || editRole === "Guest (demo)"}>
+        <Sel value={editManagerId} onChange={(e) => setEditManagerId(e.target.value)} style={{ ...inputStyle, appearance: "none" }} disabled={editRole === "CEO" || editRole === "Guest (demo)"}>
           <option value="">{editRole === "CEO" || editRole === "Guest (demo)" ? "None" : "Select..."}</option>
           {possibleManagers.filter((m) => m.id !== u.id).map((m) => (
             <option key={m.id} value={m.id}>{m.name} ({ROLE_LABEL[m.role]})</option>
           ))}
-        </select>
+        </Sel>
       </Field>
       <Field label="Job title">
-        <select data-job-title value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+        <Sel data-job-title value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
           <option value="">—</option>
           {JOB_TITLES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        </Sel>
       </Field>
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, paddingBottom: 10 }} title="No check-in needed, no late deductions">
         <input type="checkbox" data-att-exempt checked={editExempt} onChange={(e) => setEditExempt(e.target.checked)} /> No attendance
@@ -1940,6 +2121,8 @@ function mapUnit(row, salesIds) {
     bua: row.bua,
     extraArea: row.extra_area,
     floor: row.floor,
+    villaFloors: row.villa_floors || "",
+    featuredPinned: !!row.featured_pinned,
     finishing: row.finishing,
     downpayment: row.downpayment,
     remaining: row.remaining,
@@ -1983,7 +2166,8 @@ function unitToDbRow(unit, createdBy) {
     land_area: unit.landArea === "" ? null : unit.landArea,
     bua: unit.bua === "" ? null : unit.bua,
     extra_area: unit.extraArea === "" ? null : unit.extraArea,
-    floor: Number(unit.floor),
+    floor: isVillaType(unit.type) || unit.floor === "" || unit.floor == null ? null : Number(unit.floor),
+    villa_floors: isVillaType(unit.type) ? (unit.villaFloors || null) : null,
     finishing: unit.finishing,
     downpayment: unit.downpayment === "" ? null : unit.downpayment,
     remaining: unit.remaining === "" ? null : unit.remaining,
@@ -2742,7 +2926,7 @@ function RankingPage({ profile, getToken }) {
               <button key={id} onClick={() => setPeriod(id)} style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: period === id ? "#fff" : "transparent", color: period === id ? COLORS.navy : COLORS.textMuted }}>{l}</button>
             ))}
           </div>
-          <select aria-label="More periods" value={["week", "month", "quarter", "lastmonth"].includes(period) ? "" : period.startsWith("custom:") ? "custom" : period}
+          <Sel aria-label="More periods" value={["week", "month", "quarter", "lastmonth"].includes(period) ? "" : period.startsWith("custom:") ? "custom" : period}
             onChange={(e) => { const v = e.target.value; if (!v) return; if (v === "custom") { setPeriod(`custom:${customFrom}:${customTo}`); } else setPeriod(v); }}
             style={{ ...inputStyle, width: "auto", padding: "6px 10px", fontSize: 12, fontWeight: 700, borderRadius: 999, appearance: "none" }}>
             <option value="">More periods…</option>
@@ -2750,7 +2934,7 @@ function RankingPage({ profile, getToken }) {
             <option value="7d">Last 7 days</option><option value="30d">Last 30 days</option>
             <option value="lastquarter">Last quarter</option><option value="year">This year</option><option value="lastyear">Last year</option>
             <option value="custom">Custom dates…</option>
-          </select>
+          </Sel>
         </div>
       </div>
       {period.startsWith("custom:") && (
@@ -2832,18 +3016,18 @@ function RankingDrawer({ profile, getToken }) {
     <>
       {!open && (
         <button className="rank-tab" onClick={() => setOpen(true)} aria-label="Open ranking" title="Ranking"
-          style={{ position: "fixed", right: 0, top: "42%", zIndex: 60, border: "none", cursor: "pointer", background: COLORS.navy, color: "#fff", borderRadius: "14px 0 0 14px", padding: "12px 7px 12px 9px", boxShadow: "0 6px 18px rgba(14,24,48,.25)", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, fontWeight: 800, fontSize: 11 }}>
+          style={{ position: "fixed", right: 0, top: "42%", zIndex: 60, border: "none", cursor: "pointer", background: COLORS.navy, color: "#fff", borderRadius: "14px 0 0 14px", padding: "12px 7px 12px 9px", boxShadow: "0 6px 18px rgba(15,31,42,.25)", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, fontWeight: 800, fontSize: 11 }}>
           <span style={{ fontSize: 18 }}>🏆</span>
           <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", letterSpacing: 1 }}>Ranking</span>
         </button>
       )}
       {open && (
-        <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1500, background: "rgba(14,24,48,.35)" }}>
+        <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1500, background: "rgba(15,31,42,.35)" }}>
           <div className="rank-drawer" onClick={(e) => e.stopPropagation()}
-            style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(560px, 94vw)", background: "#F6F4EF", boxShadow: "-12px 0 40px rgba(14,24,48,.25)", overflowY: "auto",
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(560px, 94vw)", background: "#F3F8F7", boxShadow: "-12px 0 40px rgba(15,31,42,.25)", overflowY: "auto",
               padding: "calc(14px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom))", animation: "drawerIn .22s ease-out" }}>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-              <button onClick={() => setOpen(false)} aria-label="Close ranking" style={{ border: "none", background: "rgba(14,24,48,.08)", width: 36, height: 36, borderRadius: 18, cursor: "pointer", color: COLORS.navy, display: "flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
+              <button onClick={() => setOpen(false)} aria-label="Close ranking" style={{ border: "none", background: "rgba(15,31,42,.08)", width: 36, height: 36, borderRadius: 18, cursor: "pointer", color: COLORS.navy, display: "flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
             </div>
             <RankingPage profile={profile} getToken={getToken} />
           </div>
@@ -3078,7 +3262,7 @@ function WaPickModal({ title, sub, phone, make, onSent, onClose }) {
     <button key={k} onClick={() => setLang(k)} style={{ flex: 1, border: `1px solid ${lang === k ? COLORS.navy : COLORS.border}`, background: lang === k ? COLORS.navy : "#fff", color: lang === k ? "#fff" : COLORS.navy, borderRadius: 999, padding: "8px 12px", fontWeight: 700, cursor: "pointer" }}>{label}</button>
   );
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, background: "rgba(14,24,48,.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,31,42,.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
       <div className="card" style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(520px, 100%)", maxHeight: "90vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <div style={{ fontWeight: 800, color: COLORS.navy }}>{title}</div>
@@ -3360,10 +3544,10 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
   };
   const colSelect = (k, label, optional) => (
     <Field label={label}>
-      <select style={{ ...inputStyle, appearance: "none" }} value={cols[k]} onChange={(e) => setCols({ ...cols, [k]: Number(e.target.value) })}>
+      <Sel style={{ ...inputStyle, appearance: "none" }} value={cols[k]} onChange={(e) => setCols({ ...cols, [k]: Number(e.target.value) })}>
         {optional && <option value={-1}>— none —</option>}
         {headers.map((h, j) => <option key={j} value={j}>{h}{grid[1] && grid[1][j] ? ` (e.g. ${String(grid[1][j]).slice(0, 18)})` : ""}</option>)}
-      </select>
+      </Sel>
     </Field>
   );
   return (
@@ -3414,9 +3598,9 @@ function ColdUpload({ users, projects, getToken, onDone, selfOnly, me }) {
             <Field label="Sheet name"><input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} /></Field>
             {!selfOnly && (
               <Field label="Sales person" required>
-                <select style={{ ...inputStyle, appearance: "none" }} value={salesId} onChange={(e) => setSalesId(e.target.value)}>
+                <Sel style={{ ...inputStyle, appearance: "none" }} value={salesId} onChange={(e) => setSalesId(e.target.value)}>
                   {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
+                </Sel>
               </Field>
             )}
             <Field label={selfOnly ? "Start day" : "Due day"} required><input type="date" style={inputStyle} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
@@ -3742,10 +3926,10 @@ function ColdManageModal({ sheet, leads, users, profile, visibleSalesIds, getTok
         {action === "move" ? (
           <>
             <Field label="Move to">
-              <select style={{ ...inputStyle, appearance: "none" }} value={to} onChange={(e) => setTo(e.target.value)}>
+              <Sel style={{ ...inputStyle, appearance: "none" }} value={to} onChange={(e) => setTo(e.target.value)}>
                 <option value="">— choose —</option>
                 {people.map((u) => <option key={u.id} value={u.id}>{u.name} · {ROLE_LABEL[u.role] || u.role}</option>)}
-              </select>
+              </Sel>
             </Field>
             {people.length === 0 && <div style={{ fontSize: 12.5, color: COLORS.danger }}>There's nobody else in your team to move these numbers to.</div>}
             <Opt v="new" cur={mode} set={setMode} label="Numbers nobody called yet" />
@@ -4498,24 +4682,24 @@ function ContractsPage({ profile, users, units, clients, deals, getProjectInfo, 
         sources={
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, background: COLORS.cream, padding: 10, borderRadius: 12 }}>
             <Field label="Fill from a deal">
-              <select style={{ ...inputStyle, appearance: "none" }} value={src.dealId} onChange={(e) => pick({ dealId: e.target.value, unitId: "", clientId: "" })}>
+              <Sel style={{ ...inputStyle, appearance: "none" }} value={src.dealId} onChange={(e) => pick({ dealId: e.target.value, unitId: "", clientId: "" })}>
                 <option value="">— choose a deal —</option>
                 {myDeals.map((d) => <option key={d.id} value={d.id}>{[d.unit_label, d.client_label].filter(Boolean).join(" — ")}</option>)}
-              </select>
+              </Sel>
             </Field>
             {!src.dealId && (
               <>
                 <Field label="…or a unit">
-                  <select style={{ ...inputStyle, appearance: "none" }} value={src.unitId} onChange={(e) => pick({ ...src, unitId: e.target.value })}>
+                  <Sel style={{ ...inputStyle, appearance: "none" }} value={src.unitId} onChange={(e) => pick({ ...src, unitId: e.target.value })}>
                     <option value="">— choose a unit —</option>
                     {units.filter((u) => u.status !== "sold").map((u) => <option key={u.id} value={u.id}>{u.type} {u.unitNumber} · {getProjectInfo(u).name}</option>)}
-                  </select>
+                  </Sel>
                 </Field>
                 <Field label="…and the buyer (client)">
-                  <select style={{ ...inputStyle, appearance: "none" }} value={src.clientId} onChange={(e) => pick({ ...src, clientId: e.target.value })}>
+                  <Sel style={{ ...inputStyle, appearance: "none" }} value={src.clientId} onChange={(e) => pick({ ...src, clientId: e.target.value })}>
                     <option value="">— choose a client —</option>
                     {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  </Sel>
                 </Field>
               </>
             )}
@@ -4619,7 +4803,7 @@ function TodayBoard({ profile, clients, activity, coldActivity = [], users, visi
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="hero" style={{ borderRadius: 18, padding: "18px 20px", color: "#fff", background: `linear-gradient(135deg, ${COLORS.navy} 0%, #2C4270 60%, ${COLORS.gold} 140%)`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+      <div className="hero" style={{ borderRadius: 18, padding: "18px 20px", color: "#fff", background: COLORS.navy, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <div>
           <div style={{ fontSize: 13, opacity: 0.85 }}>{hello}, {(profile.name || "").split(" ")[0]}</div>
           <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>{total === 0 ? "All caught up" : `${total} client${total === 1 ? "" : "s"} need you today`}</div>
@@ -4844,7 +5028,7 @@ function UpdateBanner() {
   }, [fresh]);
   if (!fresh) return null;
   return (
-    <div className="glass pop-in" style={{ position: "fixed", top: "calc(72px + env(safe-area-inset-top))", left: "50%", transform: "translateX(-50%)", zIndex: 200, borderRadius: 999, padding: "8px 8px 8px 16px", display: "flex", gap: 10, alignItems: "center", border: `1px solid ${COLORS.border}`, boxShadow: "0 10px 30px rgba(14,24,48,.2)", fontSize: 13, fontWeight: 600, color: COLORS.navy }}>
+    <div className="glass pop-in" style={{ position: "fixed", top: "calc(72px + env(safe-area-inset-top))", left: "50%", transform: "translateX(-50%)", zIndex: 200, borderRadius: 999, padding: "8px 8px 8px 16px", display: "flex", gap: 10, alignItems: "center", border: `1px solid ${COLORS.border}`, boxShadow: "0 10px 30px rgba(15,31,42,.2)", fontSize: 13, fontWeight: 600, color: COLORS.navy }}>
       ✨ A new version is ready
       <button onClick={() => goToVersion(fresh)} className="btn-primary" style={{ border: "none", background: COLORS.navy, color: "#fff", borderRadius: 999, padding: "7px 14px", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>Update</button>
     </div>
@@ -4876,40 +5060,46 @@ function NotificationsCard({ profile, compact, getToken }) {
     return "off";
   });
   const [err, setErr] = useState("");
-  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("origin_push_hide") === "1"; } catch (e) { return false; } });
+  // "×" hides the reminder for 3 days only — it comes back until notifications are on
+  const [hidden, setHidden] = useState(() => { try { const t = Number(localStorage.getItem("origin_push_hide_until") || 0); return t > Date.now(); } catch (e) { return false; } });
+  const [test, setTest] = useState("");
   useEffect(() => { // keep the subscription fresh (phones sometimes rotate it)
     if (state === "on") subscribePush(profile.id, getToken).catch(() => {});
   }, []); // eslint-disable-line
   if (state === "unsupported" || (compact && (state === "on" || hidden))) return null;
   const box = { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 14px", borderRadius: 16, border: `1px solid ${COLORS.border}`, background: "#fff" };
-  if (state === "on") return <div className="card" style={box}><Bell size={18} color={COLORS.success} /><div style={{ flex: 1, fontSize: 13 }}><b>Phone notifications are on.</b> You'll get reminders even when the app is closed.</div></div>;
+  if (state === "on") return (
+    <div className="card" style={box}><Bell size={18} color={COLORS.success} /><div style={{ flex: 1, fontSize: 13 }}><b>Phone notifications are on on this device.</b> Each one stays in your notifications until you open it.{test && <div style={{ color: test.startsWith("Sent") ? COLORS.success : COLORS.danger, marginTop: 3 }}>{test}</div>}</div>
+      <button style={btnGhost} data-push-test onClick={async () => { setTest(""); try { await db.rpc("send_test_push", {}, await getToken()); setTest("Sent — it should arrive within a minute."); } catch (e) { setTest(e.message || "Couldn't send"); } }}>Send me a test</button>
+    </div>
+  );
   return (
     <div className="card glass fade-in" style={box}>
       <div style={{ width: 38, height: 38, borderRadius: 12, background: COLORS.navy, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><Bell size={18} /></div>
       <div style={{ flex: "1 1 200px", fontSize: 13 }}>
         {state === "ios-install" ? (
-          <><b>Get reminders on your iPhone</b><div style={{ color: COLORS.textMuted }}>In Safari tap Share → <b>Add to Home Screen</b>, then open Origin CRM from the icon and turn notifications on here.</div></>
+          <><b>Get reminders on your iPhone</b><div style={{ color: COLORS.textMuted }}>1. In Safari tap <b>Share</b> (the square with the arrow) → <b>Add to Home Screen</b> → Add.<br />2. Close Safari and open <b>Origin</b> from the new icon.<br />3. Tap <b>Turn on</b> here and choose <b>Allow</b>. (iPhone needs iOS 16.4 or newer.)</div></>
         ) : state === "blocked" ? (
-          <><b>Notifications are blocked</b><div style={{ color: COLORS.textMuted }}>Allow notifications for this site in your browser or phone settings, then come back.</div></>
+          <><b>Notifications are blocked</b><div style={{ color: COLORS.textMuted }}>{isIOS() ? <>iPhone: Settings → Notifications → <b>Origin</b> → Allow Notifications.</> : <>Android: tap the lock icon next to the address (or long-press the Origin icon → App info) → <b>Notifications</b> → Allow.</>} Then come back and tap Turn on.</div></>
         ) : (
           <><b>Turn on phone notifications</b><div style={{ color: COLORS.textMuted }}>New leads, follow-ups, meetings, check-in reminder and deal approvals — straight to your phone.</div></>
         )}
         {err && <div style={{ color: COLORS.danger, marginTop: 4 }}>{err}</div>}
       </div>
       {state === "off" && <button className="btn-primary" onClick={async () => { setErr(""); try { await subscribePush(profile.id, getToken); setState("on"); } catch (e) { setErr(e.message || "Could not turn them on"); } }} style={{ border: "none", background: COLORS.navy, color: "#fff", padding: "9px 16px", borderRadius: 999, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>Turn on</button>}
-      {compact && <button aria-label="Hide" onClick={() => { setHidden(true); try { localStorage.setItem("origin_push_hide", "1"); } catch (e) {} }} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={16} /></button>}
+      {compact && <button aria-label="Hide" onClick={() => { setHidden(true); try { localStorage.setItem("origin_push_hide_until", String(Date.now() + 3 * 86400000)); } catch (e) {} }} style={{ border: "none", background: "none", cursor: "pointer", color: COLORS.textMuted }}><X size={16} /></button>}
     </div>
   );
 }
 
-const CELEB_SVGS = {"H1": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cfall 1.6s linear infinite\"><rect x=\"15\" y=\"0\" width=\"5\" height=\"9\" fill=\"#EF9F27\"/><rect x=\"95\" y=\"5\" width=\"5\" height=\"9\" fill=\"#1D9E75\"/></g><g class=\"ca\" style=\"animation:cfall 1.9s .5s linear infinite\"><rect x=\"40\" y=\"0\" width=\"5\" height=\"9\" fill=\"#D4537E\"/><rect x=\"75\" y=\"0\" width=\"5\" height=\"9\" fill=\"#378ADD\"/></g><g class=\"ca\" style=\"animation:cdance .7s ease-in-out infinite;transform-origin:60px 90px\"><ellipse cx=\"60\" cy=\"62\" rx=\"24\" ry=\"27\" fill=\"#C9A56A\"/><circle cx=\"52\" cy=\"56\" r=\"3\" fill=\"#13203D\"/><circle cx=\"68\" cy=\"56\" r=\"3\" fill=\"#13203D\"/><path d=\"M50 68 Q60 78 70 68\" stroke=\"#13203D\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><g class=\"ca\" style=\"animation:carm .35s ease-in-out infinite;transform-origin:38px 60px\"><path d=\"M38 60 L24 44\" stroke=\"#C9A56A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:carm .35s .17s ease-in-out infinite;transform-origin:82px 60px\"><path d=\"M82 60 L96 44\" stroke=\"#C9A56A\" stroke-width=\"6\" stroke-linecap=\"round\"/></g></g></svg>", "H2": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cray 1s ease-in-out infinite\"><path d=\"M60 8 V18 M30 20 L37 27 M90 20 L83 27 M20 48 H30 M100 48 H90\" stroke=\"#EF9F27\" stroke-width=\"3\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:cpop 1s ease-in-out infinite\"><path d=\"M42 30 H78 V46 Q78 66 60 68 Q42 66 42 46 Z\" fill=\"#EF9F27\"/><path d=\"M42 36 Q30 36 32 48 Q34 56 44 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><path d=\"M78 36 Q90 36 88 48 Q86 56 76 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><rect x=\"55\" y=\"68\" width=\"10\" height=\"10\" fill=\"#BA7517\"/><rect x=\"45\" y=\"78\" width=\"30\" height=\"8\" rx=\"2\" fill=\"#13203D\"/><circle cx=\"54\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><circle cx=\"66\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><path d=\"M53 54 Q60 60 67 54\" stroke=\"#633806\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g></svg>", "H3": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cup 2s ease-in-out infinite\"><g class=\"ca\" style=\"animation:cflame .2s ease-in-out infinite;transform-origin:60px 70px\"><path d=\"M53 70 Q60 92 67 70 Z\" fill=\"#EF9F27\"/></g><path d=\"M60 12 Q76 28 74 58 H46 Q44 28 60 12 Z\" fill=\"#13203D\"/><circle cx=\"60\" cy=\"36\" r=\"7\" fill=\"#85B7EB\"/><path d=\"M46 50 L36 66 H46 Z M74 50 L84 66 H74 Z\" fill=\"#D85A30\"/></g><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"#C9A56A\"/><circle cx=\"100\" cy=\"40\" r=\"2\" fill=\"#C9A56A\"/><circle cx=\"96\" cy=\"14\" r=\"1.5\" fill=\"#C9A56A\"/></svg>", "H4": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cpop .9s ease-in-out infinite\"><path d=\"M30 50 L60 24 L90 50 V86 H30 Z\" fill=\"#1D9E75\"/><path d=\"M24 52 L60 20 L96 52\" stroke=\"#13203D\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"52\" y=\"62\" width=\"16\" height=\"24\" fill=\"#13203D\"/><circle cx=\"48\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"72\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/></g><g class=\"ca\" style=\"animation:cswing .6s ease-in-out infinite;transform-origin:96px 14px\"><line x1=\"96\" y1=\"14\" x2=\"96\" y2=\"32\" stroke=\"#888780\" stroke-width=\"1.5\"/><circle cx=\"96\" cy=\"37\" r=\"5\" fill=\"none\" stroke=\"#EF9F27\" stroke-width=\"3\"/><path d=\"M96 42 V54 M96 48 H100 M96 52 H100\" stroke=\"#EF9F27\" stroke-width=\"3\"/></g></svg>", "H5": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cfall 1.3s linear infinite\"><circle cx=\"20\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"85\" cy=\"6\" r=\"6\" fill=\"#EF9F27\"/></g><g style=\"animation:cfall 1.5s .4s linear infinite\"><circle cx=\"50\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/><circle cx=\"105\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g style=\"animation:cfall 1.7s .8s linear infinite\"><circle cx=\"35\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"70\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g class=\"ca\" style=\"animation:cshrug .5s ease-in-out infinite\"><circle cx=\"60\" cy=\"66\" r=\"20\" fill=\"#13203D\"/><circle cx=\"53\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"67\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><path d=\"M52 71 Q60 79 68 71\" stroke=\"#fff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M42 58 L30 46 M78 58 L90 46\" stroke=\"#13203D\" stroke-width=\"5\" stroke-linecap=\"round\"/></g></svg>", "S1": "<svg viewBox=\"0 0 120 100\"><ellipse cx=\"60\" cy=\"30\" rx=\"30\" ry=\"14\" fill=\"#888780\"/><circle cx=\"44\" cy=\"26\" r=\"12\" fill=\"#888780\"/><circle cx=\"72\" cy=\"22\" r=\"14\" fill=\"#888780\"/><g style=\"animation:cdrop .8s linear infinite\"><path d=\"M45 46 v6 M60 46 v6 M75 46 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop .8s .4s linear infinite\"><path d=\"M52 44 v6 M68 44 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><path d=\"M44 72 L60 60 L76 72 V92 H44 Z\" fill=\"#B4B2A9\"/><rect x=\"56\" y=\"80\" width=\"8\" height=\"12\" fill=\"#5F5E5A\"/></svg>", "S2": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:csag 2s ease-in-out infinite;transform-origin:60px 92px\"><ellipse cx=\"60\" cy=\"66\" rx=\"26\" ry=\"24\" fill=\"#85B7EB\"/><path d=\"M48 58 Q52 55 56 58 M64 58 Q68 55 72 58\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51 76 Q60 69 69 76\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop 1.4s ease-in infinite\"><path d=\"M50 62 Q47 68 50 71 Q53 68 50 62 Z\" fill=\"#378ADD\"/></g></svg>", "S3": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cdeflate 2.4s ease-in-out infinite;transform-origin:60px 70px\"><ellipse cx=\"60\" cy=\"40\" rx=\"20\" ry=\"24\" fill=\"#E24B4A\"/><path d=\"M57 64 L60 70 L63 64 Z\" fill=\"#A32D2D\"/><circle cx=\"53\" cy=\"38\" r=\"2\" fill=\"#501313\"/><circle cx=\"67\" cy=\"38\" r=\"2\" fill=\"#501313\"/><path d=\"M53 48 Q60 43 67 48\" stroke=\"#501313\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"/></g><path d=\"M60 70 Q55 80 60 88 Q65 94 60 98\" stroke=\"#888780\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "S4": "<svg viewBox=\"0 0 120 100\"><path d=\"M40 78 H80 L76 96 H44 Z\" fill=\"#D85A30\"/><g class=\"ca\" style=\"animation:cwilt 2.4s ease-in-out infinite;transform-origin:60px 78px\"><path d=\"M60 78 Q58 54 62 34\" stroke=\"#639922\" stroke-width=\"3\" fill=\"none\"/><path d=\"M60 62 Q48 56 44 62 Q50 68 60 62 Z\" fill=\"#97C459\"/><circle cx=\"62\" cy=\"30\" r=\"9\" fill=\"#ED93B1\"/><circle cx=\"62\" cy=\"30\" r=\"4\" fill=\"#EF9F27\"/></g></svg>", "S5": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cshrug 1.2s ease-in-out infinite\"><circle cx=\"60\" cy=\"58\" r=\"22\" fill=\"#C9A56A\"/><circle cx=\"52\" cy=\"54\" r=\"2.5\" fill=\"#13203D\"/><circle cx=\"68\" cy=\"54\" r=\"2.5\" fill=\"#13203D\"/><path d=\"M52 66 H68\" stroke=\"#13203D\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><path d=\"M38 60 L26 50 L22 56 M82 60 L94 50 L98 56\" stroke=\"#C9A56A\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg>"};
+const CELEB_SVGS = {"H1": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cfall 1.6s linear infinite\"><rect x=\"15\" y=\"0\" width=\"5\" height=\"9\" fill=\"#EF9F27\"/><rect x=\"95\" y=\"5\" width=\"5\" height=\"9\" fill=\"#1D9E75\"/></g><g class=\"ca\" style=\"animation:cfall 1.9s .5s linear infinite\"><rect x=\"40\" y=\"0\" width=\"5\" height=\"9\" fill=\"#D4537E\"/><rect x=\"75\" y=\"0\" width=\"5\" height=\"9\" fill=\"#378ADD\"/></g><g class=\"ca\" style=\"animation:cdance .7s ease-in-out infinite;transform-origin:60px 90px\"><ellipse cx=\"60\" cy=\"62\" rx=\"24\" ry=\"27\" fill=\"#B7832F\"/><circle cx=\"52\" cy=\"56\" r=\"3\" fill=\"#0F766E\"/><circle cx=\"68\" cy=\"56\" r=\"3\" fill=\"#0F766E\"/><path d=\"M50 68 Q60 78 70 68\" stroke=\"#0F766E\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><g class=\"ca\" style=\"animation:carm .35s ease-in-out infinite;transform-origin:38px 60px\"><path d=\"M38 60 L24 44\" stroke=\"#B7832F\" stroke-width=\"6\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:carm .35s .17s ease-in-out infinite;transform-origin:82px 60px\"><path d=\"M82 60 L96 44\" stroke=\"#B7832F\" stroke-width=\"6\" stroke-linecap=\"round\"/></g></g></svg>", "H2": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cray 1s ease-in-out infinite\"><path d=\"M60 8 V18 M30 20 L37 27 M90 20 L83 27 M20 48 H30 M100 48 H90\" stroke=\"#EF9F27\" stroke-width=\"3\" stroke-linecap=\"round\"/></g><g class=\"ca\" style=\"animation:cpop 1s ease-in-out infinite\"><path d=\"M42 30 H78 V46 Q78 66 60 68 Q42 66 42 46 Z\" fill=\"#EF9F27\"/><path d=\"M42 36 Q30 36 32 48 Q34 56 44 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><path d=\"M78 36 Q90 36 88 48 Q86 56 76 54\" stroke=\"#EF9F27\" stroke-width=\"4\" fill=\"none\"/><rect x=\"55\" y=\"68\" width=\"10\" height=\"10\" fill=\"#BA7517\"/><rect x=\"45\" y=\"78\" width=\"30\" height=\"8\" rx=\"2\" fill=\"#0F766E\"/><circle cx=\"54\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><circle cx=\"66\" cy=\"46\" r=\"2.5\" fill=\"#633806\"/><path d=\"M53 54 Q60 60 67 54\" stroke=\"#633806\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g></svg>", "H3": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cup 2s ease-in-out infinite\"><g class=\"ca\" style=\"animation:cflame .2s ease-in-out infinite;transform-origin:60px 70px\"><path d=\"M53 70 Q60 92 67 70 Z\" fill=\"#EF9F27\"/></g><path d=\"M60 12 Q76 28 74 58 H46 Q44 28 60 12 Z\" fill=\"#0F766E\"/><circle cx=\"60\" cy=\"36\" r=\"7\" fill=\"#85B7EB\"/><path d=\"M46 50 L36 66 H46 Z M74 50 L84 66 H74 Z\" fill=\"#D85A30\"/></g><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"#B7832F\"/><circle cx=\"100\" cy=\"40\" r=\"2\" fill=\"#B7832F\"/><circle cx=\"96\" cy=\"14\" r=\"1.5\" fill=\"#B7832F\"/></svg>", "H4": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cpop .9s ease-in-out infinite\"><path d=\"M30 50 L60 24 L90 50 V86 H30 Z\" fill=\"#1D9E75\"/><path d=\"M24 52 L60 20 L96 52\" stroke=\"#0F766E\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"52\" y=\"62\" width=\"16\" height=\"24\" fill=\"#0F766E\"/><circle cx=\"48\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"72\" cy=\"52\" r=\"2.5\" fill=\"#fff\"/></g><g class=\"ca\" style=\"animation:cswing .6s ease-in-out infinite;transform-origin:96px 14px\"><line x1=\"96\" y1=\"14\" x2=\"96\" y2=\"32\" stroke=\"#888780\" stroke-width=\"1.5\"/><circle cx=\"96\" cy=\"37\" r=\"5\" fill=\"none\" stroke=\"#EF9F27\" stroke-width=\"3\"/><path d=\"M96 42 V54 M96 48 H100 M96 52 H100\" stroke=\"#EF9F27\" stroke-width=\"3\"/></g></svg>", "H5": "<svg viewBox=\"0 0 120 100\"><g style=\"animation:cfall 1.3s linear infinite\"><circle cx=\"20\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"85\" cy=\"6\" r=\"6\" fill=\"#EF9F27\"/></g><g style=\"animation:cfall 1.5s .4s linear infinite\"><circle cx=\"50\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/><circle cx=\"105\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g style=\"animation:cfall 1.7s .8s linear infinite\"><circle cx=\"35\" cy=\"0\" r=\"6\" fill=\"#EF9F27\"/><circle cx=\"70\" cy=\"0\" r=\"6\" fill=\"#FAC775\"/></g><g class=\"ca\" style=\"animation:cshrug .5s ease-in-out infinite\"><circle cx=\"60\" cy=\"66\" r=\"20\" fill=\"#0F766E\"/><circle cx=\"53\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><circle cx=\"67\" cy=\"62\" r=\"2.5\" fill=\"#fff\"/><path d=\"M52 71 Q60 79 68 71\" stroke=\"#fff\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M42 58 L30 46 M78 58 L90 46\" stroke=\"#0F766E\" stroke-width=\"5\" stroke-linecap=\"round\"/></g></svg>", "S1": "<svg viewBox=\"0 0 120 100\"><ellipse cx=\"60\" cy=\"30\" rx=\"30\" ry=\"14\" fill=\"#888780\"/><circle cx=\"44\" cy=\"26\" r=\"12\" fill=\"#888780\"/><circle cx=\"72\" cy=\"22\" r=\"14\" fill=\"#888780\"/><g style=\"animation:cdrop .8s linear infinite\"><path d=\"M45 46 v6 M60 46 v6 M75 46 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop .8s .4s linear infinite\"><path d=\"M52 44 v6 M68 44 v6\" stroke=\"#378ADD\" stroke-width=\"2.5\" stroke-linecap=\"round\"/></g><path d=\"M44 72 L60 60 L76 72 V92 H44 Z\" fill=\"#B4B2A9\"/><rect x=\"56\" y=\"80\" width=\"8\" height=\"12\" fill=\"#5F5E5A\"/></svg>", "S2": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:csag 2s ease-in-out infinite;transform-origin:60px 92px\"><ellipse cx=\"60\" cy=\"66\" rx=\"26\" ry=\"24\" fill=\"#85B7EB\"/><path d=\"M48 58 Q52 55 56 58 M64 58 Q68 55 72 58\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M51 76 Q60 69 69 76\" stroke=\"#0C447C\" stroke-width=\"2.5\" fill=\"none\" stroke-linecap=\"round\"/></g><g style=\"animation:cdrop 1.4s ease-in infinite\"><path d=\"M50 62 Q47 68 50 71 Q53 68 50 62 Z\" fill=\"#378ADD\"/></g></svg>", "S3": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cdeflate 2.4s ease-in-out infinite;transform-origin:60px 70px\"><ellipse cx=\"60\" cy=\"40\" rx=\"20\" ry=\"24\" fill=\"#E24B4A\"/><path d=\"M57 64 L60 70 L63 64 Z\" fill=\"#A32D2D\"/><circle cx=\"53\" cy=\"38\" r=\"2\" fill=\"#501313\"/><circle cx=\"67\" cy=\"38\" r=\"2\" fill=\"#501313\"/><path d=\"M53 48 Q60 43 67 48\" stroke=\"#501313\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"/></g><path d=\"M60 70 Q55 80 60 88 Q65 94 60 98\" stroke=\"#888780\" stroke-width=\"1.5\" fill=\"none\"/></svg>", "S4": "<svg viewBox=\"0 0 120 100\"><path d=\"M40 78 H80 L76 96 H44 Z\" fill=\"#D85A30\"/><g class=\"ca\" style=\"animation:cwilt 2.4s ease-in-out infinite;transform-origin:60px 78px\"><path d=\"M60 78 Q58 54 62 34\" stroke=\"#639922\" stroke-width=\"3\" fill=\"none\"/><path d=\"M60 62 Q48 56 44 62 Q50 68 60 62 Z\" fill=\"#97C459\"/><circle cx=\"62\" cy=\"30\" r=\"9\" fill=\"#ED93B1\"/><circle cx=\"62\" cy=\"30\" r=\"4\" fill=\"#EF9F27\"/></g></svg>", "S5": "<svg viewBox=\"0 0 120 100\"><g class=\"ca\" style=\"animation:cshrug 1.2s ease-in-out infinite\"><circle cx=\"60\" cy=\"58\" r=\"22\" fill=\"#B7832F\"/><circle cx=\"52\" cy=\"54\" r=\"2.5\" fill=\"#0F766E\"/><circle cx=\"68\" cy=\"54\" r=\"2.5\" fill=\"#0F766E\"/><path d=\"M52 66 H68\" stroke=\"#0F766E\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><path d=\"M38 60 L26 50 L22 56 M82 60 L94 50 L98 56\" stroke=\"#B7832F\" stroke-width=\"5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg>"};
 // ---------- Celebrations: happy when a deal goes in, a kind word when one is lost ----------
 Object.assign(CELEB_SVGS, {
-  M1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop 1s ease-in-out infinite"><rect x="30" y="22" width="60" height="62" rx="8" fill="#fff" stroke="#13203D" stroke-width="4"/><rect x="30" y="22" width="60" height="16" rx="6" fill="#13203D"/><path d="M42 16 V28 M78 16 V28" stroke="#C9A56A" stroke-width="5" stroke-linecap="round"/><path d="M45 60 L56 71 L77 48" stroke="#1D9E75" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><g style="animation:cray 1s ease-in-out infinite"><path d="M14 40 H22 M98 40 H106 M20 18 L26 24 M100 18 L94 24" stroke="#EF9F27" stroke-width="3" stroke-linecap="round"/></g></svg>',
-  M2: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cdance .8s ease-in-out infinite;transform-origin:60px 88px"><circle cx="45" cy="56" r="14" fill="#C9A56A"/><circle cx="75" cy="56" r="14" fill="#13203D"/><path d="M40 54 h1 M50 54 h1" stroke="#13203D" stroke-width="3" stroke-linecap="round"/><path d="M70 54 h1 M80 54 h1" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M50 72 Q60 64 70 72" stroke="#EF9F27" stroke-width="7" fill="none" stroke-linecap="round"/></g><g style="animation:cfall 1.8s linear infinite"><rect x="20" y="0" width="5" height="9" fill="#D4537E"/><rect x="95" y="4" width="5" height="9" fill="#1D9E75"/></g></svg>',
-  U1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing 1s ease-in-out infinite;transform-origin:60px 20px"><circle cx="60" cy="34" r="14" fill="none" stroke="#EF9F27" stroke-width="7"/><path d="M60 48 V86 M60 66 H72 M60 78 H70" stroke="#EF9F27" stroke-width="7" stroke-linecap="round"/></g><g style="animation:cray .9s ease-in-out infinite"><path d="M22 30 l4 4 M22 34 l4 -4 M94 60 l5 5 M94 65 l5 -5 M30 74 l4 4 M30 78 l4 -4" stroke="#C9A56A" stroke-width="2.5" stroke-linecap="round"/></g></svg>',
-  C1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing .25s ease-in-out infinite;transform-origin:60px 60px"><rect x="44" y="24" width="32" height="58" rx="7" fill="#13203D"/><rect x="48" y="31" width="24" height="38" rx="3" fill="#85B7EB"/><circle cx="60" cy="75" r="3" fill="#fff"/></g><g style="animation:cray .6s ease-in-out infinite"><path d="M86 38 Q94 50 86 62 M94 30 Q106 50 94 70 M34 38 Q26 50 34 62 M26 30 Q14 50 26 70" stroke="#1D9E75" stroke-width="3.5" fill="none" stroke-linecap="round"/></g></svg>',
-  L1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop .8s ease-in-out infinite"><path d="M60 10 L71 36 L99 38 L78 56 L85 84 L60 69 L35 84 L42 56 L21 38 L49 36 Z" fill="#EF9F27"/><text x="60" y="62" text-anchor="middle" font-size="30" font-weight="800" fill="#13203D" font-family="Arial">3</text></g><g style="animation:cfall 1.4s linear infinite"><circle cx="15" cy="0" r="4" fill="#D4537E"/><circle cx="105" cy="6" r="4" fill="#378ADD"/></g></svg>',
+  M1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop 1s ease-in-out infinite"><rect x="30" y="22" width="60" height="62" rx="8" fill="#fff" stroke="#0F766E" stroke-width="4"/><rect x="30" y="22" width="60" height="16" rx="6" fill="#0F766E"/><path d="M42 16 V28 M78 16 V28" stroke="#B7832F" stroke-width="5" stroke-linecap="round"/><path d="M45 60 L56 71 L77 48" stroke="#1D9E75" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><g style="animation:cray 1s ease-in-out infinite"><path d="M14 40 H22 M98 40 H106 M20 18 L26 24 M100 18 L94 24" stroke="#EF9F27" stroke-width="3" stroke-linecap="round"/></g></svg>',
+  M2: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cdance .8s ease-in-out infinite;transform-origin:60px 88px"><circle cx="45" cy="56" r="14" fill="#B7832F"/><circle cx="75" cy="56" r="14" fill="#0F766E"/><path d="M40 54 h1 M50 54 h1" stroke="#0F766E" stroke-width="3" stroke-linecap="round"/><path d="M70 54 h1 M80 54 h1" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M50 72 Q60 64 70 72" stroke="#EF9F27" stroke-width="7" fill="none" stroke-linecap="round"/></g><g style="animation:cfall 1.8s linear infinite"><rect x="20" y="0" width="5" height="9" fill="#D4537E"/><rect x="95" y="4" width="5" height="9" fill="#1D9E75"/></g></svg>',
+  U1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing 1s ease-in-out infinite;transform-origin:60px 20px"><circle cx="60" cy="34" r="14" fill="none" stroke="#EF9F27" stroke-width="7"/><path d="M60 48 V86 M60 66 H72 M60 78 H70" stroke="#EF9F27" stroke-width="7" stroke-linecap="round"/></g><g style="animation:cray .9s ease-in-out infinite"><path d="M22 30 l4 4 M22 34 l4 -4 M94 60 l5 5 M94 65 l5 -5 M30 74 l4 4 M30 78 l4 -4" stroke="#B7832F" stroke-width="2.5" stroke-linecap="round"/></g></svg>',
+  C1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cswing .25s ease-in-out infinite;transform-origin:60px 60px"><rect x="44" y="24" width="32" height="58" rx="7" fill="#0F766E"/><rect x="48" y="31" width="24" height="38" rx="3" fill="#85B7EB"/><circle cx="60" cy="75" r="3" fill="#fff"/></g><g style="animation:cray .6s ease-in-out infinite"><path d="M86 38 Q94 50 86 62 M94 30 Q106 50 94 70 M34 38 Q26 50 34 62 M26 30 Q14 50 26 70" stroke="#1D9E75" stroke-width="3.5" fill="none" stroke-linecap="round"/></g></svg>',
+  L1: '<svg viewBox="0 0 120 100"><g class="ca" style="animation:cpop .8s ease-in-out infinite"><path d="M60 10 L71 36 L99 38 L78 56 L85 84 L60 69 L35 84 L42 56 L21 38 L49 36 Z" fill="#EF9F27"/><text x="60" y="62" text-anchor="middle" font-size="30" font-weight="800" fill="#0F766E" font-family="Arial">3</text></g><g style="animation:cfall 1.4s linear infinite"><circle cx="15" cy="0" r="4" fill="#D4537E"/><circle cx="105" cy="6" r="4" fill="#378ADD"/></g></svg>',
 });
 const CELEB_KINDS = [
   { id: "deal", label: "🎉 Deal sent or approved", big: true, builtins: ["H1", "H2", "H5"] },
@@ -5004,8 +5194,8 @@ function CelebrationOverlay({ profile, settings }) {
   const happy = show.mood !== "sad";
   return (
     <div className="celebrate" onClick={() => setShow(null)} role="dialog" aria-label={show.line}
-      style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", background: happy ? "rgba(14,24,48,.35)" : "rgba(14,24,48,.45)", padding: 20, cursor: "pointer" }}>
-      {happy && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }).map((_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 9) * 0.12}s`, background: ["#C9A56A", "#1D9E75", "#378ADD", "#D4537E", "#EF9F27"][i % 5] }} />)}</div>}
+      style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", background: happy ? "rgba(15,31,42,.35)" : "rgba(15,31,42,.45)", padding: 20, cursor: "pointer" }}>
+      {happy && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }).map((_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 9) * 0.12}s`, background: ["#B7832F", "#1D9E75", "#378ADD", "#D4537E", "#EF9F27"][i % 5] }} />)}</div>}
       <div className="glass pop-in" style={{ borderRadius: 26, padding: 18, width: "100%", maxWidth: 360, textAlign: "center", border: "1px solid rgba(255,255,255,.6)", boxShadow: "0 30px 80px rgba(0,0,0,.35)" }}>
         <div style={{ borderRadius: 18, overflow: "hidden", background: happy ? "#FBF6EC" : "#EEF3FA", height: 210, display: "flex", alignItems: "center", justifyContent: "center" }}>{media(true)}</div>
         <div style={{ fontWeight: 800, fontSize: 19, color: COLORS.navy, marginTop: 12 }}>{show.line}</div>
@@ -5196,12 +5386,12 @@ function NotificationsBell({ clients, activity, visibleSalesIds, onOpenClient })
 
 function LabeledSelect({ value, onChange, options, placeholder }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+    <Sel value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
       <option value="">{placeholder || "Select..."}</option>
       {options.map((o) => (
         <option key={o.id} value={o.id}>{o.label}</option>
       ))}
-    </select>
+    </Sel>
   );
 }
 
@@ -5330,10 +5520,10 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
       )}
       {assignableUsers.length > 1 && (
         <Field label="Assign to">
-          <select style={{ ...inputStyle, appearance: "none" }} value={form.assignedTo} onChange={(e) => set("assignedTo")(e.target.value)}>
+          <Sel style={{ ...inputStyle, appearance: "none" }} value={form.assignedTo} onChange={(e) => set("assignedTo")(e.target.value)}>
             <option value="">Select sales person...</option>
             {assignableUsers.map((u) => <option key={u.id} value={u.id}>{u.name}{u.id === currentUser.id ? " (me)" : ""}</option>)}
-          </select>
+          </Sel>
         </Field>
       )}
       <button type="button" onClick={() => setMore((m) => !m)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: COLORS.navy, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>{more ? "− Fewer details" : "+ More details (budget, email, notes…)"}</button>
@@ -5342,9 +5532,9 @@ function AddClientForm({ onAdd, onDuplicate, checkPhones, currentUser, assignabl
           <Field label={form.interest === "rent" ? "Budget (monthly rent, EGP)" : "Budget (EGP)"}><MoneyInput value={form.budget} onChange={set("budget")} /></Field>
           <Field label="Email"><input style={inputStyle} value={form.email} onChange={(e) => set("email")(e.target.value)} /></Field>
           <Field label="Starting stage">
-            <select style={{ ...inputStyle, appearance: "none" }} value={form.stage} onChange={(e) => set("stage")(e.target.value)}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={form.stage} onChange={(e) => set("stage")(e.target.value)}>
               {STAGES.filter((s) => !["contracted", "deal_done"].includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-            </select>
+            </Sel>
           </Field>
           <Field label="First note"><textarea style={{ ...inputStyle, minHeight: 60 }} value={form.feedback} onChange={(e) => set("feedback")(e.target.value)} placeholder="How you got this client / first impression" /></Field>
           <Field label="Other notes"><textarea style={{ ...inputStyle, minHeight: 50 }} value={form.notes} onChange={(e) => set("notes")(e.target.value)} /></Field>
@@ -5513,7 +5703,7 @@ function LeadImport({ clients, users, onImport, onDone, checkPhones }) {
             <Field label="Source"><LabeledSelect value={source} onChange={setSource} options={SOURCES} placeholder="Source" /></Field>
             <Field label="Campaign name (if the file has none)"><input style={inputStyle} value={campaignName} placeholder="e.g. OWEST November" onChange={(e) => setCampaignName(e.target.value)} /></Field>
             <Field label="Looking to">
-              <select value={interest} onChange={(e) => setInterest(e.target.value)} style={{ ...inputStyle, appearance: "none" }}><option value="buy">Buy</option><option value="rent">Rent</option></select>
+              <Sel value={interest} onChange={(e) => setInterest(e.target.value)} style={{ ...inputStyle, appearance: "none" }}><option value="buy">Buy</option><option value="rent">Rent</option></Sel>
             </Field>
           </div>
           <div style={{ maxHeight: 260, overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 14 }}>
@@ -5674,7 +5864,7 @@ function StageChangeModal({ client, onConfirm, onCancel }) {
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Current: <ClientStageBadge stage={client.stage} /></div>
 
         <Field label="New stage" required>
-          <select style={{ ...inputStyle, appearance: "none" }} value={newStage} onChange={(e) => setNewStage(e.target.value)}>
+          <Sel style={{ ...inputStyle, appearance: "none" }} value={newStage} onChange={(e) => setNewStage(e.target.value)}>
             {suggested.length > 0 && (
               <optgroup label="Suggested next">
                 {suggested.map((id) => <option key={id} value={id}>{STAGE_LABEL[id]}</option>)}
@@ -5683,7 +5873,7 @@ function StageChangeModal({ client, onConfirm, onCancel }) {
             <optgroup label="Other stages">
               {other.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </optgroup>
-          </select>
+          </Sel>
         </Field>
 
         {needsMeetingTime && (
@@ -5749,10 +5939,10 @@ function CloseLeadModal({ client, onConfirm, onCancel }) {
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Remove lead — {client.name}</div>
         <div style={{ fontSize: 12, color: COLORS.textMuted }}>This removes the client from your active list. It stays in the system and managers can still see it.</div>
         <Field label="Reason" required>
-          <select style={{ ...inputStyle, appearance: "none" }} value={reason} onChange={(e) => setReason(e.target.value)}>
+          <Sel style={{ ...inputStyle, appearance: "none" }} value={reason} onChange={(e) => setReason(e.target.value)}>
             <option value="">Select a reason...</option>
             {CLOSE_REASONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-          </select>
+          </Sel>
         </Field>
         {reason === "other" && (
           <Field label="Please specify" required>
@@ -5787,9 +5977,9 @@ function RestoreLeadModal({ client, onConfirm, onCancel }) {
         <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.navy }}>Restore lead — {client.name}</div>
         <div style={{ fontSize: 12, color: COLORS.textMuted }}>Bring this client back into the active pipeline at any stage.</div>
         <Field label="Restore to stage" required>
-          <select style={{ ...inputStyle, appearance: "none" }} value={newStage} onChange={(e) => setNewStage(e.target.value)}>
+          <Sel style={{ ...inputStyle, appearance: "none" }} value={newStage} onChange={(e) => setNewStage(e.target.value)}>
             {STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
+          </Sel>
         </Field>
         <Field label="Note" required>
           <textarea style={{ ...inputStyle, minHeight: 70 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why is this client being restored?" />
@@ -6071,7 +6261,7 @@ function ClientEditModal({ client, users, onSave, onClose }) {
     onClose();
   });
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(14,24,48,.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,31,42,.45)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
       <div className="card" style={{ background: "#fff", borderRadius: 16, padding: 18, width: "min(640px, 100%)", maxHeight: "90vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontWeight: 800, color: COLORS.navy }}>Edit client</div>
@@ -6082,28 +6272,28 @@ function ClientEditModal({ client, users, onSave, onClose }) {
           <Field label="Phone" required><input style={inputStyle} value={f.phone} onChange={set("phone")} inputMode="tel" /></Field>
           <Field label="Email"><input style={inputStyle} value={f.email} onChange={set("email")} /></Field>
           <Field label="Sales">
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.assignedTo} onChange={set("assignedTo")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.assignedTo} onChange={set("assignedTo")}>
               {people.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
+            </Sel>
           </Field>
           <Field label="Source">
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.source} onChange={set("source")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.source} onChange={set("source")}>
               <option value="">—</option>
               {SOURCES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-            </select>
+            </Sel>
           </Field>
           {f.source === "colleague_referral" && <Field label="Referred by"><input style={inputStyle} value={f.referralName} onChange={set("referralName")} /></Field>}
           <Field label="Campaign"><input style={inputStyle} value={f.campaign} onChange={set("campaign")} /></Field>
           <Field label="Looking to">
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.interest} onChange={set("interest")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.interest} onChange={set("interest")}>
               <option value="buy">Buy</option><option value="rent">Rent</option>
-            </select>
+            </Sel>
           </Field>
           <Field label={f.interest === "rent" ? "Budget (rent / month)" : "Budget"}><MoneyInput value={f.budget} onChange={set("budget")} /></Field>
           <Field label="Stage">
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.stage} onChange={set("stage")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.stage} onChange={set("stage")}>
               {STAGES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-            </select>
+            </Sel>
           </Field>
           <Field label="Meeting"><input type="datetime-local" style={inputStyle} value={f.meetingAt} onChange={set("meetingAt")} /></Field>
           <Field label="Next follow-up"><input style={inputStyle} value={f.nextAction} onChange={set("nextAction")} /></Field>
@@ -6156,10 +6346,10 @@ function ClientProfile({ client, activity, assignedUser, projects, units, develo
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <b>Looking to:</b>
             {canManage && onChangeInterest ? (
-              <select value={client.interest} onChange={(e) => onChangeInterest(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "3px 8px", fontSize: 12.5, appearance: "none" }}>
+              <Sel value={client.interest} onChange={(e) => onChangeInterest(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "3px 8px", fontSize: 12.5, appearance: "none" }}>
                 <option value="buy">Buy</option>
                 <option value="rent">Rent</option>
-              </select>
+              </Sel>
             ) : (client.interest === "rent" ? "Rent" : "Buy")}
           </div>
           {client.budget != null && client.budget !== "" && <div><b>Budget:</b> {client.interest === "rent" ? rentMoney(client.budget) : money(client.budget)}</div>}
@@ -6291,14 +6481,14 @@ function UnitPicker({ units, developers, projects, projectInfoFn, linkedUnitIds,
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
           <Select value={f.destination} onChange={(v) => setF((x) => ({ ...x, destination: v, projectId: "" }))} options={DESTINATIONS} placeholder="Destination" />
-          <select value={f.developerId} onChange={(e) => setF((x) => ({ ...x, developerId: e.target.value, projectId: "" }))} style={{ ...inputStyle, appearance: "none" }}>
+          <Sel value={f.developerId} onChange={(e) => setF((x) => ({ ...x, developerId: e.target.value, projectId: "" }))} style={{ ...inputStyle, appearance: "none" }}>
             <option value="">Developer</option>
             {developers.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-          <select value={f.projectId} onChange={(e) => setF((x) => ({ ...x, projectId: e.target.value }))} style={{ ...inputStyle, appearance: "none" }}>
+          </Sel>
+          <Sel value={f.projectId} onChange={(e) => setF((x) => ({ ...x, projectId: e.target.value }))} style={{ ...inputStyle, appearance: "none" }}>
             <option value="">Project</option>
             {projects.filter((p) => (!f.destination || p.destination === f.destination) && (!f.developerId || p.developerId === f.developerId)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </Sel>
           <Select value={f.type} onChange={(v) => setF((x) => ({ ...x, type: v }))} options={TYPES} placeholder="Type" />
           <input style={inputStyle} placeholder="Unit number" value={f.unitNumber} onChange={(e) => setF((x) => ({ ...x, unitNumber: e.target.value }))} />
         </div>
@@ -6458,19 +6648,19 @@ const pluralLabel = (l) => { const w = l.toLowerCase(); return /s$/.test(w) ? w 
 function FilterControl({ def, value, onChange }) {
   if (def.type === "select") {
     return (
-      <select aria-label={def.label} value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={{ ...fbCtl, appearance: "none", background: filterIsSet(def, value) ? "#FBF6EC" : "#fff", borderColor: filterIsSet(def, value) ? COLORS.gold : COLORS.border }}>
+      <Sel aria-label={def.label} value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={{ ...fbCtl, appearance: "none", background: filterIsSet(def, value) ? "#FBF6EC" : "#fff", borderColor: filterIsSet(def, value) ? COLORS.gold : COLORS.border }}>
         <option value="">{def.all || `All ${pluralLabel(def.label)}`}</option>
         {(def.options || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-      </select>
+      </Sel>
     );
   }
   if (def.type === "date") {
     const v = value || {};
     return (
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <select aria-label={def.label} value={v.p || ""} onChange={(e) => onChange({ ...v, p: e.target.value })} style={{ ...fbCtl, appearance: "none", flex: "1 1 140px", background: v.p ? "#FBF6EC" : "#fff", borderColor: v.p ? COLORS.gold : COLORS.border }}>
+        <Sel aria-label={def.label} value={v.p || ""} onChange={(e) => onChange({ ...v, p: e.target.value })} style={{ ...fbCtl, appearance: "none", flex: "1 1 140px", background: v.p ? "#FBF6EC" : "#fff", borderColor: v.p ? COLORS.gold : COLORS.border }}>
           {DATE_PRESETS.map(([id, label]) => <option key={id || "any"} value={id}>{id ? label : `${def.label}: any time`}</option>)}
-        </select>
+        </Sel>
         {v.p === "custom" && (
           <>
             <input type="date" aria-label={`${def.label} from`} value={v.from || ""} onChange={(e) => onChange({ ...v, from: e.target.value })} style={{ ...fbCtl, flex: "1 1 130px" }} />
@@ -7190,10 +7380,10 @@ function Dashboard({ clients, activity, users, visibleSalesIds, onOpenClient, at
       {metric === "stage" && stageFilter && (
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12.5, color: COLORS.textMuted }}>Filter by sales person:</span>
-          <select style={{ ...inputStyle, width: 220 }} value={salesFilter} onChange={(e) => setSalesFilter(e.target.value)}>
+          <Sel style={{ ...inputStyle, width: 220 }} value={salesFilter} onChange={(e) => setSalesFilter(e.target.value)}>
             <option value="">All</option>
             {salesOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
+          </Sel>
         </div>
       )}
 
@@ -7814,7 +8004,7 @@ function SelectWithAdd({ value, onChange, options, placeholder, onAdd, allowAdd 
     );
   }
   return (
-    <select
+    <Sel
       value={value}
       onChange={(e) => (e.target.value === "__add__" ? setAdding(true) : onChange(e.target.value))}
       style={{ ...inputStyle, appearance: "none" }}
@@ -7822,15 +8012,15 @@ function SelectWithAdd({ value, onChange, options, placeholder, onAdd, allowAdd 
       <option value="">{placeholder || "Select..."}</option>
       {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
       {allowAdd && onAdd && <option value="__add__">+ Add new…</option>}
-    </select>
+    </Sel>
   );
 }
 
 function PeriodPicker({ value, onChange, options }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, width: "auto", appearance: "none", padding: "7px 10px", fontSize: 13 }}>
+    <Sel value={value} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, width: "auto", appearance: "none", padding: "7px 10px", fontSize: 13 }}>
       {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-    </select>
+    </Sel>
   );
 }
 
@@ -7858,12 +8048,12 @@ function SideTeamEditor({ title, team, setTeam, people, lockFirst }) {
       </div>
       {team.map((a, i) => (
         <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-          <select value={a.agentId} disabled={lockFirst && i === 0}
+          <Sel value={a.agentId} disabled={lockFirst && i === 0}
             onChange={(e) => setTeam(team.map((x, j) => (j === i ? { ...x, agentId: e.target.value } : x)))}
             style={{ ...inputStyle, appearance: "none", flex: 1 }}>
             <option value="">Choose person…</option>
             {people.map((u) => <option key={u.id} value={u.id}>{u.name} ({ROLE_LABEL[u.role]})</option>)}
-          </select>
+          </Sel>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <input type="number" min="0" max="100" step="0.01" style={{ ...inputStyle, width: 90 }} value={a.split}
               onChange={(e) => setTeam(team.map((x, j) => (j === i ? { ...x, split: e.target.value } : x)))} />
@@ -8092,9 +8282,9 @@ function UnitGridPicker({ units, getProjectInfo, isRent, selectedId, onPick, onC
       <>
         <input autoFocus style={{ ...inputStyle, padding: "9px 12px", fontSize: 14 }} value={f.q} onChange={set("q")} placeholder="Search unit number, project, developer, owner…" />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select style={pickSel} value={f.destination} onChange={(e) => setF((x) => ({ ...x, destination: e.target.value, projectId: "" }))}><option value="">All areas</option>{dests.map((d) => <option key={d}>{d}</option>)}</select>
-          <select style={pickSel} value={f.projectId} onChange={set("projectId")}><option value="">All projects</option>{projs.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
-          <select style={pickSel} value={f.type} onChange={set("type")}><option value="">All types</option>{types.map((t) => <option key={t}>{t}</option>)}</select>
+          <Sel style={pickSel} value={f.destination} onChange={(e) => setF((x) => ({ ...x, destination: e.target.value, projectId: "" }))}><option value="">All areas</option>{dests.map((d) => <option key={d}>{d}</option>)}</Sel>
+          <Sel style={pickSel} value={f.projectId} onChange={set("projectId")}><option value="">All projects</option>{projs.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</Sel>
+          <Sel style={pickSel} value={f.type} onChange={set("type")}><option value="">All types</option>{types.map((t) => <option key={t}>{t}</option>)}</Sel>
           <input type="number" style={{ ...pickSel, flex: "1 1 110px" }} value={f.min} onChange={set("min")} placeholder="Min price" />
           <input type="number" style={{ ...pickSel, flex: "1 1 110px" }} value={f.max} onChange={set("max")} placeholder="Max price" />
         </div>
@@ -8139,9 +8329,9 @@ function ClientGridPicker({ clients, users, isRent, selectedId, onPick, onClose 
       <>
         <input autoFocus style={{ ...inputStyle, padding: "9px 12px", fontSize: 14 }} value={f.q} onChange={set("q")} placeholder="Search name or phone…" />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select style={pickSel} value={f.stage} onChange={set("stage")}><option value="">All stages</option>{[...PIPELINE_STAGES, ...EXCEPTION_STAGES].map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}</select>
-          <select style={pickSel} value={f.interest} onChange={set("interest")}><option value="">Buy & rent</option><option value="buy">Buying</option><option value="rent">Renting</option></select>
-          {sales.length > 1 && <select style={pickSel} value={f.salesId} onChange={set("salesId")}><option value="">All sales</option>{sales.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
+          <Sel style={pickSel} value={f.stage} onChange={set("stage")}><option value="">All stages</option>{[...PIPELINE_STAGES, ...EXCEPTION_STAGES].map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}</Sel>
+          <Sel style={pickSel} value={f.interest} onChange={set("interest")}><option value="">Buy & rent</option><option value="buy">Buying</option><option value="rent">Renting</option></Sel>
+          {sales.length > 1 && <Sel style={pickSel} value={f.salesId} onChange={set("salesId")}><option value="">All sales</option>{sales.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</Sel>}
         </div>
       </>
     }>
@@ -8445,9 +8635,9 @@ function DealFormModal({ profile, isAdmin, users, units, clients, visibleSalesId
                   </Field>
                 )}
                 <Field label="Money received into">
-                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                  <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                     {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
+                  </Sel>
                 </Field>
                 <Field label={isRent ? "Money in / lease date" : "Money in / transfer date"}>
                   <input type="date" style={inputStyle} value={transferDate} onChange={(e) => setTransferDate(e.target.value)} />
@@ -8614,9 +8804,9 @@ function ApprovalCard({ deal, ctx }) {
             {Object.values(sideValues(deal, resAmounts, zero)).some((v) => v > 0) && (
               <>
                 <Field label="Money received into">
-                  <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+                  <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                     {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
+                  </Sel>
                 </Field>
                 <Field label="Money in date"><input type="date" style={inputStyle} value={collectedAt} onChange={(e) => setCollectedAt(e.target.value)} /></Field>
               </>
@@ -8627,9 +8817,9 @@ function ApprovalCard({ deal, ctx }) {
           <>
             <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} />
             <Field label="Money received into">
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                 {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              </Sel>
             </Field>
             <Field label={isRentDeal(deal) ? "Money in / lease date" : "Money in / transfer date"}>
               <input type="date" style={inputStyle} value={collectedAt} onChange={(e) => setCollectedAt(e.target.value)} />
@@ -9134,7 +9324,7 @@ function CancelDealForm({ deal, ctx, onDone }) {
           <div style={{ fontSize: 12.5 }}>We collected <b>{egpFull(collected)}</b> on this deal{refunded > 0 ? ` (already refunded ${egpFull(refunded)})` : ""}. It drops out of targets and the ranking either way. Refund the client? (0 = the company keeps it)</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Field label="Refund (EGP)"><MoneyInput wrapStyle={{ width: 150 }} value={refund} onChange={(v) => setRefund(v)} /></Field>
-            {num(refund) > 0 && <Field label="Paid from"><select value={refundAcc} onChange={(e) => setRefundAcc(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>{activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
+            {num(refund) > 0 && <Field label="Paid from"><Sel value={refundAcc} onChange={(e) => setRefundAcc(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>{activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Sel></Field>}
             {num(refund) > 0 && <Field label="Date"><input type="date" style={inputStyle} value={refundDate} onChange={(e) => setRefundDate(e.target.value)} /></Field>}
           </div>
         </div>
@@ -9205,9 +9395,9 @@ function CashOutModal({ deal, lines, ctx, onClose }) {
           ))}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Field label="Paid from">
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                 {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({egp(balances[a.id] || 0)})</option>)}
-              </select>
+              </Sel>
             </Field>
             <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
           </div>
@@ -9241,9 +9431,9 @@ function MarkDoneModal({ deal, ctx, onClose }) {
         {before > 0 && <div style={{ fontSize: 12.5, background: COLORS.cream, padding: 8, borderRadius: 10 }}>Already collected with the reservation: <b>{egpFull(before)}</b>. Enter what comes in now (the rest).</div>}
         <SideAmountFields deal={deal} values={amounts} setValues={setAmounts} defaults={remaining} />
         <Field label="Received into">
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+          <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
             {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          </Sel>
         </Field>
         <Field label={isRentDeal(deal) ? "Money in / lease date" : "Money in / transfer date"}><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <FinError text={error} />
@@ -9278,17 +9468,17 @@ function CollectionModal({ deal, ctx, collected, onClose }) {
         <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>Counts toward everyone's target in the quarter of the date you choose.</div>
         {dealSides(deal).length > 1 && (
           <Field label="Collected from">
-            <select value={side} onChange={(e) => setSide(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            <Sel value={side} onChange={(e) => setSide(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
               <option value="buyer">The {partyName(deal.deal_type, "buyer")} ({sideLabelFor(deal.deal_type, "buyer").toLowerCase()} team)</option>
               <option value="seller">The {partyName(deal.deal_type, "seller")} ({sideLabelFor(deal.deal_type, "seller").toLowerCase()} team)</option>
-            </select>
+            </Sel>
           </Field>
         )}
         <Field label="Amount (EGP)"><MoneyInput value={amount} onChange={(v) => setAmount(v)} /></Field>
         <Field label="Received into">
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+          <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
             {activeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          </Sel>
         </Field>
         <Field label="Date"><input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <FinError text={error} />
@@ -9662,9 +9852,9 @@ function FixedItemRow({ name, sub, expected, paidTx, onPay, onUndo, accounts, ac
         ) : open ? (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             <input type="number" style={{ ...inputStyle, width: 110, padding: "6px 8px" }} value={amount} onChange={(e) => setAmount(e.target.value)} />
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "6px 8px", appearance: "none" }}>
+            <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "6px 8px", appearance: "none" }}>
               {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+            </Sel>
             <input type="date" style={{ ...inputStyle, width: 150, padding: "6px 8px" }} value={date} onChange={(e) => setDate(e.target.value)} />
             <button style={{ ...btnSuccess, padding: "6px 10px" }} disabled={busy} onClick={() => run(async () => {
               if (num(amount) <= 0) throw new Error("Enter the amount");
@@ -9839,9 +10029,9 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
     <FinModal title="Money out" onClose={onClose} width={460}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <Field label="Paid from" required>
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+          <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({egp(ctx.balances[a.id] || 0)})</option>)}
-          </select>
+          </Sel>
         </Field>
         <Field label="For" required>
           {newCat !== null ? (
@@ -9855,7 +10045,7 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
               <button style={btnGhost} onClick={() => setNewCat(null)}>Cancel</button>
             </div>
           ) : (
-            <select value={item} onChange={(e) => choose(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            <Sel value={item} onChange={(e) => choose(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
               <option value="">Choose…</option>
               {recurring.length > 0 && (
                 <optgroup label="Fixed monthly items">
@@ -9871,7 +10061,7 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
                 {categories.map((c) => <option key={c.id} value={`cat:${c.id}`}>{c.name}</option>)}
                 <option value="__add__">+ Add new category…</option>
               </optgroup>
-            </select>
+            </Sel>
           )}
         </Field>
         {(type === "rec" || type === "sal") && (
@@ -9881,9 +10071,9 @@ function ExpenseModal({ ctx, onClose, defaultAccountId }) {
         )}
         {(type === "rec" || type === "sal") && (
           <Field label={type === "sal" ? "Salary for month" : "For month"}>
-            <select value={month} onChange={(e) => setMonthOverride(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+            <Sel value={month} onChange={(e) => setMonthOverride(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
               {[-2, -1, 0, 1].map((d) => shiftMonth(dateMonth, d)).map((k) => <option key={k} value={k}>{monthLabel(k)}</option>)}
-            </select>
+            </Sel>
           </Field>
         )}
         <Field label="Amount (EGP)" required><MoneyInput value={amount} onChange={(v) => setAmount(v)} /></Field>
@@ -10120,39 +10310,39 @@ function TxEditModal({ tx, ctx, onClose }) {
         <Field label="Date"><input type="date" style={inputStyle} value={f.date} onChange={set("date")} /></Field>
         <Field label="Amount (EGP)"><MoneyInput value={f.amount} onChange={set("amount")} /></Field>
         <Field label={other ? (tx.direction === "out" ? "From account" : "To account") : "Account"}>
-          <select style={{ ...inputStyle, appearance: "none" }} value={f.account} onChange={set("account")}>
+          <Sel style={{ ...inputStyle, appearance: "none" }} value={f.account} onChange={set("account")}>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.archived ? " (archived)" : ""}</option>)}
-          </select>
+          </Sel>
         </Field>
         {other && (
           <Field label={tx.direction === "out" ? "To account" : "From account"}>
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.otherAccount} onChange={set("otherAccount")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.otherAccount} onChange={set("otherAccount")}>
               {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.archived ? " (archived)" : ""}</option>)}
-            </select>
+            </Sel>
           </Field>
         )}
         {tx.kind === "expense" && (
           <Field label="Category">
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.category} onChange={set("category")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.category} onChange={set("category")}>
               <option value="">—</option>
               {fin.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            </Sel>
           </Field>
         )}
         {(tx.beneficiary_id || ["payout", "salary"].includes(tx.kind)) && (
           <Field label="Person">
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.person} onChange={set("person")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.person} onChange={set("person")}>
               <option value="">—</option>
               {ctx.users.filter((u) => u.role !== "pending").map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
+            </Sel>
           </Field>
         )}
         {tx.kind === "commission_in" && deal && deal.sides === "both" && (
           <Field label="From">
-            <select style={{ ...inputStyle, appearance: "none" }} value={f.side} onChange={set("side")}>
+            <Sel style={{ ...inputStyle, appearance: "none" }} value={f.side} onChange={set("side")}>
               <option value="buyer">{partyName(deal.deal_type, "buyer")}</option>
               <option value="seller">{partyName(deal.deal_type, "seller")}</option>
-            </select>
+            </Sel>
           </Field>
         )}
       </div>
@@ -10177,9 +10367,9 @@ function TreasuryModal({ mode, ctx, onClose }) {
   const [description, setDescription] = useState("");
   const { busy, error, run } = useAction();
   const acctSelect = (v, set) => (
-    <select value={v} onChange={(e) => set(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+    <Sel value={v} onChange={(e) => set(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
       {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({egp(ctx.balances[a.id] || 0)})</option>)}
-    </select>
+    </Sel>
   );
   return (
     <FinModal title={mode === "transfer" ? "Transfer between accounts" : "Money in / opening balance"} onClose={onClose} width={440}>
@@ -10193,10 +10383,10 @@ function TreasuryModal({ mode, ctx, onClose }) {
           <>
             <Field label="Account">{acctSelect(fromId, setFromId)}</Field>
             <Field label="Type">
-              <select value={direction} onChange={(e) => setDirection(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
+              <Sel value={direction} onChange={(e) => setDirection(e.target.value)} style={{ ...inputStyle, appearance: "none" }}>
                 <option value="in">Add money (e.g. opening balance)</option>
                 <option value="out">Remove money (correction)</option>
-              </select>
+              </Sel>
             </Field>
           </>
         )}
@@ -10383,10 +10573,10 @@ function CharitySettings({ ctx }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
         <input type="number" step="0.1" min="0" style={{ ...inputStyle, width: 90, padding: "6px 8px" }} value={pct} onChange={(e) => setPct(e.target.value)} />
         <span style={{ fontSize: 12, color: COLORS.textMuted }}>% into</span>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none", padding: "6px 8px" }}>
+        <Sel value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: "none", padding: "6px 8px" }}>
           <option value="">— Off —</option>
           {fin.accounts.filter((a) => !a.archived || a.id === accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
+        </Sel>
       </div>
       <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginBottom: 8 }}>Changes apply to new collections only.</div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -11700,7 +11890,7 @@ export default function App() {
         if (u.status !== "active") return false;
         const info = getProjectInfo(u);
         const haystack = [
-          u.type, u.phase, u.unitNumber, u.description, floorLabel(u.floor),
+          u.type, u.phase, u.unitNumber, u.description, unitFloorText(u),
           info.name, info.destination, info.developerName,
         ].join(" ").toLowerCase();
         return haystack.includes(searchQ);
@@ -11907,7 +12097,7 @@ export default function App() {
   };
   const group = GROUP_OF[section] || null;
   const UNITS_SUBNAV = [
-    { id: "home", label: "Home", icon: Home },
+    { id: "home", label: "Featured", icon: Home },
     { id: "search", label: "Search", icon: Search },
     { id: "my", label: "My units", icon: User },
     { id: "all", label: "All units", icon: LayoutGrid },
@@ -12089,16 +12279,7 @@ export default function App() {
           </>
         )}
         {section === "units" && tab === "home" && (
-          <>
-            <div style={{ fontWeight: 600, fontSize: 16, color: COLORS.navy, marginBottom: 14 }}>Featured units</div>
-            {randomUnits.length === 0 ? (
-              <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No units yet.</div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
-                {randomUnits.map((u) => <UnitCard key={u.id} unit={u} projectInfo={getProjectInfo(u)} canSeeOwner={canSeeOwner(u)} handledBy={getHandledBy(u)} onOpen={setOpenUnit} onViewProfile={setViewedUserId} />)}
-              </div>
-            )}
-          </>
+          <FeaturedUnits units={units} profile={profile} getProjectInfo={getProjectInfo} onOpen={setOpenUnit} getToken={getValidToken} refreshUnits={refreshUnits} />
         )}
 
         {section === "units" && tab === "search" && (
@@ -12177,6 +12358,7 @@ export default function App() {
               onAdd={addUnit}
               onUpdate={updateUnit}
               currentUser={profile}
+              getToken={getValidToken}
               developers={developers}
               projects={projects}
               editingUnit={editingUnit}
@@ -12531,6 +12713,8 @@ export default function App() {
         <div>
           <UnitModal
             unit={openUnit}
+            market={(openUnit.listingType || "sale") !== "rent" ? marketCompare(openUnit, units) : null}
+            onTogglePin={profile.role !== "sales_agent" ? async () => { try { await db.rpc("set_unit_featured", { p_unit: openUnit.id, p_on: !openUnit.featuredPinned }, await getValidToken()); setOpenUnit({ ...openUnit, featuredPinned: !openUnit.featuredPinned }); await refreshUnits(); } catch (e) { alert(e.message || "Couldn't save"); } } : null}
             waSettings={fin.settings}
             meName={profile.name}
             projectInfo={getProjectInfo(openUnit)}
