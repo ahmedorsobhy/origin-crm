@@ -138,6 +138,29 @@ async function run() {
     await once(c.assigned_to, `mt:${c.id}:${c.meeting_at}`, `Meeting in 1 hour: ${c.name}`, `At ${cairoTime(c.meeting_at)} — get ready`, `?open=client:${c.id}`);
   }
 
+  // 3b) Meeting time passed, still in "Meeting" — same as the bell (2 hours after, for 3 days)
+  const pFrom = new Date(Date.now() - 3 * 86400 * 1000).toISOString(), pTo = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+  const passed = await sb(`clients?select=id,name,assigned_to,meeting_at&stage=eq.meeting_generated&meeting_at=gte.${pFrom}&meeting_at=lt.${pTo}`);
+  for (const c of passed || []) {
+    if (!c.assigned_to) continue;
+    await once(c.assigned_to, `mp:${c.id}:${c.meeting_at}`, `Was the meeting done? ${c.name}`, "Meeting time passed — update the stage", `?open=client:${c.id}`);
+  }
+
+  // 3c) Clients with no update in over a week — one summary a day at 11:30 (same rule as the bell)
+  if (isWorkDay && now.minutes >= 690 && now.minutes < 695) {
+    const weekAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
+    const [open, recent] = await Promise.all([
+      sb(`clients?select=id,assigned_to,created_at&stage=not.in.(closed,deal_done,long_term)&created_at=lt.${weekAgo}&limit=5000`),
+      sb(`client_activity?select=client_id&changed_at=gte.${weekAgo}&limit=20000`),
+    ]);
+    const touched = new Set((recent || []).map((a: any) => a.client_id));
+    const per: Record<string, number> = {};
+    for (const c of open || []) if (c.assigned_to && !touched.has(c.id)) per[c.assigned_to] = (per[c.assigned_to] || 0) + 1;
+    for (const [uid, n] of Object.entries(per)) {
+      await once(uid, `stale:${now.date}`, `${n} client${n > 1 ? "s" : ""} with no update in a week`, "Open them and give each one a call or a note", "?open=today");
+    }
+  }
+
   // 4) Morning brief for admin / CEO at 10:00 on work days
   if (isWorkDay && now.minutes >= 600 && now.minutes < 605) {
     const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();

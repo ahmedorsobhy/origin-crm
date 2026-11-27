@@ -425,7 +425,7 @@ function DeductionsPage({ profile, users, visibleSalesIds, attendance, fin, getT
   return (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-        <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: "auto" }}>{months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}</select>
+        <Sel value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: "auto" }}>{months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}</Sel>
         <span style={{ fontSize: 12, color: COLORS.textMuted }}>Grace until 11:00 · 2 free late arrivals until 11:15 · then 10%, 15%, 20%… of a day · from 12:00 half a day · max 5 days/month for lateness · absence 1, 2, 3 days</span>
       </div>
       {data.error && <div style={{ color: COLORS.danger, fontSize: 12.5, marginBottom: 8 }}>Couldn't load saved decisions: {data.error}</div>}
@@ -533,7 +533,7 @@ function LeavePage({ profile, users, visibleSalesIds, fin, getToken }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8, marginTop: 10 }}>
             <Field label="From"><input type="date" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value, to: form.to && form.to >= e.target.value ? form.to : e.target.value })} style={inputStyle} /></Field>
             <Field label="To"><input type="date" value={form.to} min={form.from} onChange={(e) => setForm({ ...form, to: e.target.value })} style={inputStyle} /></Field>
-            <Field label="Type"><select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} style={inputStyle}><option value="annual">Annual leave</option><option value="unpaid">Unpaid</option><option value="other">Other</option></select></Field>
+            <Field label="Type"><Sel value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} style={inputStyle}><option value="annual">Annual leave</option><option value="unpaid">Unpaid</option><option value="other">Other</option></Sel></Field>
             <Field label="Reason"><input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} style={inputStyle} placeholder="optional" /></Field>
           </div>
           {err && <div style={{ color: COLORS.danger, fontSize: 12.5, marginTop: 6 }}>{err}</div>}
@@ -606,7 +606,7 @@ function EvaluationPage({ profile, users, visibleSalesIds, clients, activity, fi
   };
   return (
     <div>
-      <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: "auto", marginBottom: 10 }}>{months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}</select>
+      <Sel value={month} onChange={(e) => setMonth(e.target.value)} style={{ ...inputStyle, width: "auto", marginBottom: 10 }}>{months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}</Sel>
       {people.map((u) => {
         const ev = evals.find((e) => e.user_id === u.id);
         return (
@@ -765,7 +765,7 @@ function CompareUnits({ units, getProjectInfo }) {
   const print = () => {
     const w = window.open("", "_blank"); if (!w) return;
     const esc = (x) => String(x).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Unit comparison</title><style>body{font-family:system-ui,sans-serif;color:#0E1830;padding:28px}h1{font-size:20px;margin:0 0 4px}p{color:#5b6478;margin:0 0 18px;font-size:13px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #E5DFD3;padding:8px 10px;text-align:left}th{background:#F6F4EF;width:200px}td{font-weight:600}.f{margin-top:22px;font-size:11.5px;color:#5b6478}</style></head><body>
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Unit comparison</title><style>body{font-family:system-ui,sans-serif;color:#115E59;padding:28px}h1{font-size:20px;margin:0 0 4px}p{color:#5b6478;margin:0 0 18px;font-size:13px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #E3EDEB;padding:8px 10px;text-align:left}th{background:#F3F8F7;width:200px}td{font-weight:600}.f{margin-top:22px;font-size:11.5px;color:#5b6478}</style></head><body>
       <h1>Unit comparison${client ? ` — prepared for ${esc(client)}` : ""}</h1><p>Origin Real Estate · ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</p>
       <table>${keys.map((k) => `<tr><th>${esc(k)}</th>${sel.map((u) => `<td>${esc(rows(u)[k])}</td>`).join("")}</tr>`).join("")}</table>
       <div class="f">Prices and availability can change. Rental yield is an estimate based on the expected rent above.</div>
@@ -933,11 +933,11 @@ function printAiReport(r) {
   w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Origin-AI-Report-${day}</title>
 <style>
 @page{size:A4;margin:16mm 14mm 18mm;@bottom-center{content:"سري — للإدارة فقط · Origin Real Estate · صفحة " counter(page) " / " counter(pages);font-size:9pt;color:#8a90a0}}
-body{font-family:"Segoe UI",Tahoma,"Noto Naskh Arabic",Arial,sans-serif;color:#0E1830;font-size:12.5pt;line-height:1.8;margin:0}
-.hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #C9A86A;padding-bottom:10px;margin-bottom:14px}
+body{font-family:"Segoe UI",Tahoma,"Noto Naskh Arabic",Arial,sans-serif;color:#115E59;font-size:12.5pt;line-height:1.8;margin:0}
+.hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #B7832F;padding-bottom:10px;margin-bottom:14px}
 .hd img{height:54px}.hd h1{font-size:18pt;margin:0}.hd .m{color:#5b6478;font-size:10.5pt}
-h2{font-size:16pt;margin:8px 0}h3{font-size:13.5pt;margin:18px 0 6px;border-bottom:1px solid #E5DFD3;padding-bottom:3px;page-break-after:avoid}
-table{border-collapse:collapse;width:100%;margin:8px 0;font-size:10.5pt;page-break-inside:avoid}th,td{border:1px solid #E5DFD3;padding:5px 7px;text-align:right}th{background:#F6F4EF}
+h2{font-size:16pt;margin:8px 0}h3{font-size:13.5pt;margin:18px 0 6px;border-bottom:1px solid #E3EDEB;padding-bottom:3px;page-break-after:avoid}
+table{border-collapse:collapse;width:100%;margin:8px 0;font-size:10.5pt;page-break-inside:avoid}th,td{border:1px solid #E3EDEB;padding:5px 7px;text-align:right}th{background:#F3F8F7}
 ul,ol{margin:4px 0 8px;padding-inline-start:22px}p{margin:5px 0}
 </style></head><body>
 <div class="hd"><img src="${LOGO_SRC}" alt=""><div><h1>تقرير التحليل — Origin Real Estate</h1><div class="m">${nice} · ${kind}</div></div></div>
@@ -1257,7 +1257,7 @@ function AppraisalPage({ profile, users, visibleSalesIds, activity, fin, attenda
   return (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-        <select value={quarter} onChange={(e) => setQuarter(e.target.value)} style={{ ...inputStyle, width: "auto" }}>{lastQuarters(6).map((q) => <option key={q} value={q}>{q}</option>)}</select>
+        <Sel value={quarter} onChange={(e) => setQuarter(e.target.value)} style={{ ...inputStyle, width: "auto" }}>{lastQuarters(6).map((q) => <option key={q} value={q}>{q}</option>)}</Sel>
         <span style={{ fontSize: 12, color: COLORS.textMuted }}>60 points from the CRM (target 25, deals 10, meetings 10, calls 10, punctuality 5) + 40 from the manager · A ≥ 85 · B+ ≥ 75 · B ≥ 65 · C ≥ 50 · D</span>
       </div>
       {suggestions.length > 0 && (
@@ -1352,10 +1352,10 @@ function NoAnswerReassign({ profile, clients, users, visibleSalesIds, onReassign
       {old.slice(0, 8).map((c) => (
         <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "6px 0", borderBottom: `1px solid ${COLORS.border}`, fontSize: 13 }}>
           <span style={{ flex: "1 1 160px" }}><b>{c.name}</b> · {nm(c.assignedTo)} · {Math.floor((Date.now() - new Date(c.stageSince || c.updatedAt || c.createdAt)) / MS_DAY)} days</span>
-          <select value={pick[c.id] || ""} onChange={(e) => setPick({ ...pick, [c.id]: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "6px 8px" }}>
+          <Sel value={pick[c.id] || ""} onChange={(e) => setPick({ ...pick, [c.id]: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "6px 8px" }}>
             <option value="">Give to…</option>
             {people.filter((u) => u.id !== c.assignedTo).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
+          </Sel>
           <button style={{ ...btnPrimary, padding: "6px 12px" }} disabled={!pick[c.id] || busy === c.id} onClick={async () => { setBusy(c.id); try { await onReassign(c, pick[c.id]); } finally { setBusy(null); } }}>Move</button>
         </div>
       ))}
@@ -1425,6 +1425,73 @@ function HomeTiles({ profile, clients, activity, coldLeads = [], fin, visibleSal
           <div style={{ fontSize: 11.5, color: COLORS.textMuted }}>{t.sub}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+
+// Admin: who gets phone notifications (devices with notifications turned on)
+function PushTeamStatus({ getToken }) {
+  const [rows, setRows] = useState(null); const [err, setErr] = useState("");
+  useEffect(() => { (async () => { try { setRows(await db.rpc("push_status", {}, await getToken())); } catch (e) { setErr(e.message || "Couldn't load"); } })(); }, []); // eslint-disable-line
+  if (err) return <div style={{ fontSize: 12.5, color: COLORS.danger }}>{err}</div>;
+  if (!rows) return <div className="skeleton" style={{ height: 60 }} />;
+  const off = rows.filter((r) => !r.devices);
+  return (
+    <div data-push-team style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: COLORS.navy, marginBottom: 4 }}>Team · {rows.length - off.length} of {rows.length} have notifications on</div>
+      {rows.map((r) => (
+        <div key={r.user_id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, padding: "4px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+          <span>{r.name}</span>
+          {r.devices ? <span style={{ color: COLORS.success, fontWeight: 700 }}>On · {r.phones ? `${r.phones} phone${r.phones > 1 ? "s" : ""}` : ""}{r.phones && r.devices - r.phones ? " + " : ""}{r.devices - r.phones ? `${r.devices - r.phones} computer${r.devices - r.phones > 1 ? "s" : ""}` : ""}</span> : <span style={{ color: COLORS.danger, fontWeight: 700 }}>Off</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// ---------- Featured units: good price (10%+ under the market) or pinned by a manager ----------
+const StarIcon = ({ on, size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={on ? COLORS.gold : "none"} stroke={COLORS.gold} strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l2.7 5.6 6.3.9-4.5 4.4 1 6.1L12 17.2 6.5 20l1-6.1L3 9.5l6.3-.9z" /></svg>
+);
+function featuredUnitsOf(units) {
+  return units.filter((u) => u.status === "active" && (u.listingType || "sale") !== "rent").map((u) => ({ u, mkt: marketCompare(u, units) }))
+    .filter((x) => x.u.featuredPinned || (x.mkt && x.mkt.diffPct <= -10))
+    .sort((a, b) => (a.mkt ? a.mkt.diffPct : 0) - (b.mkt ? b.mkt.diffPct : 0));
+}
+function FeaturedUnits({ units, profile, getProjectInfo, onOpen, getToken, refreshUnits }) {
+  const [busy, setBusy] = useState(""); const [err, setErr] = useState("");
+  const mgr = profile.role !== "sales_agent";
+  const list = featuredUnitsOf(units);
+  const line = (x, i) => { const info = getProjectInfo(x.u); return `${i != null ? `${i + 1}. ` : ""}${x.u.type} · ${info.name}${x.u.bua ? ` · ${x.u.bua} sqm` : ""}${x.u.bedrooms ? ` · ${x.u.bedrooms} bed` : ""} · ${money(num(x.u.totalPrice))}${x.mkt && x.mkt.diffPct <= -10 ? ` (${Math.abs(Math.round(x.mkt.diffPct))}% under market)` : ""}`; };
+  const shareAll = () => openWa(null, `⭐ Featured units — Origin Real Estate\n\n${list.slice(0, 15).map((x, i) => line(x, i)).join("\n")}\n\nReply with the number you like and we'll send the details.`);
+  const pin = async (u, on) => { setBusy(u.id); setErr(""); try { await db.rpc("set_unit_featured", { p_unit: u.id, p_on: on }, await getToken()); if (refreshUnits) await refreshUnits(); } catch (e) { setErr(e.message || "Couldn't save"); } finally { setBusy(""); } };
+  return (
+    <div data-featured>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <div><div style={{ fontWeight: 800, fontSize: 18, color: COLORS.text }}>⭐ Featured · {list.length}</div><div style={{ fontSize: 12.5, color: COLORS.textMuted }}>10% or more under the average price per sqm of the same type in the same project (at least 3 to compare) — or pinned by a manager.</div></div>
+        {list.length > 0 && <button data-share-featured onClick={shareAll} style={{ ...btnPrimary, background: "#16A34A" }}>Send list on WhatsApp</button>}
+      </div>
+      {err && <div style={{ color: COLORS.danger, fontSize: 12.5, marginBottom: 8 }}>{err}</div>}
+      {list.length === 0 ? <div style={{ color: COLORS.textMuted, fontSize: 14 }}>No unit is priced 10% under its market yet{mgr ? " — pin one with the star in a unit's page." : "."}</div> : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+          {list.map((x) => { const info = getProjectInfo(x.u); const good = x.mkt && x.mkt.diffPct <= -10; return (
+            <div key={x.u.id} data-featured-card className="card hover-row" onClick={() => onOpen(x.u)} style={{ padding: 14, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                <div style={{ fontWeight: 800, fontSize: 14.5 }}>{x.u.type} · {info.name}</div>
+                {mgr ? <button aria-label={x.u.featuredPinned ? "Unpin" : "Pin to Featured"} data-pin disabled={busy === x.u.id} onClick={(e) => { e.stopPropagation(); pin(x.u, !x.u.featuredPinned); }} style={{ border: "none", background: "none", cursor: "pointer", padding: 2 }}><StarIcon on={x.u.featuredPinned} /></button> : (x.u.featuredPinned && <StarIcon on />)}
+              </div>
+              <div style={{ fontSize: 12.5, color: COLORS.textMuted }}>{[x.u.unitNumber, x.u.bua ? `${x.u.bua} sqm` : "", x.u.bedrooms ? `${x.u.bedrooms} bed` : "", unitFloorText(x.u), x.u.finishing].filter(Boolean).join(" · ")}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, gap: 8 }}>
+                <b style={{ fontSize: 16 }}>{money(num(x.u.totalPrice))}</b>
+                <span style={{ fontSize: 11.5, fontWeight: 800, borderRadius: 999, padding: "3px 9px", background: good ? "#E9F8EF" : "#FBF3E6", color: good ? COLORS.success : COLORS.gold }}>{good ? `Good price · ${Math.abs(Math.round(x.mkt.diffPct))}% under market` : "Pinned"}</span>
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); openWa(null, `⭐ ${line(x)}\nOrigin Real Estate`); }} style={{ ...btnGhost, marginTop: 6, alignSelf: "flex-start", padding: "5px 12px" }}>Send on WhatsApp</button>
+            </div>
+          ); })}
+        </div>
+      )}
     </div>
   );
 }

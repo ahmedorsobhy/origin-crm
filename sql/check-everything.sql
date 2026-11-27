@@ -110,6 +110,10 @@ with fn as (
   ('53 Merge duplicate deals (admin only)', to_regprocedure('public.merge_deals(uuid,uuid[],boolean)') is not null
       and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'deal_dup_dismissed')
       and exists (select 1 from pg_policies where tablename = 'deal_dup_dismissed' and qual like '%is_finance_admin%')),
+  ('54 Villas without floor + featured units pin', exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'units' and column_name = 'floor' and is_nullable = 'YES')
+      and exists (select 1 from col where c = 'units.featured_pinned') and exists (select 1 from col where c = 'units.villa_floors')
+      and to_regprocedure('public.set_unit_featured(uuid,boolean)') is not null),
+  ('55 Phone notifications: test + team status', to_regprocedure('public.send_test_push()') is not null and to_regprocedure('public.push_status()') is not null),
   ('17 Row security ON for every table', not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity))
 )
 select step, case when ok then 'OK' else '*** MISSING ***' end as result from checks order by step;
